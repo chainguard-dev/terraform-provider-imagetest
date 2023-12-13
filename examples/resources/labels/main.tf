@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     imagetest = {
-      source = "registry.terraform.io/joshrwolf/imagetest"
+      source = "registry.terraform.io/chainguard-dev/imagetest"
     }
   }
   backend "inmem" {}
