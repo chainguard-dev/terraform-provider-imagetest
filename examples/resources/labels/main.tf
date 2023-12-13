@@ -22,7 +22,7 @@ resource "imagetest_feature" "footure" {
   }
 }
 
-resource "imagetest_environment" "foo" {
+resource "imagetest_env" "foo" {
   test {
     features = [imagetest_feature.footure.id]
   }

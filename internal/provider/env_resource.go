@@ -20,23 +20,23 @@ import (
 
 // Ensure provider defined types fully satisfy framework interfaces.
 var (
-	_ resource.Resource                = &EnvironmentResource{}
-	_ resource.ResourceWithConfigure   = &EnvironmentResource{}
-	_ resource.ResourceWithImportState = &EnvironmentResource{}
+	_ resource.Resource                = &EnvResource{}
+	_ resource.ResourceWithConfigure   = &EnvResource{}
+	_ resource.ResourceWithImportState = &EnvResource{}
 )
 
-func NewEnvironmentResource() resource.Resource {
-	return &EnvironmentResource{}
+func NewEnvResource() resource.Resource {
+	return &EnvResource{}
 }
 
-// EnvironmentResource defines the resource implementation.
-type EnvironmentResource struct {
+// EnvResource defines the resource implementation.
+type EnvResource struct {
 	id    string
 	store *ProviderStore
 }
 
-// EnvironmentResourceModel describes the resource data model.
-type EnvironmentResourceModel struct {
+// EnvResourceModel describes the resource data model.
+type EnvResourceModel struct {
 	Id        types.String                   `tfsdk:"id"`
 	HarnessId types.String                   `tfsdk:"harness"`
 	Tests     []EnvironmentTestResourceModel `tfsdk:"test"`
@@ -48,11 +48,11 @@ type EnvironmentTestResourceModel struct {
 	Features types.List `tfsdk:"features"`
 }
 
-func (r *EnvironmentResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_environment"
+func (r *EnvResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_env"
 }
 
-func (r *EnvironmentResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *EnvResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Example resource",
@@ -90,7 +90,7 @@ func (r *EnvironmentResource) Schema(ctx context.Context, req resource.SchemaReq
 	}
 }
 
-func (r *EnvironmentResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *EnvResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
@@ -106,8 +106,8 @@ func (r *EnvironmentResource) Configure(ctx context.Context, req resource.Config
 	r.store = store
 }
 
-func (r *EnvironmentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data EnvironmentResourceModel
+func (r *EnvResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data EnvResourceModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -206,8 +206,8 @@ func (r *EnvironmentResource) Create(ctx context.Context, req resource.CreateReq
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *EnvironmentResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data EnvironmentResourceModel
+func (r *EnvResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data EnvResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -220,8 +220,8 @@ func (r *EnvironmentResource) Read(ctx context.Context, req resource.ReadRequest
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *EnvironmentResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data EnvironmentResourceModel
+func (r *EnvResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data EnvResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -234,8 +234,8 @@ func (r *EnvironmentResource) Update(ctx context.Context, req resource.UpdateReq
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *EnvironmentResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data EnvironmentResourceModel
+func (r *EnvResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data EnvResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -245,6 +245,6 @@ func (r *EnvironmentResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 }
 
-func (r *EnvironmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (r *EnvResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

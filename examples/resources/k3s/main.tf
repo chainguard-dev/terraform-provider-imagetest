@@ -40,7 +40,7 @@ resource "imagetest_feature" "footure" {
   }
 }
 
-resource "imagetest_environment" "foo" {
+resource "imagetest_env" "foo" {
   harness = imagetest_harness_k3s.simple.id
 
   test {

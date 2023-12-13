@@ -55,7 +55,7 @@ func (p *ImageTestProvider) Resources(ctx context.Context) []func() resource.Res
 		NewHarnessK3sResource,
 		NewHarnessTeardownResource,
 		// Environments
-		NewEnvironmentResource,
+		NewEnvResource,
 	}
 }
 
