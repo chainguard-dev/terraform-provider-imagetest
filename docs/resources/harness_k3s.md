@@ -3,12 +3,12 @@
 page_title: "imagetest_harness_k3s Resource - terraform-provider-imagetest"
 subcategory: ""
 description: |-
-  Example resource
+  A harness that runs steps in a sandbox container networked to a running k3s cluster.
 ---
 
 # imagetest_harness_k3s (Resource)
 
-Example resource
+A harness that runs steps in a sandbox container networked to a running k3s cluster.
 
 
 
@@ -17,10 +17,11 @@ Example resource
 
 ### Optional
 
-- `disable_cni` (Boolean)
-- `disable_metrics_server` (Boolean)
-- `disable_traefik` (Boolean)
+- `disable_cni` (Boolean) When true, the builtin (flannel) CNI will be disabled.
+- `disable_metrics_server` (Boolean) When true, the builtin metrics server will be disabled.
+- `disable_traefik` (Boolean) When true, the builtin traefik ingress controller will be disabled.
+- `image` (String) The full image reference to use for the k3s container.
 
 ### Read-Only
 
-- `id` (String) Example identifier
+- `id` (String) The ID of this resource.

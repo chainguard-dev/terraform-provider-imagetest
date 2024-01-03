@@ -4,60 +4,44 @@ import (
 	"context"
 )
 
-type EnvConfig interface{}
+const ProviderName = "imagetest"
 
-type EnvFunc func(context.Context, EnvConfig) (context.Context, error)
-
-// Environment defines an ephemeral testing environment capable of executing tests.
 type Environment interface {
 	// Test executes a feature(set) against the environment.
-	Test(context.Context, ...Feature) error
-
-	// Stepper returns an environment specific Step for the given assertion
-	Stepper(Assertion) Step
-
-	// Setup registers environment funcs to be executed before the
-	// feature(set). The EnvFuncs are capable of being modified during the
-	// setup.
-	Setup(...EnvFunc) Environment
-
-	// Finish signals that the environment is no longer needed and can be destroyed.
-	Finish(...EnvFunc) Environment
-
-	// Run starts the environment. Executing the setup funcs and deferring the
-	// finish funcs. Tests can only be ran once the environment is running.
-	Run(context.Context) (func() error, error)
+	Test(context.Context, Feature) error
 }
 
-// Harness defines the methods used by environments to create and destroy the environment specific test harness.
 type Harness interface {
-	// Setup returns the EnvFunc that creates the harness, and modifies the
-	// environment config as necessary. When not idempotent, the Setup function
-	// will ensure it is only called once per Harness.
-	Setup() EnvFunc
+	// Setup returns the Step that creates the harness and signals the caller is
+	// using the harness.
+	Setup() StepFn
 
-	// Finish returns the EnvFunc ran by the Environment to signal that it is
-	// done with the harness. It is _not_ the same as Destroy.
-	Finish() EnvFunc
+	// Finish returns the StepFn that signals the caller is done with the
+	// harness.
+	Finish() StepFn
 
-	// Destroy destroys the harness. It blocks on the harness being finished by
-	// all environments.
+	// Destroy destroys the harness.
 	Destroy(context.Context) error
 
-	Finished(context.Context) error
+	// Done blocks until all callers of the harness are done with it.
+	Done() error
+
+	// StepFn returns a StepFn that executes the given command in the harness.
+	StepFn(command string) StepFn
 }
 
 type Feature interface {
 	Name() string
+	Labels() map[string]string
 	Steps() []Step
 }
 
 type Level uint8
 
 const (
-	Setup Level = iota
+	Before Level = iota
 	Assessment
-	Teardown
+	After
 )
 
 type StepFn func(ctx context.Context) (context.Context, error)
@@ -65,11 +49,5 @@ type StepFn func(ctx context.Context) (context.Context, error)
 type Step interface {
 	Name() string
 	Fn() StepFn
-	Level() Level
-}
-
-type Assertion interface {
-	Name() string
-	Command(context.Context) string
 	Level() Level
 }

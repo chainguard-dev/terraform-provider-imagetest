@@ -6,35 +6,39 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-// nonidempotentBase is a non-idempotent base harness implementation. it can be
-// embedded into other harnesses to provide the helper utilities for creating a
-// non-idempotent harness (one where the Setup() function is not idempotent).
-type nonidempotentBase struct {
+// base is a base harness implementation. it can be embedded into other
+type base struct {
+	mu        sync.Mutex
 	triggered chan struct{}
 	once      sync.Once
 	using     int
 }
 
-// Setup implements types.Harness.
-func (h *nonidempotentBase) Setup() types.EnvFunc {
-	return h.NonidempotentSetup(func(ctx context.Context, ec types.EnvConfig) (context.Context, error) {
-		return ctx, nil
-	})
+func NewBase() *base {
+	return &base{
+		mu:        sync.Mutex{},
+		triggered: make(chan struct{}),
+	}
 }
 
-func (h *nonidempotentBase) NonidempotentSetup(f types.EnvFunc) types.EnvFunc {
-	return func(ctx context.Context, cfg types.EnvConfig) (context.Context, error) {
+func (h *base) WithCreate(f types.StepFn) types.StepFn {
+	return func(ctx context.Context) (context.Context, error) {
 		h.using++
+
+		// Lock to ensure concurrent calls block until the once.Do() is complete.
+		// This means the concurrent calls to WithCreate() block until the first
+		// call to WithCreate() is complete (the harness is up). Use a defer so
+		// failures in the once.Do() do not deadlock.
+		h.mu.Lock()
+		defer h.mu.Unlock()
 
 		var onceErr error
 		h.once.Do(func() {
-			tflog.Info(ctx, "Triggering base harness")
 			close(h.triggered)
 
-			if _, err := f(ctx, cfg); err != nil {
+			if _, err := f(ctx); err != nil {
 				onceErr = err
 				return
 			}
@@ -47,43 +51,22 @@ func (h *nonidempotentBase) NonidempotentSetup(f types.EnvFunc) types.EnvFunc {
 	}
 }
 
-func (h *nonidempotentBase) Finish() types.EnvFunc {
-	return func(ctx context.Context, _ types.EnvConfig) (context.Context, error) {
+func (h *base) Finish() types.StepFn {
+	return func(ctx context.Context) (context.Context, error) {
 		h.using--
-		tflog.Info(ctx, "Finished base harness...")
 
 		h.once.Do(func() {
-			tflog.Info(ctx, "Triggering base harness")
-			// Close the channel if it's not already closed, this supports the use
-			// case where the harness is not used, but still needs to be triggered
-			// (such as during label filtering)
 			close(h.triggered)
 		})
+
 		return ctx, nil
 	}
 }
 
-func (h *nonidempotentBase) Finished(ctx context.Context) error {
+func (h *base) Done() error {
 	<-h.triggered
-
 	for h.using > 0 {
 		time.Sleep(1 * time.Second)
-		tflog.Debug(ctx, "Waiting for all tests to finish...", map[string]interface{}{
-			"test_counter": h.using,
-		})
 	}
-
 	return nil
-}
-
-// Destroy implements types.Harness.
-func (h *nonidempotentBase) Destroy(ctx context.Context) error {
-	tflog.Info(ctx, "Destorying base harness...")
-	return nil
-}
-
-func NewBase() *nonidempotentBase {
-	return &nonidempotentBase{
-		triggered: make(chan struct{}),
-	}
 }

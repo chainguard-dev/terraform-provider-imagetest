@@ -3,12 +3,12 @@
 page_title: "imagetest_harness_teardown Resource - terraform-provider-imagetest"
 subcategory: ""
 description: |-
-  Example resource
+  A teardown signal used to destroy the provided harness after all referenced Features have completed.
 ---
 
 # imagetest_harness_teardown (Resource)
 
-Example resource
+A teardown signal used to destroy the provided harness after all referenced Features have completed.
 
 
 
@@ -17,4 +17,4 @@ Example resource
 
 ### Required
 
-- `harness` (String)
+- `harness` (String) The id of the harness to teardown.
