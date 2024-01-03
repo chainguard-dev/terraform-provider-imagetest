@@ -6,50 +6,35 @@ A terraform provider for authoring and executing tests using terraform primitive
 
 ## Usage
 
-This provides several resources for authoring and executing tests:
-
-- `imagetest_environment`: Define ephemeral environments to execute tests against
-- `imagetest_feature`: Author features to test
-- `imagetest_harness_*`: Define reusable test harnesses
-
 ```hcl
-# Define features to test against environments
-resource "imagetest_feature" "footure" {
-  name        = "footure"
-  description = "My great footure"
+# Create a test harness
+resource "imagetest_harness_k3s" "this" {}
+resource "imagetest_harness_teardown" "k3s" { harness = imagetest_harness_k3s.this.id }
 
-  setup {
-    cmd = "echo 'setup'" # do some feature specific setup
+# Run features against the harness in a preconfigured ephemeral sandbox
+resource "imagetest_feature" "k3s" {
+  name        = "My great feature"
+  description = "A simple feature that tests something against an ephemeral k3s cluster."
+
+  harness = imagetest_harness_k3s.this.id
+
+  # Run a series of steps in an ephemeral sandbox. 
+  steps = [
+    {
+      name = "Do things with the cluster"
+      cmd  = <<EOF
+        kubectl get po -A
+        kubectl run nginx --image=cgr.dev/chainguard/nginx:latest
+      EOF
+    },
+  ]
+
+  # Define labels to filter which features to evaluate at runtime
+  labels = {
+    size = "small"
+    type = "k8s"
   }
-
-  teardown {
-    cmd = "echo 'teardown'" # some feature specific teardown
-  }
-
-  assert {
-    cmd = "echo 'first assertion'" # run assertions that pass or fail
-  }
-
-  assert {
-    cmd = "kubectl get po -A" # assertions are environment configuration independent
-  }
-}
-
-# Define reusable environment test harnesses
-resource "imagetest_harness_k3s" "simple" {}
-resource "imagetest_harness_teardown" "simple" { harness = imagetest_harness_k3s.simple.id }
-
-# Define testing environments
-resource "imagetest_environment" "foo" {
-  harness = imagetest_harness_k3s.simple.id
-
-  test {
-    features = [imagetest_feature.footure.id]
-  }
-}
-
-# Retrieve test results as machine readable test reports
-output "foo_report" {
-  values = imagetest_environment.foo.report
 }
 ```
+
+See [examples](./examples) for more usages.

@@ -66,6 +66,7 @@ resource "imagetest_feature" "k3s" {
       cmd  = <<EOF
         kubectl get no
         kubectl get po -A
+        kubectl run nginx --image=cgr.dev/chainguard/nginx:latest
       EOF
     },
   ]
