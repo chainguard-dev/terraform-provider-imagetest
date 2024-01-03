@@ -2,9 +2,13 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/environment"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/features"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses"
 	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -25,18 +29,25 @@ func NewFeatureResource() resource.Resource {
 
 // FeatureResource defines the resource implementation.
 type FeatureResource struct {
-	id    string
 	store *ProviderStore
+	id    string
 }
 
 // FeatureResourceModel describes the resource data model.
 type FeatureResourceModel struct {
-	Id          types.String     `tfsdk:"id"`
-	Name        types.String     `tfsdk:"name"`
-	Description types.String     `tfsdk:"description"`
-	Assertions  []AssertionModel `tfsdk:"assert"`
-	Setups      []AssertionModel `tfsdk:"setup"`
-	Teardowns   []AssertionModel `tfsdk:"teardown"`
+	Id          types.String       `tfsdk:"id"`
+	Name        types.String       `tfsdk:"name"`
+	Description types.String       `tfsdk:"description"`
+	HarnessId   types.String       `tfsdk:"harness"`
+	Labels      types.Map          `tfsdk:"labels"`
+	Before      []FeatureStepModel `tfsdk:"before"`
+	After       []FeatureStepModel `tfsdk:"after"`
+	Steps       []FeatureStepModel `tfsdk:"steps"`
+}
+
+type FeatureStepModel struct {
+	Name types.String `tfsdk:"name"`
+	Cmd  types.String `tfsdk:"cmd"`
 }
 
 func (r *FeatureResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -53,34 +64,63 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 				Computed: true,
 			},
 			"name": schema.StringAttribute{
-				Required: true,
+				Description: "The name of the feature",
+				Required:    true,
 			},
 			"description": schema.StringAttribute{
-				Optional: true,
+				Description: "A descriptor of the feature",
+				Optional:    true,
 			},
-			"assert": schema.ListAttribute{
-				ElementType: basetypes.ObjectType{
-					AttrTypes: map[string]attr.Type{
-						"cmd": basetypes.StringType{},
+			"harness": schema.StringAttribute{
+				Description: "The ID of the test harness to use for the feature",
+				Optional:    true,
+			},
+			"before": schema.ListNestedAttribute{
+				Description: "Actions to run against the harness before the core feature steps.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Optional: true,
+						},
+						"cmd": schema.StringAttribute{
+							Required: true,
+						},
 					},
 				},
-				Optional: true,
 			},
-			"setup": schema.ListAttribute{
-				ElementType: basetypes.ObjectType{
-					AttrTypes: map[string]attr.Type{
-						"cmd": basetypes.StringType{},
+			"after": schema.ListNestedAttribute{
+				Description: "Actions to run againast the harness after the core steps have run OR after a step has failed.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Optional: true,
+						},
+						"cmd": schema.StringAttribute{
+							Required: true,
+						},
 					},
 				},
-				Optional: true,
 			},
-			"teardown": schema.ListAttribute{
-				ElementType: basetypes.ObjectType{
-					AttrTypes: map[string]attr.Type{
-						"cmd": basetypes.StringType{},
+			"steps": schema.ListNestedAttribute{
+				Description: "Actions to run against the harness.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Optional: true,
+						},
+						"cmd": schema.StringAttribute{
+							Required: true,
+						},
 					},
 				},
-				Optional: true,
+			},
+			"labels": schema.MapAttribute{
+				Description: "A set of labels used to optionally filter execution of the feature",
+				Optional:    true,
+				ElementType: basetypes.StringType{},
 			},
 		},
 	}
@@ -114,8 +154,60 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 
 	data.Id = types.StringValue(r.id)
 
-	// Save the feature into the store
-	r.store.features.Set(r.id, data)
+	labels := make(map[string]string)
+	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
+		resp.Diagnostics.AddError("failed to convert labels", "...")
+		return
+	}
+
+	var harness itypes.Harness
+	// Use a host harness if none is specified
+	if data.HarnessId.IsUnknown() || data.HarnessId.IsNull() {
+		harness = harnesses.NewHost()
+	} else {
+		// Get the harness from the store
+		h, ok := r.store.harnesses.Get(data.HarnessId.ValueString())
+		if !ok {
+			resp.Diagnostics.AddError("invalid harness id", "...")
+			return
+		}
+		harness = h
+	}
+
+	builder := features.NewBuilder(data.Name.ValueString()).
+		WithDescription(data.Description.ValueString()).
+		WithLabels(labels)
+
+		// Add the harness as the first before, and the last after
+
+	builder = builder.WithBefore("HarnessSetup", harness.Setup())
+	for _, before := range data.Before {
+		builder = builder.WithBefore(before.Name.ValueString(), harness.StepFn(before.Cmd.ValueString()))
+	}
+
+	for _, step := range data.Steps {
+		builder = builder.WithAssessment(step.Name.ValueString(), harness.StepFn(step.Cmd.ValueString()))
+	}
+
+	for _, after := range data.After {
+		builder = builder.WithAfter(after.Name.ValueString(), harness.StepFn(after.Cmd.ValueString()))
+	}
+	builder = builder.WithAfter("HarnessFinish", harness.Finish())
+
+	if err := r.store.env.Test(ctx, builder.Build()); err != nil {
+		var skipped *environment.ErrTestSkipped
+		if errors.As(err, &skipped) {
+			resp.Diagnostics.AddWarning(
+				"Skipping testing feature not matching environment labels", fmt.Sprintf("Feature: %s\n\n(feature) %q\n(runtime) %q", skipped.FeatureName, skipped.FeatureLabels, skipped.CheckedLabels))
+			if _, err := harness.Finish()(ctx); err != nil {
+				resp.Diagnostics.AddError("failed to finish harness after skipping test", err.Error())
+				return
+			}
+		} else {
+			resp.Diagnostics.AddError("failed to test feature", err.Error())
+			return
+		}
+	}
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -162,26 +254,4 @@ func (r *FeatureResource) Delete(ctx context.Context, req resource.DeleteRequest
 
 func (r *FeatureResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
-
-type AssertionModel struct {
-	Cmd   types.String `tfsdk:"cmd"`
-	level itypes.Level
-}
-
-func (a AssertionModel) Name() string {
-	return "placeholder"
-}
-
-func (a AssertionModel) Command(ctx context.Context) string {
-	return a.Cmd.ValueString()
-}
-
-func (a AssertionModel) WithLevel(level itypes.Level) AssertionModel {
-	a.level = level
-	return a
-}
-
-func (a AssertionModel) Level() itypes.Level {
-	return a.level
 }

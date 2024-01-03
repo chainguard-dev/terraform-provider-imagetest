@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -24,7 +25,7 @@ type ImageTestProvider struct {
 type ImageTestProviderModel struct{}
 
 func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "imagetest"
+	resp.TypeName = types.ProviderName
 	resp.Version = p.version
 }
 
@@ -51,11 +52,9 @@ func (p *ImageTestProvider) Resources(ctx context.Context) []func() resource.Res
 	return []func() resource.Resource{
 		NewFeatureResource,
 		// Harnesses
-		NewHarnessNullResource,
-		NewHarnessK3sResource,
 		NewHarnessTeardownResource,
-		// Environments
-		NewEnvResource,
+		NewHarnessK3sResource,
+		NewHarnessContainerResource,
 	}
 }
 

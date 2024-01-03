@@ -37,12 +37,12 @@ func (r *HarnessTeardownResource) Metadata(ctx context.Context, req resource.Met
 
 func (r *HarnessTeardownResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Example resource",
+		MarkdownDescription: `A teardown signal used to destroy the provided harness after all referenced Features have completed.`,
 
 		Attributes: map[string]schema.Attribute{
 			"harness": schema.StringAttribute{
-				Required: true,
+				Description: "The id of the harness to teardown.",
+				Required:    true,
 			},
 		},
 	}
@@ -72,24 +72,21 @@ func (r *HarnessTeardownResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	tflog.Info(ctx, "Running teardown create method...", map[string]interface{}{})
-
 	harness, ok := r.store.harnesses.Get(data.HarnessId.ValueString())
 	if !ok {
 		resp.Diagnostics.AddError("invalid harness id", "...")
 		return
 	}
 
-	tflog.Info(ctx, "Waiting for harness to finish...", map[string]interface{}{})
-	if err := harness.Finished(ctx); err != nil {
+	tflog.Info(ctx, "Waiting for features referencing harness to complete...", map[string]interface{}{})
+	if err := harness.Done(); err != nil {
 		resp.Diagnostics.AddError("harness failed", err.Error())
 		return
 	}
-	tflog.Info(ctx, "Harness finished", map[string]interface{}{})
 
-	tflog.Info(ctx, "Running harness teardown")
+	tflog.Info(ctx, "Destroying harness...", map[string]interface{}{})
 	if err := harness.Destroy(ctx); err != nil {
-		resp.Diagnostics.AddError("harness teardown failed", err.Error())
+		resp.Diagnostics.AddError("failed during harness destroy", err.Error())
 		return
 	}
 

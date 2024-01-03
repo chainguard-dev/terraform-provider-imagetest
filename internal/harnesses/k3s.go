@@ -4,101 +4,149 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html/template"
 	"io"
-	"os"
-	"os/exec"
-	"text/template"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/envs"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/google/go-containerregistry/pkg/name"
+
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-var _ types.Harness = &K3s{}
-
-type K3s struct {
-	*nonidempotentBase
-
-	name  string
-	ports *envs.Ports
-	cfg   K3sConfig
-}
-
 type K3sConfig struct {
-	Image                string
-	Version              string
-	DisableCni           bool
-	DisableTraefik       bool
-	DisableMetricsServer bool
+	Image         string
+	Traefik       bool
+	Cni           bool
+	MetricsServer bool
 }
 
-func DefaultK3sConfig() K3sConfig {
-	return K3sConfig{
-		DisableCni:           false,
-		DisableTraefik:       true,
-		DisableMetricsServer: true,
-		Image:                "cgr.dev/chainguard/k3s",
-		Version:              "latest",
-	}
+type k3s struct {
+	*base
+
+	Config K3sConfig
+	id     string
+
+	// service is the provider that is running the service, which is k3s in a
+	// container
+	service provider.Provider
+	// sandbox is the provider where the user defined steps will execute. it is
+	// wired into the service
+	sandbox provider.Provider
 }
 
-func NewK3s(name string, ports *envs.Ports, cfg K3sConfig) *K3s {
-	return &K3s{
-		nonidempotentBase: NewBase(),
-		name:              name,
-		ports:             ports,
-		cfg:               cfg,
+func NewK3s(id string, cfg K3sConfig) (types.Harness, error) {
+	k3s := &k3s{
+		base:   NewBase(),
+		Config: cfg,
+		id:     id,
 	}
+
+	ref, err := name.ParseReference(cfg.Image)
+	if err != nil {
+		return nil, fmt.Errorf("invalid image reference: %w", err)
+	}
+
+	svcName := id + "-service"
+	service, err := provider.NewDocker(svcName, provider.DockerRequest{
+		ContainerRequest: provider.ContainerRequest{
+			Image:      ref.Name(),
+			Cmd:        []string{"server"},
+			Privileged: true,
+			Files: []provider.File{
+				{
+					Contents: bytes.NewBufferString(k3s.config(svcName)),
+					Target:   "/etc/rancher/k3s/config.yaml",
+					Mode:     0644,
+				},
+			},
+		},
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeVolume,
+				Source: id + "-config",
+				Target: "/etc/rancher/k3s",
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sandbox, err := provider.NewDocker(id+"-sandbox", provider.DockerRequest{
+		ContainerRequest: provider.ContainerRequest{
+			// TODO: Dynamically build this with predetermined apks
+			Image:      "cgr.dev/chainguard/kubectl:latest-dev",
+			Entrypoint: []string{"/bin/sh", "-c"},
+			Cmd:        []string{"tail -f /dev/null"},
+			Networks:   []string{svcName},
+			Env: map[string]string{
+				"KUBECONFIG": "/k3s-config/k3s.yaml",
+			},
+			// TODO: Not needed with wolfi-base images
+			User: "0:0",
+		},
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeVolume,
+				Source: id + "-config",
+				Target: "/k3s-config",
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	k3s.service = service
+	k3s.sandbox = sandbox
+
+	return k3s, nil
 }
 
 // Setup implements types.Harness.
-func (h *K3s) Setup() types.EnvFunc {
-	return h.NonidempotentSetup(func(ctx context.Context, cfg types.EnvConfig) (context.Context, error) {
-		port, free, err := h.ports.Get(ctx)
-		if err != nil {
-			return ctx, err
-		}
-		// remove the port from the internal store, since the port is now either in
-		// use or free again
-		defer free()
+func (h *k3s) Setup() types.StepFn {
+	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
+		g, ctx := errgroup.WithContext(ctx)
 
-		cfgpath, err := h.setupConfig()
-		if err != nil {
-			return ctx, fmt.Errorf("writing k3s config: %v", err)
-		}
-
-		out := &bytes.Buffer{}
-		if err := h.exec(ctx, out, fmt.Sprintf(`
-docker run --name 'imagetest-k3s-%[1]s' -d -p %[2]d:6443 --privileged -v %[3]s:/etc/rancher/k3s/config.yaml cgr.dev/chainguard/k3s:latest server
-docker exec 'imagetest-k3s-%[1]s' /bin/sh -c 'tries=0; while ! k3s kubectl wait --for condition=ready nodes --all --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done'
-docker exec 'imagetest-k3s-%[1]s' /bin/sh -c 'tries=0; while ! k3s kubectl wait --for condition=ready pods --all -n kube-system --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done'
-      `, h.name, port, cfgpath)); err != nil {
-			return ctx, fmt.Errorf("creating k3s cluster: %v\n%s", err, out.String())
-		}
-
-		kcfg, err := os.CreateTemp("", "imagetest-k3s-kubeconfig")
-		if err != nil {
-			return ctx, err
-		}
-		defer kcfg.Close()
-
-		switch e := cfg.(type) {
-		case *envs.ExecEnvConfig:
-			if err := h.exec(ctx, kcfg, fmt.Sprintf(`
-temp=$(mktemp)
-trap "rm -f $temp" EXIT
-
-docker exec 'imagetest-k3s-%[1]s' /bin/sh -c "cat /etc/rancher/k3s/k3s.yaml" > $temp
-KUBECONFIG=$temp kubectl config set-cluster default --server "https://0.0.0.0:%[2]d" > /dev/null
-cat $temp
-        `, h.name, port)); err != nil {
-				return ctx, fmt.Errorf("populating k3s kubeconfig file: %v", err)
+		// Start the k3s service
+		g.Go(func() error {
+			if err := h.service.Start(ctx); err != nil {
+				return fmt.Errorf("starting k3s service: %w", err)
 			}
 
-			tflog.Info(ctx, "exec environment populating kubeconfig", map[string]interface{}{
-				"kubeconfig": kcfg.Name(),
-			})
-			e.Envs["KUBECONFIG"] = kcfg.Name()
+			// Wait for the k3s cluster to be ready
+			// TODO: Replace this with proper wait.Conditions, this will be ~50% faster if we just scan the startup logs looking for containerd's ready message
+			if _, err := h.service.Exec(ctx, `
+tries=0; while ! k3s kubectl wait --for condition=ready nodes --all --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done
+tries=0; while ! k3s kubectl wait --for condition=ready pods --all -n kube-system --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done
+      `); err != nil {
+				return fmt.Errorf("waiting for k3s cluster: %w", err)
+			}
+
+			// Move the kubeconfig into place, and give it the appropriate endpoint
+			if _, err := h.service.Exec(ctx, fmt.Sprintf(`
+KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --server "https://%[1]s:6443" > /dev/null
+        `, h.id+"-service")); err != nil {
+				return fmt.Errorf("creating kubeconfig: %w", err)
+			}
+
+			return nil
+		})
+
+		g.Go(func() error {
+			// Start the sandbox
+			if err := h.sandbox.Start(ctx); err != nil {
+				return fmt.Errorf("starting sandbox: %w", err)
+			}
+			return nil
+		})
+
+		if err := g.Wait(); err != nil {
+			return ctx, err
 		}
 
 		return ctx, nil
@@ -106,61 +154,79 @@ cat $temp
 }
 
 // Destroy implements types.Harness.
-func (h *K3s) Destroy(ctx context.Context) error {
-	tflog.Info(ctx, "Destroying k3s environment")
+func (h *k3s) Destroy(ctx context.Context) error {
+	var errs []error
+	if err := h.sandbox.Teardown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("tearing down sandbox: %w", err))
+	}
 
-	if err := h.exec(ctx, io.Discard, fmt.Sprintf(`
-docker rm -f 'imagetest-k3s-%[1]s'
-      `, h.name)); err != nil {
+	if err := h.service.Teardown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("tearing down service: %w", err))
+	}
+
+	if len(errs) > 0 {
+		var err error
+		for _, e := range errs {
+			err = fmt.Errorf("%w: %v", err, e)
+		}
 		return err
 	}
 
 	return nil
 }
 
-func (h *K3s) exec(ctx context.Context, w io.Writer, command string) error {
-	var buf bytes.Buffer
-	defer buf.WriteTo(w)
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	cmd.Env = os.Environ()
+// StepFn implements types.Harness.
+func (h *k3s) StepFn(command string) types.StepFn {
+	return func(ctx context.Context) (context.Context, error) {
+		r, err := h.sandbox.Exec(ctx, command)
+		if err != nil {
+			return ctx, err
+		}
 
-	if err := cmd.Run(); err != nil {
-		return err
+		out, err := io.ReadAll(r)
+		if err != nil {
+			return ctx, err
+		}
+
+		tflog.Info(ctx, "Executing step...", map[string]interface{}{
+			"command": command,
+			"out":     string(out),
+		})
+
+		return ctx, nil
 	}
-	return nil
 }
 
-func (h *K3s) setupConfig() (string, error) {
-	f, err := os.CreateTemp("", "imagetest-k3s-config")
-	if err != nil {
-		return "", nil
-	}
-	defer f.Close()
+func (h *k3s) ref() (string, error) {
+	return "", nil
+}
 
-	cfgtmpl := `
-tls-san: "0.0.0.0"
+func (h *k3s) config(hostname string) string {
+	// who needs an an api when you have yaml and gotemplates!11!
+	// TODO: This is where we'd also handle auth and mirroring
+	cfgtmpl := fmt.Sprintf(`
+tls-san: "%[1]s"
 disable:
-{{- if .DisableTraefik }}
+{{- if not .Traefik }}
   - traefik
 {{- end }}
-{{- if .DisableMetricsServer }}
+{{- if not .MetricsServer }}
   - metrics-server
 {{- end }}
-{{- if .DisableCni }}
+{{- if not .Cni }}
 flannel-backend: none
 {{- end }}
-`
+`, hostname)
 
 	tmpl, err := template.New("config").Parse(cfgtmpl)
 	if err != nil {
-		return "", err
+		return ""
 	}
 
-	if err := tmpl.Execute(f, h.cfg); err != nil {
-		return "", err
+	buf := &bytes.Buffer{}
+	if err := tmpl.Execute(buf, h.Config); err != nil {
+		return ""
 	}
 
-	return f.Name(), nil
+	return buf.String()
 }

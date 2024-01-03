@@ -17,38 +17,52 @@ Example resource
 
 ### Required
 
-- `name` (String)
+- `name` (String) The name of the feature
 
 ### Optional
 
-- `assert` (List of Object) (see [below for nested schema](#nestedatt--assert))
-- `description` (String)
-- `setup` (List of Object) (see [below for nested schema](#nestedatt--setup))
-- `teardown` (List of Object) (see [below for nested schema](#nestedatt--teardown))
+- `after` (Attributes List) Actions to run againast the harness after the core steps have run OR after a step has failed. (see [below for nested schema](#nestedatt--after))
+- `before` (Attributes List) Actions to run against the harness before the core feature steps. (see [below for nested schema](#nestedatt--before))
+- `description` (String) A descriptor of the feature
+- `harness` (String) The ID of the test harness to use for the feature
+- `labels` (Map of String) A set of labels used to optionally filter execution of the feature
+- `steps` (Attributes List) Actions to run against the harness. (see [below for nested schema](#nestedatt--steps))
 
 ### Read-Only
 
 - `id` (String) The ID of this resource.
 
-<a id="nestedatt--assert"></a>
-### Nested Schema for `assert`
+<a id="nestedatt--after"></a>
+### Nested Schema for `after`
 
-Optional:
-
-- `cmd` (String)
-
-
-<a id="nestedatt--setup"></a>
-### Nested Schema for `setup`
-
-Optional:
+Required:
 
 - `cmd` (String)
 
+Optional:
 
-<a id="nestedatt--teardown"></a>
-### Nested Schema for `teardown`
+- `name` (String)
+
+
+<a id="nestedatt--before"></a>
+### Nested Schema for `before`
+
+Required:
+
+- `cmd` (String)
 
 Optional:
 
+- `name` (String)
+
+
+<a id="nestedatt--steps"></a>
+### Nested Schema for `steps`
+
+Required:
+
 - `cmd` (String)
+
+Optional:
+
+- `name` (String)

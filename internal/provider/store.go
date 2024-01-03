@@ -5,31 +5,30 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/envs"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/environment"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/google/uuid"
 )
+
+const RuntimeLabelEnv = "IMAGETEST_LABELS"
 
 // ProviderStore manages the global runtime state of the provider. The provider
 // uses this to lookup the defined relationships between resources, and manage
 // shared external state (such as open ports).
 type ProviderStore struct {
-	// ports stores the available free ports usable by the provider
-	ports *envs.Ports
+	env           types.Environment
+	portAllocator *environment.PortAllocator
 	// harnesses stores a map of the available harnesses, keyed by their ID.
 	harnesses *smap[string, types.Harness]
-	// features stores a map of the available features, keyed by their ID.
-	features *smap[string, FeatureResourceModel]
-	// labels holds a map of labels set at runtime used to filter environments/features
-	labels Labels
 }
 
 func NewProviderStore() *ProviderStore {
 	return &ProviderStore{
-		ports:     envs.NewFreePort(),
+		portAllocator: environment.NewPortAllocator(),
+		env: environment.New(
+			environment.WithLabelsFromEnv(os.Getenv(RuntimeLabelEnv)),
+		),
 		harnesses: newSmap[string, types.Harness](),
-		features:  newSmap[string, FeatureResourceModel](),
-		labels:    newLabels(),
 	}
 }
 
@@ -83,7 +82,8 @@ func newLabels() Labels {
 	return ls
 }
 
-// Match takes a map of labels and returns true if all of the given labels are present in the map
+// Match takes a map of labels and returns true if all of the given labels are
+// present in the map
 func (ls Labels) Match(matches map[string]string) bool {
 	for k, v := range ls {
 		if matches[k] != v {
