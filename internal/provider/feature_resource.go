@@ -7,7 +7,6 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/environment"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/features"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses"
 	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -73,7 +72,7 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 			},
 			"harness": schema.StringAttribute{
 				Description: "The ID of the test harness to use for the feature",
-				Optional:    true,
+				Required:    true,
 			},
 			"before": schema.ListNestedAttribute{
 				Description: "Actions to run against the harness before the core feature steps.",
@@ -161,18 +160,13 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	var harness itypes.Harness
-	// Use a host harness if none is specified
-	if data.HarnessId.IsUnknown() || data.HarnessId.IsNull() {
-		harness = harnesses.NewHost()
-	} else {
-		// Get the harness from the store
-		h, ok := r.store.harnesses.Get(data.HarnessId.ValueString())
-		if !ok {
-			resp.Diagnostics.AddError("invalid harness id", "...")
-			return
-		}
-		harness = h
+
+	h, ok := r.store.harnesses.Get(data.HarnessId.ValueString())
+	if !ok {
+		resp.Diagnostics.AddError("invalid harness id", "...")
+		return
 	}
+	harness = h
 
 	builder := features.NewBuilder(data.Name.ValueString()).
 		WithDescription(data.Description.ValueString()).

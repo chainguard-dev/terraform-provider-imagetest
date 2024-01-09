@@ -11,15 +11,17 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 const DockerProviderName = "docker"
 
 type DockerProvider struct {
-	client *client.Client
-	// id is the ID of the container after it is run
+	cli *client.Client
+	// id is the ID of the running container it is run
 	id string
 	// name is the name to use for the container
 	name string
@@ -38,20 +40,27 @@ func NewDocker(name string, req DockerRequest) (*DockerProvider, error) {
 	}
 
 	return &DockerProvider{
-		name:   name,
-		req:    req,
-		client: cli,
+		name: name,
+		req:  req,
+		cli:  cli,
 	}, nil
 }
 
 // Start implements Provider.
 func (p *DockerProvider) Start(ctx context.Context) error {
-	mode, err := p.client.NetworkCreate(ctx, p.name, types.NetworkCreate{})
+	if err := p.pull(ctx, p.req.Image); err != nil {
+		return fmt.Errorf("pulling image: %w", err)
+	}
+
+	mode, err := p.cli.NetworkCreate(ctx, p.name, types.NetworkCreate{
+		Attachable: true,
+		Driver:     "bridge",
+	})
 	if err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
-	resp, err := p.client.ContainerCreate(ctx, &container.Config{
+	resp, err := p.cli.ContainerCreate(ctx, &container.Config{
 		Image:        p.req.Image,
 		User:         p.req.User,
 		Env:          p.req.Env.ToSlice(),
@@ -76,18 +85,23 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		}
 
 		dir := filepath.Dir(file.Target)
-		if err := p.client.CopyToContainer(ctx, p.id, dir, tarfile, types.CopyToContainerOptions{}); err != nil {
+		if err := p.cli.CopyToContainer(ctx, p.id, dir, tarfile, types.CopyToContainerOptions{}); err != nil {
 			return fmt.Errorf("copying file to container: %w", err)
 		}
 	}
 
-	if err := p.client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := p.cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
-	for _, network := range p.req.Networks {
-		err := p.client.NetworkConnect(ctx, network, resp.ID, nil)
+	for _, id := range p.req.Networks {
+		networkResource, err := p.cli.NetworkInspect(ctx, id, types.NetworkInspectOptions{})
 		if err != nil {
+			return fmt.Errorf("unknown network %s: %w", id, err)
+		}
+
+		tflog.Info(ctx, fmt.Sprintf("Connecting network %s to container %s", networkResource.ID, resp.ID), nil)
+		if err := p.cli.NetworkConnect(ctx, networkResource.ID, resp.ID, &network.EndpointSettings{}); err != nil {
 			return fmt.Errorf("connecting container to user defined network: %w", err)
 		}
 	}
@@ -100,24 +114,31 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 	var errs []error
 
 	timeout := 0
-	if err := p.client.ContainerStop(ctx, p.id, container.StopOptions{
+	if err := p.cli.ContainerStop(ctx, p.id, container.StopOptions{
 		Timeout: &timeout,
 	}); err != nil {
-		errs = append(errs, fmt.Errorf("stopping container: %w", err))
+		errs = append(errs, fmt.Errorf("stopping container %s: %w", p.id, err))
 	}
 
-	if err := p.client.ContainerRemove(ctx, p.id, types.ContainerRemoveOptions{}); err != nil {
-		errs = append(errs, fmt.Errorf("removing container: %w", err))
+	if err := p.cli.ContainerRemove(ctx, p.id, types.ContainerRemoveOptions{}); err != nil {
+		errs = append(errs, fmt.Errorf("removing container %s: %w", p.id, err))
 	}
 
-	if err := p.client.NetworkRemove(ctx, p.name); err != nil {
-		errs = append(errs, fmt.Errorf("removing network: %w", err))
+	networkResource, err := p.cli.NetworkInspect(ctx, p.name, types.NetworkInspectOptions{})
+	if err == nil {
+		if err := p.cli.NetworkRemove(ctx, networkResource.ID); err != nil {
+			errs = append(errs, fmt.Errorf("removing network: %w", err))
+		}
 	}
 
 	if len(errs) > 0 {
 		var err error
 		for _, e := range errs {
-			err = fmt.Errorf("%w: %v", err, e)
+			if err != nil {
+				err = fmt.Errorf("%w: %v", err, e)
+			} else {
+				err = e
+			}
 		}
 		return err
 	}
@@ -127,7 +148,7 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 
 // Exec implements Provider.
 func (p *DockerProvider) Exec(ctx context.Context, command string) (io.Reader, error) {
-	resp, err := p.client.ContainerExecCreate(ctx, p.id, types.ExecConfig{
+	resp, err := p.cli.ContainerExecCreate(ctx, p.id, types.ExecConfig{
 		Cmd:          []string{"/bin/sh", "-c", command},
 		AttachStderr: true,
 		AttachStdout: true,
@@ -137,13 +158,13 @@ func (p *DockerProvider) Exec(ctx context.Context, command string) (io.Reader, e
 	}
 
 	check := types.ExecStartCheck{}
-	attach, err := p.client.ContainerExecAttach(ctx, resp.ID, check)
+	attach, err := p.cli.ContainerExecAttach(ctx, resp.ID, check)
 	if err != nil {
 		return nil, err
 	}
 	defer attach.Close()
 
-	if err := p.client.ContainerExecStart(ctx, resp.ID, check); err != nil {
+	if err := p.cli.ContainerExecStart(ctx, resp.ID, check); err != nil {
 		return nil, err
 	}
 
@@ -155,7 +176,7 @@ func (p *DockerProvider) Exec(ctx context.Context, command string) (io.Reader, e
 	// Block until the command is done
 	var exitCode int
 	for {
-		exec, err := p.client.ContainerExecInspect(ctx, resp.ID)
+		exec, err := p.cli.ContainerExecInspect(ctx, resp.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -173,4 +194,25 @@ func (p *DockerProvider) Exec(ctx context.Context, command string) (io.Reader, e
 	}
 
 	return out, nil
+}
+
+// pull the image if it doesn't exist in the daemon
+// TODO: Do this with ggcr.
+func (p *DockerProvider) pull(ctx context.Context, imageId string) error {
+	// check if the imageId exists in the daemon
+	_, _, err := p.cli.ImageInspectWithRaw(ctx, imageId)
+	if err != nil {
+		if !client.IsErrNotFound(err) {
+			return fmt.Errorf("checking if image exists: %w", err)
+		}
+	}
+
+	// pull the image if it doesn't exist
+	pull, err := p.cli.ImagePull(ctx, imageId, types.ImagePullOptions{})
+	if err != nil {
+		return err
+	}
+
+	_, err = io.ReadAll(pull)
+	return err
 }

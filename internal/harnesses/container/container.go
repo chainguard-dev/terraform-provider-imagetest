@@ -1,10 +1,11 @@
-package harnesses
+package container
 
 import (
 	"context"
 	"io"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
@@ -13,9 +14,9 @@ import (
 var _ types.Harness = &container{}
 
 // container is a harness that spins up a container and steps within the
-// container environment
+// container environment.
 type container struct {
-	*base
+	*base.Base
 	provider provider.Provider
 }
 
@@ -57,21 +58,22 @@ func (h *container) StepFn(command string) types.StepFn {
 	}
 }
 
-type ContainerConfig struct {
+type Config struct {
 	Env        map[string]string
 	Image      string
-	Mounts     []ContainerConfigMount
+	Mounts     []ConfigMount
+	Networks   []string
 	Privileged bool
 }
 
-// ContainerConfigMount is a simplified wrapper around mount.Mount, intended to
-// only support BindMounts
-type ContainerConfigMount struct {
+// ConfigMount is a simplified wrapper around mount.Mount, intended to
+// only support BindMounts.
+type ConfigMount struct {
 	Source      string
 	Destination string
 }
 
-func NewContainer(ctx context.Context, name string, cfg ContainerConfig) (types.Harness, error) {
+func New(_ context.Context, name string, cfg Config) (types.Harness, error) {
 	// TODO: Support more providers
 
 	mounts := make([]mount.Mount, 0, len(cfg.Mounts))
@@ -89,6 +91,7 @@ func NewContainer(ctx context.Context, name string, cfg ContainerConfig) (types.
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"tail -f /dev/null"},
 			Env:        cfg.Env,
+			Networks:   cfg.Networks,
 		},
 		Mounts: mounts,
 	})
@@ -97,7 +100,7 @@ func NewContainer(ctx context.Context, name string, cfg ContainerConfig) (types.
 	}
 
 	return &container{
-		base:     NewBase(),
+		Base:     base.New(),
 		provider: p,
 	}, nil
 }

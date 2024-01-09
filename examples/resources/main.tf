@@ -12,12 +12,6 @@ provider "imagetest" {}
 # Create a harness that runs features in a container.
 resource "imagetest_harness_container" "this" {
   image = "cgr.dev/chainguard/wolfi-base:latest"
-  mounts = [
-    {
-      source      = path.module
-      destination = "/src"
-    }
-  ]
 }
 resource "imagetest_harness_teardown" "container" { harness = imagetest_harness_container.this.id }
 
@@ -32,12 +26,6 @@ resource "imagetest_feature" "container" {
       name = "Install something"
       cmd  = <<EOF
         apk add curl
-      EOF
-    },
-    {
-      name = "Access files we mounted from the host"
-      cmd  = <<EOF
-        ls -lah /src
       EOF
     },
   ]
@@ -66,7 +54,6 @@ resource "imagetest_feature" "k3s" {
       cmd  = <<EOF
         kubectl get no
         kubectl get po -A
-        kubectl run nginx --image=cgr.dev/chainguard/nginx:latest
       EOF
     },
   ]

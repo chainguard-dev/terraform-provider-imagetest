@@ -3,13 +3,14 @@ package provider
 import (
 	"context"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -31,11 +32,34 @@ type HarnessK3sResource struct {
 
 // HarnessK3sResourceModel describes the resource data model.
 type HarnessK3sResourceModel struct {
-	Id                   types.String `tfsdk:"id"`
-	Image                types.String `tfsdk:"image"`
-	DisableCni           types.Bool   `tfsdk:"disable_cni"`
-	DisableTraefik       types.Bool   `tfsdk:"disable_traefik"`
-	DisableMetricsServer types.Bool   `tfsdk:"disable_metrics_server"`
+	Id                   types.String                     `tfsdk:"id"`
+	Image                types.String                     `tfsdk:"image"`
+	DisableCni           types.Bool                       `tfsdk:"disable_cni"`
+	DisableTraefik       types.Bool                       `tfsdk:"disable_traefik"`
+	DisableMetricsServer types.Bool                       `tfsdk:"disable_metrics_server"`
+	Registries           map[string]RegistryResourceModel `tfsdk:"registries"`
+}
+
+type RegistryResourceModel struct {
+	Auth   *RegistryResourceAuthModel   `tfsdk:"auth"`
+	Tls    *RegistryResourceTlsModel    `tfsdk:"tls"`
+	Mirror *RegistryResourceMirrorModel `tfsdk:"mirror"`
+}
+
+type RegistryResourceAuthModel struct {
+	Username types.String `tfsdk:"username"`
+	Password types.String `tfsdk:"password"`
+	Auth     types.String `tfsdk:"auth"`
+}
+
+type RegistryResourceTlsModel struct {
+	CertFile types.String `tfsdk:"cert_file"`
+	KeyFile  types.String `tfsdk:"key_file"`
+	CaFile   types.String `tfsdk:"ca_file"`
+}
+
+type RegistryResourceMirrorModel struct {
+	Endpoints types.List `tfsdk:"endpoints"`
 }
 
 func (r *HarnessK3sResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -74,6 +98,52 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 				Computed:    true,
 				Default:     stringdefault.StaticString("cgr.dev/chainguard/k3s:latest"),
 			},
+			"registries": schema.MapNestedAttribute{
+				Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"auth": schema.SingleNestedAttribute{
+							Optional: true,
+							Attributes: map[string]schema.Attribute{
+								"username": schema.StringAttribute{
+									Optional: true,
+								},
+								"password": schema.StringAttribute{
+									Optional:  true,
+									Sensitive: true,
+								},
+								"auth": schema.StringAttribute{
+									Optional: true,
+								},
+							},
+						},
+						"tls": schema.SingleNestedAttribute{
+							Optional: true,
+							Attributes: map[string]schema.Attribute{
+								"cert_file": schema.StringAttribute{
+									Optional: true,
+								},
+								"key_file": schema.StringAttribute{
+									Optional: true,
+								},
+								"ca_file": schema.StringAttribute{
+									Optional: true,
+								},
+							},
+						},
+						"mirror": schema.SingleNestedAttribute{
+							Optional: true,
+							Attributes: map[string]schema.Attribute{
+								"endpoints": schema.ListAttribute{
+									ElementType: basetypes.StringType{},
+									Optional:    true,
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -106,7 +176,43 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	data.Id = types.StringValue(r.id)
 
-	harness, err := harnesses.NewK3s(r.id, r.k3sConfig(ctx, data))
+	kopts := []k3s.Option{
+		k3s.WithImage(data.Image.ValueString()),
+	}
+
+	registries := make(map[string]RegistryResourceModel)
+	if data.Registries != nil {
+		registries = data.Registries
+	}
+
+	if r.store.providerResourceData.Harnesses != nil {
+		if pc := r.store.providerResourceData.Harnesses.K3s; pc != nil {
+			for k, v := range pc.Registries {
+				registries[k] = v
+			}
+		}
+	}
+
+	for rname, rdata := range registries {
+		if rdata.Auth != nil {
+			if rdata.Auth.Auth.IsNull() && rdata.Auth.Password.IsNull() && rdata.Auth.Username.IsNull() {
+				kopts = append(kopts, k3s.WithAuthFromKeychain(rname))
+			} else {
+				kopts = append(kopts, k3s.WithAuthFromStatic(rname, rdata.Auth.Username.ValueString(), rdata.Auth.Password.ValueString(), rdata.Auth.Auth.ValueString()))
+			}
+		}
+
+		if rdata.Mirror != nil {
+			endpoints := []string{}
+			if diags := rdata.Mirror.Endpoints.ElementsAs(ctx, &endpoints, false); diags.HasError() {
+				resp.Diagnostics.AddError("failed to convert mirror endpoints", "...")
+				return
+			}
+			kopts = append(kopts, k3s.WithRegistryMirror(rname, endpoints...))
+		}
+	}
+
+	harness, err := k3s.New(r.id, kopts...)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to initialize k3s harness", err.Error())
 		return
@@ -116,15 +222,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-}
-
-func (r *HarnessK3sResource) k3sConfig(ctx context.Context, data HarnessK3sResourceModel) harnesses.K3sConfig {
-	return harnesses.K3sConfig{
-		Image:         data.Image.ValueString(),
-		Cni:           !data.DisableCni.ValueBool(),
-		MetricsServer: !data.DisableMetricsServer.ValueBool(),
-		Traefik:       !data.DisableTraefik.ValueBool(),
-	}
 }
 
 func (r *HarnessK3sResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
