@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -33,16 +33,21 @@ type HarnessContainerResource struct {
 
 // HarnessContainerResourceModel describes the resource data model.
 type HarnessContainerResourceModel struct {
-	Id         types.String                         `tfsdk:"id"`
-	Image      types.String                         `tfsdk:"image"`
-	Privileged types.Bool                           `tfsdk:"privileged"`
-	Envs       types.Map                            `tfsdk:"envs"`
-	Mounts     []HarnessContainerResourceMountModel `tfsdk:"mounts"`
+	Id         types.String                             `tfsdk:"id"`
+	Image      types.String                             `tfsdk:"image"`
+	Privileged types.Bool                               `tfsdk:"privileged"`
+	Envs       types.Map                                `tfsdk:"envs"`
+	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
+	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 }
 
-type HarnessContainerResourceMountModel struct {
+type ContainerResourceMountModel struct {
 	Source      types.String `tfsdk:"source"`
 	Destination types.String `tfsdk:"destination"`
+}
+
+type ContainerResourceModelNetwork struct {
+	Name types.String `tfsdk:"name"`
 }
 
 func (r *HarnessContainerResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -73,6 +78,18 @@ func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.Sche
 				Optional:    true,
 				ElementType: types.StringType,
 			},
+			"networks": schema.MapNestedAttribute{
+				Description: "A map of existing networks to attach the container to.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Description: "The name of the existing network to attach the container to.",
+							Required:    true,
+						},
+					},
+				},
+			},
 			"mounts": schema.ListNestedAttribute{
 				Description: "The list of mounts to create on the container.",
 				Optional:    true,
@@ -83,7 +100,7 @@ func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.Sche
 							Required:    true,
 						},
 						"destination": schema.StringAttribute{
-							Description: "The absolute path on the container to mount the source directory to.",
+							Description: "The absolute path on the container to mount the source directory.",
 							Required:    true,
 						},
 					},
@@ -112,22 +129,75 @@ func (r *HarnessContainerResource) Configure(ctx context.Context, req resource.C
 func (r *HarnessContainerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data HarnessContainerResourceModel
 
-	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	data.Id = types.StringValue(r.id)
 
-	cfg, err := r.containerCfg(ctx, data)
-	if err != nil {
-		resp.Diagnostics.AddError("invalid resource data", err.Error())
-		return
+	cfg := container.Config{
+		Image:      data.Image.ValueString(),
+		Privileged: data.Privileged.ValueBool(),
+		Mounts:     []container.ConfigMount{},
+		Networks:   []string{},
+		Env:        map[string]string{},
 	}
 
-	harness, err := harnesses.NewContainer(ctx, r.id, cfg)
+	mounts := []ContainerResourceMountModel{}
+	if data.Mounts != nil {
+		mounts = data.Mounts
+	}
+
+	networks := make(map[string]ContainerResourceModelNetwork)
+	if data.Networks != nil {
+		networks = data.Networks
+	}
+
+	if r.store.providerResourceData.Harnesses != nil {
+		if c := r.store.providerResourceData.Harnesses.Container; c != nil {
+			mounts = append(mounts, c.Mounts...)
+
+			for k, v := range c.Networks {
+				networks[k] = v
+			}
+
+			envs := make(map[string]string)
+			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+				resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid envs input: %s", diags.Errors()))
+				return
+			}
+			cfg.Env = envs
+		}
+	}
+
+	for _, mount := range mounts {
+		src, err := filepath.Abs(mount.Source.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))
+			return
+		}
+
+		cfg.Mounts = append(cfg.Mounts, container.ConfigMount{
+			Source:      src,
+			Destination: mount.Destination.ValueString(),
+		})
+	}
+
+	for _, network := range networks {
+		cfg.Networks = append(cfg.Networks, network.Name.ValueString())
+	}
+
+	envs := make(map[string]string)
+	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid envs input: %s", diags.Errors()))
+		return
+	}
+	for k, v := range envs {
+		cfg.Env[k] = v
+	}
+
+	harness, err := container.New(ctx, r.id, cfg)
 	if err != nil {
 		resp.Diagnostics.AddError("invalid provider data", "...")
 		return
@@ -136,35 +206,6 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-}
-
-func (r *HarnessContainerResource) containerCfg(ctx context.Context, data HarnessContainerResourceModel) (harnesses.ContainerConfig, error) {
-	cfg := harnesses.ContainerConfig{
-		Image:      data.Image.ValueString(),
-		Privileged: data.Privileged.ValueBool(),
-	}
-
-	mounts := []harnesses.ContainerConfigMount{}
-	for _, mount := range data.Mounts {
-		src, err := filepath.Abs(mount.Source.ValueString())
-		if err != nil {
-			return harnesses.ContainerConfig{}, err
-		}
-
-		mounts = append(mounts, harnesses.ContainerConfigMount{
-			Source:      src,
-			Destination: mount.Destination.ValueString(),
-		})
-	}
-	cfg.Mounts = mounts
-
-	envs := map[string]string{}
-	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-		return harnesses.ContainerConfig{}, fmt.Errorf("invalid envs input: %w", diags.Errors())
-	}
-	cfg.Env = envs
-
-	return cfg, nil
 }
 
 func (r *HarnessContainerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {

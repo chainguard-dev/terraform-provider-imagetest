@@ -15,15 +15,6 @@ type Provider interface {
 	Exec(ctx context.Context, command string) (io.Reader, error)
 }
 
-var runtimes map[string]string
-
-func init() {
-	runtimes = map[string]string{
-		"docker": DockerProviderName,
-		// TODO: Other runtimes
-	}
-}
-
 type ContainerRequest struct {
 	Image      string
 	Entrypoint []string
@@ -51,7 +42,7 @@ type File struct {
 	Mode     int64
 }
 
-// TODO: Jon pls halp.
+// TODO: Jon pls.
 func (f File) tar() (io.Reader, error) {
 	cbuf := &bytes.Buffer{}
 	size, err := io.Copy(cbuf, f.Contents)

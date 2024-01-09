@@ -20,6 +20,7 @@ A harness that runs steps in a sandbox container.
 - `envs` (Map of String) Environment variables to set on the container.
 - `image` (String) The full image reference to use for the k3s container.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
+- `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `privileged` (Boolean)
 
 ### Read-Only
@@ -31,5 +32,13 @@ A harness that runs steps in a sandbox container.
 
 Required:
 
-- `destination` (String) The absolute path on the container to mount the source directory to.
+- `destination` (String) The absolute path on the container to mount the source directory.
 - `source` (String) The relative or absolute path on the host to the source directory to mount.
+
+
+<a id="nestedatt--networks"></a>
+### Nested Schema for `networks`
+
+Required:
+
+- `name` (String) The name of the existing network to attach the container to.

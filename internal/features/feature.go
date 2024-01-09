@@ -41,7 +41,7 @@ func NewBuilder(name string) *FeatureBuilder {
 	}
 }
 
-// Build the feature for the given environment
+// Build the feature for the given environment.
 func (b *FeatureBuilder) Build() types.Feature {
 	return b.feat
 }

@@ -1,4 +1,4 @@
-package harnesses
+package base
 
 import (
 	"context"
@@ -8,22 +8,23 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 )
 
-// base is a base harness implementation. it can be embedded into other
-type base struct {
-	mu        sync.Mutex
+// Base is a Base harness implementation. It's often useful to embed this into
+// other harness implementations.
+type Base struct {
 	triggered chan struct{}
-	once      sync.Once
 	using     int
+	once      sync.Once
+	mu        sync.Mutex
 }
 
-func NewBase() *base {
-	return &base{
+func New() *Base {
+	return &Base{
 		mu:        sync.Mutex{},
 		triggered: make(chan struct{}),
 	}
 }
 
-func (h *base) WithCreate(f types.StepFn) types.StepFn {
+func (h *Base) WithCreate(f types.StepFn) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
 		h.using++
 
@@ -51,7 +52,7 @@ func (h *base) WithCreate(f types.StepFn) types.StepFn {
 	}
 }
 
-func (h *base) Finish() types.StepFn {
+func (h *Base) Finish() types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
 		h.using--
 
@@ -63,7 +64,7 @@ func (h *base) Finish() types.StepFn {
 	}
 }
 
-func (h *base) Done() error {
+func (h *Base) Done() error {
 	<-h.triggered
 	for h.using > 0 {
 		time.Sleep(1 * time.Second)

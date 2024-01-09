@@ -21,7 +21,44 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 - `disable_metrics_server` (Boolean) When true, the builtin metrics server will be disabled.
 - `disable_traefik` (Boolean) When true, the builtin traefik ingress controller will be disabled.
 - `image` (String) The full image reference to use for the k3s container.
+- `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
 
 ### Read-Only
 
 - `id` (String) The ID of this resource.
+
+<a id="nestedatt--registries"></a>
+### Nested Schema for `registries`
+
+Optional:
+
+- `auth` (Attributes) (see [below for nested schema](#nestedatt--registries--auth))
+- `mirror` (Attributes) (see [below for nested schema](#nestedatt--registries--mirror))
+- `tls` (Attributes) (see [below for nested schema](#nestedatt--registries--tls))
+
+<a id="nestedatt--registries--auth"></a>
+### Nested Schema for `registries.auth`
+
+Optional:
+
+- `auth` (String)
+- `password` (String, Sensitive)
+- `username` (String)
+
+
+<a id="nestedatt--registries--mirror"></a>
+### Nested Schema for `registries.mirror`
+
+Optional:
+
+- `endpoints` (List of String)
+
+
+<a id="nestedatt--registries--tls"></a>
+### Nested Schema for `registries.tls`
+
+Optional:
+
+- `ca_file` (String)
+- `cert_file` (String)
+- `key_file` (String)

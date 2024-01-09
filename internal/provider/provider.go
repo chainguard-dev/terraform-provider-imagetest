@@ -3,11 +3,12 @@ package provider
 import (
 	"context"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 var _ provider.Provider = &ImageTestProvider{}
@@ -22,16 +23,128 @@ type ImageTestProvider struct {
 }
 
 // ImageTestProviderModel describes the provider data model.
-type ImageTestProviderModel struct{}
+type ImageTestProviderModel struct {
+	Harnesses *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
+}
+
+type ImageTestProviderHarnessModel struct {
+	Container *ProviderHarnessContainerModel `tfsdk:"container"`
+	K3s       *ProviderHarnessK3sModel       `tfsdk:"k3s"`
+}
+
+type ProviderHarnessContainerModel struct {
+	Networks map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Envs     types.Map                                `tfsdk:"envs"`
+	Mounts   []ContainerResourceMountModel            `tfsdk:"mounts"`
+}
+
+type ProviderHarnessK3sModel struct {
+	Registries map[string]RegistryResourceModel `tfsdk:"registries"`
+}
 
 func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = types.ProviderName
+	resp.TypeName = "imagetest"
 	resp.Version = p.version
 }
 
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Attributes: map[string]schema.Attribute{},
+		Attributes: map[string]schema.Attribute{
+			"harnesses": schema.SingleNestedAttribute{
+				Optional: true,
+				Attributes: map[string]schema.Attribute{
+					"container": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"envs": schema.MapAttribute{
+								Description: "Environment variables to set on the container.",
+								Optional:    true,
+								ElementType: types.StringType,
+							},
+							"networks": schema.MapNestedAttribute{
+								Description: "A map of existing networks to attach the container to.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"name": schema.StringAttribute{
+											Description: "The name of the existing network to attach the container to.",
+											Required:    true,
+										},
+									},
+								},
+							},
+							"mounts": schema.ListNestedAttribute{
+								Description: "The list of mounts to create on the container.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"source": schema.StringAttribute{
+											Description: "The relative or absolute path on the host to the source directory to mount.",
+											Required:    true,
+										},
+										"destination": schema.StringAttribute{
+											Description: "The absolute path on the container to mount the source directory to.",
+											Required:    true,
+										},
+									},
+								},
+							},
+						},
+					},
+					"k3s": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"registries": schema.MapNestedAttribute{
+								Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"auth": schema.SingleNestedAttribute{
+											Optional: true,
+											Attributes: map[string]schema.Attribute{
+												"username": schema.StringAttribute{
+													Optional: true,
+												},
+												"password": schema.StringAttribute{
+													Optional:  true,
+													Sensitive: true,
+												},
+												"auth": schema.StringAttribute{
+													Optional: true,
+												},
+											},
+										},
+										"tls": schema.SingleNestedAttribute{
+											Optional: true,
+											Attributes: map[string]schema.Attribute{
+												"cert_file": schema.StringAttribute{
+													Optional: true,
+												},
+												"key_file": schema.StringAttribute{
+													Optional: true,
+												},
+												"ca_file": schema.StringAttribute{
+													Optional: true,
+												},
+											},
+										},
+										"mirror": schema.SingleNestedAttribute{
+											Optional: true,
+											Attributes: map[string]schema.Attribute{
+												"endpoints": schema.ListAttribute{
+													ElementType: basetypes.StringType{},
+													Optional:    true,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -43,6 +156,8 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	p.store.providerResourceData = data
 
 	resp.DataSourceData = p.store
 	resp.ResourceData = p.store

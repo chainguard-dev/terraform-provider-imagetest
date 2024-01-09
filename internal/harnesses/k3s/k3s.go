@@ -1,4 +1,4 @@
-package harnesses
+package k3s
 
 import (
 	"bytes"
@@ -11,25 +11,23 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-type K3sConfig struct {
-	Image         string
-	Traefik       bool
-	Cni           bool
-	MetricsServer bool
-}
+const (
+	K3sImage = "cgr.dev/chainguard/k3s:latest"
+)
 
 type k3s struct {
-	*base
-
-	Config K3sConfig
-	id     string
-
+	*base.Base
+	// opt are the options for the k3s harness
+	opt *Opt
+	// id is an identifier used to prepend to containers created by this harness
+	id string
 	// service is the provider that is running the service, which is k3s in a
 	// container
 	service provider.Provider
@@ -38,28 +36,55 @@ type k3s struct {
 	sandbox provider.Provider
 }
 
-func NewK3s(id string, cfg K3sConfig) (types.Harness, error) {
-	k3s := &k3s{
-		base:   NewBase(),
-		Config: cfg,
-		id:     id,
+func New(id string, opts ...Option) (types.Harness, error) {
+	opt := &Opt{
+		Image:         K3sImage,
+		Cni:           true,
+		MetricsServer: false,
+		Traefik:       false,
 	}
 
-	ref, err := name.ParseReference(cfg.Image)
+	for _, o := range opts {
+		if err := o(opt); err != nil {
+			return nil, err
+		}
+	}
+
+	k3s := &k3s{
+		Base: base.New(),
+		id:   id,
+		opt:  opt,
+	}
+
+	ref, err := name.ParseReference(opt.Image)
 	if err != nil {
 		return nil, fmt.Errorf("invalid image reference: %w", err)
 	}
 
-	svcName := id + "-service"
-	service, err := provider.NewDocker(svcName, provider.DockerRequest{
+	kcfg, err := k3s.genConfig()
+	if err != nil {
+		return nil, fmt.Errorf("creating k3s config: %w", err)
+	}
+
+	rcfg, err := k3s.genRegistries()
+	if err != nil {
+		return nil, fmt.Errorf("creating k3s registries config: %w", err)
+	}
+
+	service, err := provider.NewDocker(k3s.serviceName(), provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Image:      ref.Name(),
 			Cmd:        []string{"server"},
 			Privileged: true,
 			Files: []provider.File{
 				{
-					Contents: bytes.NewBufferString(k3s.config(svcName)),
+					Contents: kcfg,
 					Target:   "/etc/rancher/k3s/config.yaml",
+					Mode:     0644,
+				},
+				{
+					Contents: rcfg,
+					Target:   "/etc/rancher/k3s/registries.yaml",
 					Mode:     0644,
 				},
 			},
@@ -76,13 +101,13 @@ func NewK3s(id string, cfg K3sConfig) (types.Harness, error) {
 		return nil, err
 	}
 
-	sandbox, err := provider.NewDocker(id+"-sandbox", provider.DockerRequest{
+	sandbox, err := provider.NewDocker(k3s.sandboxName(), provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			// TODO: Dynamically build this with predetermined apks
 			Image:      "cgr.dev/chainguard/kubectl:latest-dev",
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"tail -f /dev/null"},
-			Networks:   []string{svcName},
+			Networks:   []string{k3s.serviceName()},
 			Env: map[string]string{
 				"KUBECONFIG": "/k3s-config/k3s.yaml",
 			},
@@ -112,12 +137,14 @@ func (h *k3s) Setup() types.StepFn {
 	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
 		g, ctx := errgroup.WithContext(ctx)
 
-		// Start the k3s service
-		g.Go(func() error {
-			if err := h.service.Start(ctx); err != nil {
-				return fmt.Errorf("starting k3s service: %w", err)
-			}
+		// start the k3s service first since the sandbox depends on the network
+		// being created
+		if err := h.service.Start(ctx); err != nil {
+			return ctx, fmt.Errorf("starting k3s service: %w", err)
+		}
 
+		// Wait for the k3s service
+		g.Go(func() error {
 			// Wait for the k3s cluster to be ready
 			// TODO: Replace this with proper wait.Conditions, this will be ~50% faster if we just scan the startup logs looking for containerd's ready message
 			if _, err := h.service.Exec(ctx, `
@@ -167,7 +194,11 @@ func (h *k3s) Destroy(ctx context.Context) error {
 	if len(errs) > 0 {
 		var err error
 		for _, e := range errs {
-			err = fmt.Errorf("%w: %v", err, e)
+			if err != nil {
+				err = fmt.Errorf("%w: %v", err, e)
+			} else {
+				err = e
+			}
 		}
 		return err
 	}
@@ -197,13 +228,57 @@ func (h *k3s) StepFn(command string) types.StepFn {
 	}
 }
 
-func (h *k3s) ref() (string, error) {
-	return "", nil
+func (h *k3s) serviceName() string {
+	return h.id + "-service"
 }
 
-func (h *k3s) config(hostname string) string {
+func (h *k3s) sandboxName() string {
+	return h.id + "-sandbox"
+}
+
+func (h *k3s) genRegistries() (io.Reader, error) {
 	// who needs an an api when you have yaml and gotemplates!11!
-	// TODO: This is where we'd also handle auth and mirroring
+	cfgtmpl := `
+mirrors:
+  {{- range $k, $v := .Mirrors }}
+  "{{ $k }}":
+    endpoint:
+      {{- range $v.Endpoints }}
+      - "{{ . }}"
+      {{- end }}
+  {{- end}}
+
+configs:
+  {{- range $k, $v := .Registries }}
+  "{{ $k }}":
+    auth:
+      username: "{{ $v.Auth.Username }}"
+      password: "{{ $v.Auth.Password }}"
+      auth: "{{ $v.Auth.Auth }}"
+    {{- if and $v.Tls $v.Tls.CertFile $v.Tls.KeyFile $v.Tls.CaFile }}
+    tls:
+      cert_file: "{{ $v.Tls.CertFile }}"
+      key_file: "{{ $v.Tls.KeyFile }}"
+      ca_file: "{{ $v.Tls.CaFile }}"
+    {{- end }}
+  {{- end }}
+`
+
+	tmpl, err := template.New("registry").Parse(cfgtmpl)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := &bytes.Buffer{}
+	if err := tmpl.Execute(buf, h.opt); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
+}
+
+func (h *k3s) genConfig() (io.Reader, error) {
+	// who needs an an api when you have yaml and gotemplates!11!
 	cfgtmpl := fmt.Sprintf(`
 tls-san: "%[1]s"
 disable:
@@ -216,17 +291,17 @@ disable:
 {{- if not .Cni }}
 flannel-backend: none
 {{- end }}
-`, hostname)
+`, h.serviceName())
 
 	tmpl, err := template.New("config").Parse(cfgtmpl)
 	if err != nil {
-		return ""
+		return nil, err
 	}
 
 	buf := &bytes.Buffer{}
-	if err := tmpl.Execute(buf, h.Config); err != nil {
-		return ""
+	if err := tmpl.Execute(buf, h.opt); err != nil {
+		return nil, err
 	}
 
-	return buf.String()
+	return buf, nil
 }

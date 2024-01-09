@@ -4,8 +4,6 @@ import (
 	"context"
 )
 
-const ProviderName = "imagetest"
-
 type Environment interface {
 	// Test executes a feature(set) against the environment.
 	Test(context.Context, Feature) error
