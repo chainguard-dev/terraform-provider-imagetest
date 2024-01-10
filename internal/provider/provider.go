@@ -24,6 +24,7 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
+	Log       *ProviderLoggerModel           `tfsdk:"log"`
 	Harnesses *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
 }
 
@@ -39,8 +40,15 @@ type ProviderHarnessContainerModel struct {
 }
 
 type ProviderHarnessK3sModel struct {
-	Registries map[string]RegistryResourceModel `tfsdk:"registries"`
+	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Registries map[string]RegistryResourceModel         `tfsdk:"registries"`
 }
+
+type ProviderLoggerModel struct {
+	Tf *ProviderLoggerTfModel `tfsdk:"tf"`
+}
+
+type ProviderLoggerTfModel struct{}
 
 func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "imagetest"
@@ -50,6 +58,15 @@ func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataR
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"log": schema.SingleNestedAttribute{
+				Optional: true,
+				Attributes: map[string]schema.Attribute{
+					"tf": schema.SingleNestedAttribute{
+						Description: "Output feature logs to logs written to stdout by TF_LOG=$LEVEL.",
+						Optional:    true,
+					},
+				},
+			},
 			"harnesses": schema.SingleNestedAttribute{
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
@@ -94,6 +111,18 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					"k3s": schema.SingleNestedAttribute{
 						Optional: true,
 						Attributes: map[string]schema.Attribute{
+							"networks": schema.MapNestedAttribute{
+								Description: "A map of existing networks to attach the harness containers to.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"name": schema.StringAttribute{
+											Description: "The name of the existing network to attach the harness containers to.",
+											Required:    true,
+										},
+									},
+								},
+							},
 							"registries": schema.MapNestedAttribute{
 								Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
 								Optional:    true,

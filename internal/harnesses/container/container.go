@@ -6,9 +6,9 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 var _ types.Harness = &container{}
@@ -39,6 +39,7 @@ func (h *container) Destroy(ctx context.Context) error {
 // StepFn implements types.Harness.
 func (h *container) StepFn(command string) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
+		log.Info(ctx, "stepping in container", "command", command)
 		r, err := h.provider.Exec(ctx, command)
 		if err != nil {
 			return ctx, err
@@ -48,11 +49,7 @@ func (h *container) StepFn(command string) types.StepFn {
 		if err != nil {
 			return ctx, err
 		}
-
-		tflog.Info(ctx, "Executed container step", map[string]interface{}{
-			"out":     string(out),
-			"command": command,
-		})
+		log.Info(ctx, "finished stepping in container", "command", command, "out", string(out))
 
 		return ctx, nil
 	}

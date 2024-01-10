@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 const DockerProviderName = "docker"
@@ -100,7 +99,6 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 			return fmt.Errorf("unknown network %s: %w", id, err)
 		}
 
-		tflog.Info(ctx, fmt.Sprintf("Connecting network %s to container %s", networkResource.ID, resp.ID), nil)
 		if err := p.cli.NetworkConnect(ctx, networkResource.ID, resp.ID, &network.EndpointSettings{}); err != nil {
 			return fmt.Errorf("connecting container to user defined network: %w", err)
 		}

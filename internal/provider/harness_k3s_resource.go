@@ -32,12 +32,13 @@ type HarnessK3sResource struct {
 
 // HarnessK3sResourceModel describes the resource data model.
 type HarnessK3sResourceModel struct {
-	Id                   types.String                     `tfsdk:"id"`
-	Image                types.String                     `tfsdk:"image"`
-	DisableCni           types.Bool                       `tfsdk:"disable_cni"`
-	DisableTraefik       types.Bool                       `tfsdk:"disable_traefik"`
-	DisableMetricsServer types.Bool                       `tfsdk:"disable_metrics_server"`
-	Registries           map[string]RegistryResourceModel `tfsdk:"registries"`
+	Id                   types.String                             `tfsdk:"id"`
+	Image                types.String                             `tfsdk:"image"`
+	DisableCni           types.Bool                               `tfsdk:"disable_cni"`
+	DisableTraefik       types.Bool                               `tfsdk:"disable_traefik"`
+	DisableMetricsServer types.Bool                               `tfsdk:"disable_metrics_server"`
+	Registries           map[string]RegistryResourceModel         `tfsdk:"registries"`
+	Networks             map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 }
 
 type RegistryResourceModel struct {
@@ -144,6 +145,18 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 					},
 				},
 			},
+			"networks": schema.MapNestedAttribute{
+				Description: "A map of existing networks to attach the harness containers to.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Description: "The name of the existing network to attach the harness containers to.",
+							Required:    true,
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -169,7 +182,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -185,10 +197,21 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		registries = data.Registries
 	}
 
+	networks := []string{}
+	if data.Networks != nil {
+		for _, v := range data.Networks {
+			networks = append(networks, v.Name.ValueString())
+		}
+	}
+
 	if r.store.providerResourceData.Harnesses != nil {
 		if pc := r.store.providerResourceData.Harnesses.K3s; pc != nil {
 			for k, v := range pc.Registries {
 				registries[k] = v
+			}
+
+			for _, v := range pc.Networks {
+				networks = append(networks, v.Name.ValueString())
 			}
 		}
 	}
@@ -211,6 +234,8 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 			kopts = append(kopts, k3s.WithRegistryMirror(rname, endpoints...))
 		}
 	}
+
+	kopts = append(kopts, k3s.WithNetworks(networks...))
 
 	harness, err := k3s.New(r.id, kopts...)
 	if err != nil {

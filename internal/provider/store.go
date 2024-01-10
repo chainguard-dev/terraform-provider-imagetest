@@ -1,12 +1,15 @@
 package provider
 
 import (
+	"log/slog"
 	"os"
 	"sync"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/environment"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	petname "github.com/dustinkirkland/golang-petname"
+	slogmulti "github.com/samber/slog-multi"
 )
 
 const RuntimeLabelEnv = "IMAGETEST_LABELS"
@@ -38,6 +41,18 @@ func NewProviderStore() *ProviderStore {
 func (s *ProviderStore) RandomID() string {
 	// h/t dustin
 	return petname.Generate(2, "-")
+}
+
+func (s *ProviderStore) Logger() *slog.Logger {
+	handlers := []slog.Handler{
+		log.TFOption{}.NewTFHandler(),
+	}
+
+	return slog.New(
+		slogmulti.Fanout(
+			handlers...,
+		),
+	)
 }
 
 func newSmap[K comparable, V any]() *smap[K, V] {

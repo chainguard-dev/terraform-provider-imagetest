@@ -7,6 +7,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/environment"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/features"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -150,6 +151,8 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	ctx = log.WithCtx(ctx, r.store.Logger())
 
 	data.Id = types.StringValue(r.id)
 

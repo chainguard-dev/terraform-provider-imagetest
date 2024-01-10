@@ -3,11 +3,11 @@ package provider
 import (
 	"context"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -72,19 +72,21 @@ func (r *HarnessTeardownResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
+	ctx = log.WithCtx(ctx, r.store.Logger())
+
 	harness, ok := r.store.harnesses.Get(data.HarnessId.ValueString())
 	if !ok {
 		resp.Diagnostics.AddError("invalid harness id", "...")
 		return
 	}
 
-	tflog.Info(ctx, "Waiting for features referencing harness to complete...", map[string]interface{}{})
+	log.Info(ctx, "waiting for features referencing harness to complete", "harness", data.HarnessId.ValueString())
 	if err := harness.Done(); err != nil {
 		resp.Diagnostics.AddError("harness failed", err.Error())
 		return
 	}
 
-	tflog.Info(ctx, "Destroying harness...", map[string]interface{}{})
+	log.Info(ctx, "features references complete, destroying harness")
 	if err := harness.Destroy(ctx); err != nil {
 		resp.Diagnostics.AddError("failed during harness destroy", err.Error())
 		return
