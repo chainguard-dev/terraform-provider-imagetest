@@ -13,41 +13,46 @@ func TestAccFeatureResource(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create and read testing
 			{
+				ExpectNonEmptyPlan: true,
 				Config: `
-resource "imagetest_harness_container" "test" {}
-resource "imagetest_harness_teardown" "test" { harness = imagetest_harness_container.test.id }
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_container" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
 resource "imagetest_feature" "test" {
   name = "Ordering"
   description = "Test the step ordering"
-  harness = imagetest_harness_container.test.id
+  harness = imagetest_harness_container.test
   before = [
     {
       name = "1"
-      cmd = "echo 1 >> /tmp/feature_test"
+      cmd = "echo first >> /tmp/feature_test"
     },
   ]
   after = [
     {
       name = "3"
-      cmd = "echo 3 >> /tmp/feature_test"
+      cmd = "echo third >> /tmp/feature_test"
     },
     {
       name = "assert"
       cmd = <<EOF
         cat /tmp/feature_test
-        echo -e "1\n2\n3" | diff - /tmp/feature_test > /dev/null
+        echo -e "first\nsecond\nthird" | diff - /tmp/feature_test > /dev/null
       EOF
     },
   ]
   steps = [
     {
       name = "2"
-      cmd = "echo 2 >> /tmp/feature_test"
+      cmd = "echo second >> /tmp/feature_test"
     },
   ]
 }
         `,
-				Check: resource.ComposeAggregateTestCheckFunc(),
 			},
 		},
 	})

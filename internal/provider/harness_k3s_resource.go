@@ -2,8 +2,10 @@ package provider
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,6 +20,7 @@ var (
 	_ resource.Resource                = &HarnessK3sResource{}
 	_ resource.ResourceWithConfigure   = &HarnessK3sResource{}
 	_ resource.ResourceWithImportState = &HarnessK3sResource{}
+	_ resource.ResourceWithModifyPlan  = &HarnessK3sResource{}
 )
 
 func NewHarnessK3sResource() resource.Resource {
@@ -26,13 +29,16 @@ func NewHarnessK3sResource() resource.Resource {
 
 // HarnessK3sResource defines the resource implementation.
 type HarnessK3sResource struct {
-	id    string
-	store *ProviderStore
+	HarnessResource
 }
 
 // HarnessK3sResourceModel describes the resource data model.
 type HarnessK3sResourceModel struct {
-	Id                   types.String                             `tfsdk:"id"`
+	Id        types.String             `tfsdk:"id"`
+	Name      types.String             `tfsdk:"name"`
+	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
+	Skipped   types.Bool               `tfsdk:"skipped"`
+
 	Image                types.String                             `tfsdk:"image"`
 	DisableCni           types.Bool                               `tfsdk:"disable_cni"`
 	DisableTraefik       types.Bool                               `tfsdk:"disable_traefik"`
@@ -71,10 +77,7 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container networked to a running k3s cluster.`,
 
-		Attributes: map[string]schema.Attribute{
-			"id": schema.StringAttribute{
-				Computed: true,
-			},
+		Attributes: addHarnessResourceSchemaAttributes(map[string]schema.Attribute{
 			"disable_cni": schema.BoolAttribute{
 				Description: "When true, the builtin (flannel) CNI will be disabled.",
 				Optional:    true,
@@ -157,36 +160,29 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 					},
 				},
 			},
-		},
+		}),
 	}
-}
-
-func (r *HarnessK3sResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// Prevent panic if the provider has not been configured.
-	if req.ProviderData == nil {
-		return
-	}
-
-	store, ok := req.ProviderData.(*ProviderStore)
-	if !ok {
-		resp.Diagnostics.AddError("invalid provider data", "...")
-		return
-	}
-
-	r.id = store.RandomID()
-	r.store = store
 }
 
 func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data HarnessK3sResourceModel
+	ctx = log.WithCtx(ctx, r.store.Logger())
 
-	// Read Terraform plan data into the model
+	var data HarnessK3sResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	data.Id = types.StringValue(r.id)
+	skipped := r.ShouldSkip(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Skipped = types.BoolValue(skipped)
+
+	if data.Skipped.ValueBool() {
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
 
 	kopts := []k3s.Option{
 		k3s.WithImage(data.Image.ValueString()),
@@ -237,13 +233,21 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts = append(kopts, k3s.WithNetworks(networks...))
 
-	harness, err := k3s.New(r.id, kopts...)
+	harness, err := k3s.New(data.Id.ValueString(), kopts...)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to initialize k3s harness", err.Error())
 		return
 	}
+	r.store.harnesses.Set(data.Id.ValueString(), harness)
 
-	r.store.harnesses.Set(r.id, harness)
+	log.Info(ctx, fmt.Sprintf("creating k3s harness [%s]", data.Id.ValueString()))
+
+	// Finally, create the harness
+	// TODO: Change this signature
+	if _, err := harness.Setup()(ctx); err != nil {
+		resp.Diagnostics.AddError("failed to setup harness", err.Error())
+		return
+	}
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

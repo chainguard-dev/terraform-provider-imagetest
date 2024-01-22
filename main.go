@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -38,7 +40,11 @@ func main() {
 		Debug:   debug,
 	}
 
-	err := providerserver.Serve(context.Background(), provider.New(version), opts)
+	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	err := providerserver.Serve(ctx, provider.New(version), opts)
 	if err != nil {
 		log.Fatal(err.Error())
 	}

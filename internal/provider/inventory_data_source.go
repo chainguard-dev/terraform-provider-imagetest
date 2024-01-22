@@ -1,0 +1,89 @@
+package provider
+
+import (
+	"context"
+	"os"
+
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+)
+
+// Ensure provider defined types fully satisfy framework interfaces.
+var (
+	_ datasource.DataSource = &InventoryDataSource{}
+)
+
+func NewInventoryDataSource() datasource.DataSource {
+	return &InventoryDataSource{}
+}
+
+// InventoryDataSource defines the data source implementation.
+type InventoryDataSource struct {
+	store *ProviderStore
+}
+
+// InventoryDataSourceModel describes the data source data model.
+type InventoryDataSourceModel struct {
+	Seed types.String `tfsdk:"seed"`
+}
+
+func (d *InventoryDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_inventory"
+}
+
+func (d *InventoryDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		// This description is used by the documentation generator and the language server.
+		MarkdownDescription: "Example data source",
+
+		Attributes: map[string]schema.Attribute{
+			"seed": schema.StringAttribute{
+				Computed: true,
+			},
+		},
+	}
+}
+
+func (d *InventoryDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	// Prevent panic if the provider has not been configured.
+	if req.ProviderData == nil {
+		return
+	}
+
+	store, ok := req.ProviderData.(*ProviderStore)
+	if !ok {
+		resp.Diagnostics.AddError("invalid provider data", "...")
+		return
+	}
+
+	d.store = store
+}
+
+func (d *InventoryDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	ctx = log.WithCtx(ctx, d.store.Logger())
+
+	var data InventoryDataSourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	f, err := os.CreateTemp("", "imagetest-")
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create temp file", err.Error())
+		return
+	}
+	defer f.Close()
+
+	data.Seed = types.StringValue(f.Name())
+
+	if err := d.store.Inventory(data).Create(ctx); err != nil {
+		resp.Diagnostics.AddError("failed to create inventory", err.Error())
+		return
+	}
+
+	// Save data into Terraform state
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}

@@ -17,7 +17,7 @@ Example resource
 
 ### Required
 
-- `harness` (String) The ID of the test harness to use for the feature
+- `harness` (Attributes) (see [below for nested schema](#nestedatt--harness))
 - `name` (String) The name of the feature
 
 ### Optional
@@ -27,10 +27,30 @@ Example resource
 - `description` (String) A descriptor of the feature
 - `labels` (Map of String) A set of labels used to optionally filter execution of the feature
 - `steps` (Attributes List) Actions to run against the harness. (see [below for nested schema](#nestedatt--steps))
+- `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
+- `id` (String) ID is an encoded hash of the feature name and harness ID. It is used as a computed unique identifier of the feature within a given harness.
+
+<a id="nestedatt--harness"></a>
+### Nested Schema for `harness`
+
+Required:
+
+- `id` (String)
+- `inventory` (Attributes) (see [below for nested schema](#nestedatt--harness--inventory))
+- `name` (String)
+- `skipped` (Boolean)
+
+<a id="nestedatt--harness--inventory"></a>
+### Nested Schema for `harness.inventory`
+
+Required:
+
+- `seed` (String)
+
+
 
 <a id="nestedatt--after"></a>
 ### Nested Schema for `after`
@@ -66,3 +86,11 @@ Required:
 Optional:
 
 - `name` (String)
+
+
+<a id="nestedatt--timeouts"></a>
+### Nested Schema for `timeouts`
+
+Optional:
+
+- `create` (String) A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as "30s" or "2h45m". Valid time units are "s" (seconds), "m" (minutes), "h" (hours).

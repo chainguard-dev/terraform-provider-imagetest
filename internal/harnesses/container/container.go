@@ -2,6 +2,7 @@ package container
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
@@ -42,7 +43,7 @@ func (h *container) StepFn(command string) types.StepFn {
 		log.Info(ctx, "stepping in container", "command", command)
 		r, err := h.provider.Exec(ctx, command)
 		if err != nil {
-			return ctx, err
+			return ctx, fmt.Errorf("failed to execute command: %w", err)
 		}
 
 		out, err := io.ReadAll(r)

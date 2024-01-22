@@ -18,6 +18,8 @@ description: |-
 ### Optional
 
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
+- `labels` (Map of String)
+- `log` (Attributes) (see [below for nested schema](#nestedatt--log))
 
 <a id="nestedatt--harnesses"></a>
 ### Nested Schema for `harnesses`
@@ -59,7 +61,16 @@ Required:
 
 Optional:
 
+- `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--harnesses--k3s--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--harnesses--k3s--registries))
+
+<a id="nestedatt--harnesses--k3s--networks"></a>
+### Nested Schema for `harnesses.k3s.networks`
+
+Required:
+
+- `name` (String) The name of the existing network to attach the harness containers to.
+
 
 <a id="nestedatt--harnesses--k3s--registries"></a>
 ### Nested Schema for `harnesses.k3s.registries`
@@ -96,3 +107,17 @@ Optional:
 - `ca_file` (String)
 - `cert_file` (String)
 - `key_file` (String)
+
+
+
+
+
+<a id="nestedatt--log"></a>
+### Nested Schema for `log`
+
+Optional:
+
+- `tf` (Attributes) Output feature logs to logs written to stdout by TF_LOG=$LEVEL. (see [below for nested schema](#nestedatt--log--tf))
+
+<a id="nestedatt--log--tf"></a>
+### Nested Schema for `log.tf`

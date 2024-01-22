@@ -71,6 +71,9 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		NetworkMode: container.NetworkMode(mode.ID),
 		Mounts:      p.req.Mounts,
 		Privileged:  p.req.Privileged,
+		RestartPolicy: container.RestartPolicy{
+			Name: "no",
+		},
 	}, nil, nil, p.name)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
@@ -118,7 +121,10 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("stopping container %s: %w", p.id, err))
 	}
 
-	if err := p.cli.ContainerRemove(ctx, p.id, types.ContainerRemoveOptions{}); err != nil {
+	if err := p.cli.ContainerRemove(ctx, p.id, types.ContainerRemoveOptions{
+		RemoveVolumes: true,
+		Force:         true,
+	}); err != nil {
 		errs = append(errs, fmt.Errorf("removing container %s: %w", p.id, err))
 	}
 
@@ -188,7 +194,7 @@ func (p *DockerProvider) Exec(ctx context.Context, command string) (io.Reader, e
 	}
 
 	if exitCode != 0 {
-		return nil, fmt.Errorf("command exited with non-zero exit code: %d\n%s", exitCode, out.String())
+		return nil, fmt.Errorf("command exited with non-zero exit code: %d\n\n%s", exitCode, out.String())
 	}
 
 	return out, nil
