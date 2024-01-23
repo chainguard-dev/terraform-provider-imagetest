@@ -2,8 +2,9 @@
 *.exe
 .DS_Store
 example.tf
-terraform.tfplan
-terraform.tfstate
+.terraform*
+terraform.tfstate*
+plan.out*
 bin/
 dist/
 modules-dev/

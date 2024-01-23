@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -19,6 +20,7 @@ var (
 	_ resource.Resource                = &HarnessContainerResource{}
 	_ resource.ResourceWithConfigure   = &HarnessContainerResource{}
 	_ resource.ResourceWithImportState = &HarnessContainerResource{}
+	_ resource.ResourceWithModifyPlan  = &HarnessContainerResource{}
 )
 
 func NewHarnessContainerResource() resource.Resource {
@@ -27,13 +29,16 @@ func NewHarnessContainerResource() resource.Resource {
 
 // HarnessContainerResource defines the resource implementation.
 type HarnessContainerResource struct {
-	id    string
-	store *ProviderStore
+	HarnessResource
 }
 
 // HarnessContainerResourceModel describes the resource data model.
 type HarnessContainerResourceModel struct {
-	Id         types.String                             `tfsdk:"id"`
+	Id        types.String             `tfsdk:"id"`
+	Name      types.String             `tfsdk:"name"`
+	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
+	Skipped   types.Bool               `tfsdk:"skipped"`
+
 	Image      types.String                             `tfsdk:"image"`
 	Privileged types.Bool                               `tfsdk:"privileged"`
 	Envs       types.Map                                `tfsdk:"envs"`
@@ -58,10 +63,7 @@ func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.Sche
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
 
-		Attributes: map[string]schema.Attribute{
-			"id": schema.StringAttribute{
-				Computed: true,
-			},
+		Attributes: addHarnessResourceSchemaAttributes(map[string]schema.Attribute{
 			"image": schema.StringAttribute{
 				Description: "The full image reference to use for the k3s container.",
 				Optional:    true,
@@ -106,35 +108,29 @@ func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.Sche
 					},
 				},
 			},
-		},
+		}),
 	}
-}
-
-func (r *HarnessContainerResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	// Prevent panic if the provider has not been configured.
-	if req.ProviderData == nil {
-		return
-	}
-
-	store, ok := req.ProviderData.(*ProviderStore)
-	if !ok {
-		resp.Diagnostics.AddError("invalid provider data", "...")
-		return
-	}
-
-	r.id = store.RandomID()
-	r.store = store
 }
 
 func (r *HarnessContainerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data HarnessContainerResourceModel
+	ctx = log.WithCtx(ctx, r.store.Logger())
 
+	var data HarnessContainerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	data.Id = types.StringValue(r.id)
+	skip := r.ShouldSkip(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Skipped = types.BoolValue(skip)
+
+	if data.Skipped.ValueBool() {
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
 
 	cfg := container.Config{
 		Image:      data.Image.ValueString(),
@@ -197,12 +193,21 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		cfg.Env[k] = v
 	}
 
-	harness, err := container.New(ctx, r.id, cfg)
+	harness, err := container.New(ctx, data.Id.ValueString(), cfg)
 	if err != nil {
 		resp.Diagnostics.AddError("invalid provider data", "...")
 		return
 	}
-	r.store.harnesses.Set(r.id, harness)
+	r.store.harnesses.Set(data.Id.ValueString(), harness)
+
+	log.Info(ctx, fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
+
+	// Finally, create the harness
+	// TODO: Change this signature
+	if _, err := harness.Setup()(ctx); err != nil {
+		resp.Diagnostics.AddError("failed to setup harness", err.Error())
+		return
+	}
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

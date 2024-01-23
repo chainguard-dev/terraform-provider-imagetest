@@ -12,6 +12,7 @@ type Opt struct {
 	Traefik       bool
 	Cni           bool
 	MetricsServer bool
+	Networks      []string
 
 	Registries map[string]*RegistryOpt
 	Mirrors    map[string]*RegistryMirrorOpt
@@ -108,6 +109,16 @@ func WithRegistryMirror(registry string, endpoints ...string) Option {
 		opt.Mirrors[registry] = &RegistryMirrorOpt{
 			Endpoints: endpoints,
 		}
+		return nil
+	}
+}
+
+func WithNetworks(networks ...string) Option {
+	return func(opt *Opt) error {
+		if opt.Networks == nil {
+			opt.Networks = []string{}
+		}
+		opt.Networks = append(opt.Networks, networks...)
 		return nil
 	}
 }

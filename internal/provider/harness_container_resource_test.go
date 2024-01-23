@@ -11,24 +11,28 @@ func TestAccHarnessContainerResource(t *testing.T) {
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
-			// Create testing
 			{
+				ExpectNonEmptyPlan: true,
 				Config: `
-			resource "imagetest_harness_container" "test" {}
-			resource "imagetest_harness_teardown" "test" { harness = imagetest_harness_container.test.id }
-			resource "imagetest_feature" "test" {
-			  name = "Simple container based test"
-			  description = "Test that we can spin up a container and run some steps"
-			  harness = imagetest_harness_container.test.id
-			  steps = [
-			    {
-			      name = "Echo"
-			      cmd = "echo hello world"
-			    },
-			  ]
-			}
-			          `,
-				Check: resource.ComposeAggregateTestCheckFunc(),
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_container" "test" {
+  name      = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name        = "Simple container based test"
+  description = "Test that we can spin up a container and run some steps"
+  harness     = imagetest_harness_container.test
+  steps = [
+    {
+      name = "wolfi"
+      cmd  = "cat /etc/os-release | grep -q 'wolfi'"
+    },
+  ]
+}
+        `,
 			},
 		},
 	})
@@ -40,6 +44,7 @@ func TestAccHarnessContainerResourceProvider(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
+				ExpectNonEmptyPlan: true,
 				Config: `
 provider "imagetest" {
   harnesses = {
@@ -51,12 +56,22 @@ provider "imagetest" {
     }
   }
 }
-resource "imagetest_harness_container" "test" { envs = { "bar" = "bar", "baz" = "baz" }}
-resource "imagetest_harness_teardown" "test" { harness = imagetest_harness_container.test.id }
+
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_container" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  envs = {
+    bar = "bar"
+    baz = "baz"
+  }
+}
+
 resource "imagetest_feature" "test" {
   name = "Simple container based test"
   description = "Test that we can spin up a container and run some steps"
-  harness = imagetest_harness_container.test.id
+  harness = imagetest_harness_container.test
   steps = [
     {
       name = "Echo"

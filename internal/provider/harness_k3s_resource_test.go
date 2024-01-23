@@ -13,13 +13,19 @@ func TestAccHarnessK3sResource(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create testing
 			{
+				ExpectNonEmptyPlan: true,
 				Config: `
-resource "imagetest_harness_k3s" "test" {}
-resource "imagetest_harness_teardown" "test" { harness = imagetest_harness_k3s.test.id }
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
 resource "imagetest_feature" "test" {
   name = "Simple k3s based test"
   description = "Test that we can spin up a k3s cluster and run some steps"
-  harness = imagetest_harness_k3s.test.id
+  harness = imagetest_harness_k3s.test
   steps = [
     {
       name = "Access cluster"
@@ -28,7 +34,6 @@ resource "imagetest_feature" "test" {
   ]
 }
           `,
-				Check: resource.ComposeAggregateTestCheckFunc(),
 			},
 		},
 	})

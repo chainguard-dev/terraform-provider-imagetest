@@ -24,7 +24,9 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
+	Log       *ProviderLoggerModel           `tfsdk:"log"`
 	Harnesses *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
+	Labels    types.Map                      `tfsdk:"labels"`
 }
 
 type ImageTestProviderHarnessModel struct {
@@ -39,8 +41,15 @@ type ProviderHarnessContainerModel struct {
 }
 
 type ProviderHarnessK3sModel struct {
-	Registries map[string]RegistryResourceModel `tfsdk:"registries"`
+	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Registries map[string]RegistryResourceModel         `tfsdk:"registries"`
 }
+
+type ProviderLoggerModel struct {
+	Tf *ProviderLoggerTfModel `tfsdk:"tf"`
+}
+
+type ProviderLoggerTfModel struct{}
 
 func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "imagetest"
@@ -50,6 +59,19 @@ func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataR
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"labels": schema.MapAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+			},
+			"log": schema.SingleNestedAttribute{
+				Optional: true,
+				Attributes: map[string]schema.Attribute{
+					"tf": schema.SingleNestedAttribute{
+						Description: "Output feature logs to logs written to stdout by TF_LOG=$LEVEL.",
+						Optional:    true,
+					},
+				},
+			},
 			"harnesses": schema.SingleNestedAttribute{
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
@@ -94,6 +116,18 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					"k3s": schema.SingleNestedAttribute{
 						Optional: true,
 						Attributes: map[string]schema.Attribute{
+							"networks": schema.MapNestedAttribute{
+								Description: "A map of existing networks to attach the harness containers to.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"name": schema.StringAttribute{
+											Description: "The name of the existing network to attach the harness containers to.",
+											Required:    true,
+										},
+									},
+								},
+							},
 							"registries": schema.MapNestedAttribute{
 								Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
 								Optional:    true,
@@ -150,13 +184,19 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 
 func (p *ImageTestProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var data ImageTestProviderModel
-
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
+	labels := make(map[string]string)
+	if diag := data.Labels.ElementsAs(ctx, &labels, false); diag.HasError() {
+		resp.Diagnostics.AddError("invalid provider data", "...")
+		return
+	}
+	p.store.labels = labels
+
+	// Store any "global" provider configuration in the store
 	p.store.providerResourceData = data
 
 	resp.DataSourceData = p.store
@@ -167,14 +207,16 @@ func (p *ImageTestProvider) Resources(ctx context.Context) []func() resource.Res
 	return []func() resource.Resource{
 		NewFeatureResource,
 		// Harnesses
-		NewHarnessTeardownResource,
 		NewHarnessK3sResource,
 		NewHarnessContainerResource,
 	}
 }
 
 func (p *ImageTestProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		NewInventoryDataSource,
+		NewRandomDataSource,
+	}
 }
 
 func New(version string) func() provider.Provider {

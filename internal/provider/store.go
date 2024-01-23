@@ -1,43 +1,69 @@
 package provider
 
 import (
-	"os"
+	"crypto/sha256"
+	"log/slog"
+	"math/big"
 	"sync"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/environment"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
-	petname "github.com/dustinkirkland/golang-petname"
+	slogmulti "github.com/samber/slog-multi"
 )
-
-const RuntimeLabelEnv = "IMAGETEST_LABELS"
 
 // ProviderStore manages the global runtime state of the provider. The provider
 // uses this to lookup the defined relationships between resources, and manage
-// shared external state (such as open ports).
+// shared external state.
 type ProviderStore struct {
-	env           types.Environment
-	portAllocator *environment.PortAllocator
 	// harnesses stores a map of the available harnesses, keyed by their ID.
 	harnesses *smap[string, types.Harness]
-
+	labels    map[string]string
 	// providerResourceData stores the data for the provider resource.
-	// TODO: This shouldn't need to be like this
+	// TODO: there's probably a way to do this without passing around the whole
+	// model
 	providerResourceData ImageTestProviderModel
 }
 
 func NewProviderStore() *ProviderStore {
 	return &ProviderStore{
-		portAllocator: environment.NewPortAllocator(),
-		env: environment.New(
-			environment.WithLabelsFromEnv(os.Getenv(RuntimeLabelEnv)),
-		),
+		labels:    make(map[string]string),
 		harnesses: newSmap[string, types.Harness](),
 	}
 }
 
-func (s *ProviderStore) RandomID() string {
-	// h/t dustin
-	return petname.Generate(2, "-")
+func (s *ProviderStore) Logger() *slog.Logger {
+	handlers := []slog.Handler{
+		log.TFOption{}.NewTFHandler(),
+	}
+
+	return slog.New(
+		slogmulti.Fanout(
+			handlers...,
+		),
+	)
+}
+
+func (s *ProviderStore) Encode(components ...string) (string, error) {
+	hasher := sha256.New()
+	for _, component := range components {
+		_, err := hasher.Write([]byte(component))
+		if err != nil {
+			return "", err
+		}
+	}
+	hashed := hasher.Sum(nil)
+
+	hashint := new(big.Int).SetBytes(hashed)
+	// truncate it to some reasonable length, knowing these will mostly be used
+	// as suffixes and prefixes and conflict is unlikely
+	return hashint.Text(36)[:5], nil
+}
+
+// Inventory returns an instance of the inventory per inventory data source.
+func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
+	// TODO: More backends?
+	return inventory.NewFile(data.Seed.ValueString())
 }
 
 func newSmap[K comparable, V any]() *smap[K, V] {

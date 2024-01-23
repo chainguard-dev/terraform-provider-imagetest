@@ -13,9 +13,9 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 const (
@@ -76,6 +76,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 			Image:      ref.Name(),
 			Cmd:        []string{"server"},
 			Privileged: true,
+			Networks:   opt.Networks,
 			Files: []provider.File{
 				{
 					Contents: kcfg,
@@ -107,7 +108,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 			Image:      "cgr.dev/chainguard/kubectl:latest-dev",
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"tail -f /dev/null"},
-			Networks:   []string{k3s.serviceName()},
+			Networks:   append([]string{k3s.serviceName()}, opt.Networks...),
 			Env: map[string]string{
 				"KUBECONFIG": "/k3s-config/k3s.yaml",
 			},
@@ -172,6 +173,7 @@ KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --se
 			return nil
 		})
 
+		log.Info(ctx, "Waiting for k3s service to be ready")
 		if err := g.Wait(); err != nil {
 			return ctx, err
 		}
@@ -209,6 +211,7 @@ func (h *k3s) Destroy(ctx context.Context) error {
 // StepFn implements types.Harness.
 func (h *k3s) StepFn(command string) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
+		log.Info(ctx, "stepping in k3s sandbox container", "command", command)
 		r, err := h.sandbox.Exec(ctx, command)
 		if err != nil {
 			return ctx, err
@@ -219,10 +222,7 @@ func (h *k3s) StepFn(command string) types.StepFn {
 			return ctx, err
 		}
 
-		tflog.Info(ctx, "Executing step...", map[string]interface{}{
-			"command": command,
-			"out":     string(out),
-		})
+		log.Info(ctx, "finished stepping in k3s sandbox container", "command", command, "out", string(out))
 
 		return ctx, nil
 	}
