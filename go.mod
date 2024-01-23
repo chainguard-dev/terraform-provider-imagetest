@@ -6,7 +6,7 @@ require (
 	github.com/dustinkirkland/golang-petname v0.0.0-20231002161417-6a283f1aaaf2
 	github.com/go-logr/logr v1.4.1
 	github.com/google/go-containerregistry v0.17.0
-	github.com/hashicorp/terraform-plugin-docs v0.16.0
+	github.com/hashicorp/terraform-plugin-docs v0.17.0
 	github.com/hashicorp/terraform-plugin-framework v1.5.0
 	github.com/hashicorp/terraform-plugin-framework-timeouts v0.4.1
 	github.com/hashicorp/terraform-plugin-go v0.20.0
@@ -17,6 +17,7 @@ require (
 )
 
 require (
+	github.com/Kunde21/markdownfmt/v3 v3.1.0 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/cli v24.0.7+incompatible // indirect
@@ -26,6 +27,8 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.5.0 // indirect
+	github.com/hashicorp/cli v1.1.6 // indirect
+	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
@@ -33,8 +36,11 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/samber/lo v1.39.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/yuin/goldmark v1.6.0 // indirect
+	github.com/yuin/goldmark-meta v1.1.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 )
 
@@ -74,7 +80,6 @@ require (
 	github.com/imdario/mergo v0.3.15 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mitchellh/cli v1.1.5 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
@@ -82,7 +87,6 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/posener/complete v1.2.3 // indirect
-	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/russross/blackfriday v1.6.0 // indirect
 	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
