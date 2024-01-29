@@ -63,52 +63,9 @@ func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.Sche
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
 
-		Attributes: addHarnessResourceSchemaAttributes(map[string]schema.Attribute{
-			"image": schema.StringAttribute{
-				Description: "The full image reference to use for the k3s container.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("cgr.dev/chainguard/wolfi-base:latest"),
-			},
-			"privileged": schema.BoolAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  booldefault.StaticBool(false),
-			},
-			"envs": schema.MapAttribute{
-				Description: "Environment variables to set on the container.",
-				Optional:    true,
-				ElementType: types.StringType,
-			},
-			"networks": schema.MapNestedAttribute{
-				Description: "A map of existing networks to attach the container to.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"name": schema.StringAttribute{
-							Description: "The name of the existing network to attach the container to.",
-							Required:    true,
-						},
-					},
-				},
-			},
-			"mounts": schema.ListNestedAttribute{
-				Description: "The list of mounts to create on the container.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"source": schema.StringAttribute{
-							Description: "The relative or absolute path on the host to the source directory to mount.",
-							Required:    true,
-						},
-						"destination": schema.StringAttribute{
-							Description: "The absolute path on the container to mount the source directory.",
-							Required:    true,
-						},
-					},
-				},
-			},
-		}),
+		Attributes: addHarnessResourceSchemaAttributes(
+			addContainerResourceSchemaAttributes(),
+		),
 	}
 }
 
@@ -254,4 +211,56 @@ func (r *HarnessContainerResource) Delete(ctx context.Context, req resource.Dele
 
 func (r *HarnessContainerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// addContainerResourceSchemaAttributes adds common container resource
+// attributes to the given map. this function is provided knowing how common it
+// is for other harnesses to require some sort of container configuration.
+func addContainerResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"image": schema.StringAttribute{
+			Description: "The full image reference to use for the container.",
+			Optional:    true,
+			Computed:    true,
+			Default:     stringdefault.StaticString("cgr.dev/chainguard/wolfi-base:latest"),
+		},
+		"privileged": schema.BoolAttribute{
+			Optional: true,
+			Computed: true,
+			Default:  booldefault.StaticBool(false),
+		},
+		"envs": schema.MapAttribute{
+			Description: "Environment variables to set on the container.",
+			Optional:    true,
+			ElementType: types.StringType,
+		},
+		"networks": schema.MapNestedAttribute{
+			Description: "A map of existing networks to attach the container to.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						Description: "The name of the existing network to attach the container to.",
+						Required:    true,
+					},
+				},
+			},
+		},
+		"mounts": schema.ListNestedAttribute{
+			Description: "The list of mounts to create on the container.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"source": schema.StringAttribute{
+						Description: "The relative or absolute path on the host to the source directory to mount.",
+						Required:    true,
+					},
+					"destination": schema.StringAttribute{
+						Description: "The absolute path on the container to mount the source directory.",
+						Required:    true,
+					},
+				},
+			},
+		},
+	}
 }

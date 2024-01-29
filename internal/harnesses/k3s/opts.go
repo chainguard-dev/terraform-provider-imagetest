@@ -3,6 +3,8 @@ package k3s
 import (
 	"fmt"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
@@ -16,6 +18,8 @@ type Opt struct {
 
 	Registries map[string]*RegistryOpt
 	Mirrors    map[string]*RegistryMirrorOpt
+
+	Sandbox provider.DockerRequest
 }
 
 type RegistryOpt struct {
@@ -119,6 +123,52 @@ func WithNetworks(networks ...string) Option {
 			opt.Networks = []string{}
 		}
 		opt.Networks = append(opt.Networks, networks...)
+
+		// also append to sandbox networks
+		if opt.Sandbox.Networks == nil {
+			opt.Sandbox.Networks = []string{}
+		}
+		opt.Sandbox.Networks = append(opt.Sandbox.Networks, networks...)
+		return nil
+	}
+}
+
+func WithSandboxImage(image string) Option {
+	return func(opt *Opt) error {
+		opt.Sandbox.Image = image
+		return nil
+	}
+}
+
+func WithSandboxMounts(mounts ...mount.Mount) Option {
+	return func(opt *Opt) error {
+		if opt.Sandbox.Mounts == nil {
+			opt.Sandbox.Mounts = []mount.Mount{}
+		}
+		opt.Sandbox.Mounts = append(opt.Sandbox.Mounts, mounts...)
+		return nil
+	}
+}
+
+func WithSandboxNetworks(networks ...string) Option {
+	return func(opt *Opt) error {
+		if opt.Sandbox.Networks == nil {
+			opt.Sandbox.Networks = []string{}
+		}
+		opt.Sandbox.Networks = append(opt.Sandbox.Networks, networks...)
+		return nil
+	}
+}
+
+func WithSandboxEnv(envs provider.Env) Option {
+	return func(opt *Opt) error {
+		if opt.Sandbox.Env == nil {
+			opt.Sandbox.Env = make(provider.Env)
+		}
+
+		for k, v := range envs {
+			opt.Sandbox.Env[k] = v
+		}
 		return nil
 	}
 }
