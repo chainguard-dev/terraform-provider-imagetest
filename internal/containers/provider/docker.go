@@ -92,7 +92,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := p.cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := p.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
@@ -121,7 +121,7 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("stopping container %s: %w", p.id, err))
 	}
 
-	if err := p.cli.ContainerRemove(ctx, p.id, types.ContainerRemoveOptions{
+	if err := p.cli.ContainerRemove(ctx, p.id, container.RemoveOptions{
 		RemoveVolumes: true,
 		Force:         true,
 	}); err != nil {
