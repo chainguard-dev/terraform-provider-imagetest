@@ -64,7 +64,7 @@ func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.Sche
 		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
 
 		Attributes: addHarnessResourceSchemaAttributes(
-			addContainerResourceSchemaAttributes(),
+			addContainerResourceSchemaAttributes(map[string]schema.Attribute{}),
 		),
 	}
 }
@@ -216,8 +216,8 @@ func (r *HarnessContainerResource) ImportState(ctx context.Context, req resource
 // addContainerResourceSchemaAttributes adds common container resource
 // attributes to the given map. this function is provided knowing how common it
 // is for other harnesses to require some sort of container configuration.
-func addContainerResourceSchemaAttributes() map[string]schema.Attribute {
-	return map[string]schema.Attribute{
+func addContainerResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
+	defaults := map[string]schema.Attribute{
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the container.",
 			Optional:    true,
@@ -263,4 +263,10 @@ func addContainerResourceSchemaAttributes() map[string]schema.Attribute {
 			},
 		},
 	}
+
+	for k, v := range attrs {
+		defaults[k] = v
+	}
+
+	return defaults
 }

@@ -174,7 +174,17 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 			"sandbox": schema.SingleNestedAttribute{
 				Description: "A map of configuration for the sandbox container.",
 				Optional:    true,
-				Attributes:  addContainerResourceSchemaAttributes(),
+				Attributes: addContainerResourceSchemaAttributes(
+					map[string]schema.Attribute{
+						// Override the default image to use one with kubectl instead
+						"image": schema.StringAttribute{
+							Description: "The full image reference to use for the container.",
+							Optional:    true,
+							Computed:    true,
+							Default:     stringdefault.StaticString("cgr.dev/chainguard/kubectl:latest-dev"),
+						},
+					},
+				),
 			},
 		}),
 	}
