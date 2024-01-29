@@ -9,10 +9,18 @@ import (
 	"path/filepath"
 )
 
+type ExecConfig struct {
+	// The command to be executed in the provider
+	Command string
+
+	// The working directory to be used to execute the command
+	WorkingDir string
+}
+
 type Provider interface {
 	Start(ctx context.Context) error
 	Teardown(ctx context.Context) error
-	Exec(ctx context.Context, command string) (io.Reader, error)
+	Exec(ctx context.Context, config ExecConfig) (io.Reader, error)
 }
 
 type ContainerRequest struct {

@@ -57,11 +57,12 @@ Required:
 
 Required:
 
-- `cmd` (String)
+- `cmd` (String) The command or set of commands that should be run at this step
 
 Optional:
 
-- `name` (String)
+- `name` (String) An identifying name for this step
+- `workdir` (String) An optional working directory for the step to run in
 
 
 <a id="nestedatt--before"></a>
@@ -69,11 +70,12 @@ Optional:
 
 Required:
 
-- `cmd` (String)
+- `cmd` (String) The command or set of commands that should be run at this step
 
 Optional:
 
-- `name` (String)
+- `name` (String) An identifying name for this step
+- `workdir` (String) An optional working directory for the step to run in
 
 
 <a id="nestedatt--steps"></a>
@@ -81,11 +83,12 @@ Optional:
 
 Required:
 
-- `cmd` (String)
+- `cmd` (String) The command or set of commands that should be run at this step
 
 Optional:
 
-- `name` (String)
+- `name` (String) An identifying name for this step
+- `workdir` (String) An optional working directory for the step to run in
 
 
 <a id="nestedatt--timeouts"></a>

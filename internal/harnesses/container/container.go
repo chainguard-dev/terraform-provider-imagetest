@@ -38,10 +38,13 @@ func (h *container) Destroy(ctx context.Context) error {
 }
 
 // StepFn implements types.Harness.
-func (h *container) StepFn(command string) types.StepFn {
+func (h *container) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in container", "command", command)
-		r, err := h.provider.Exec(ctx, command)
+		log.Info(ctx, "stepping in container", "command", config.Command)
+		r, err := h.provider.Exec(ctx, provider.ExecConfig{
+			Command:    config.Command,
+			WorkingDir: config.WorkingDir,
+		})
 		if err != nil {
 			return ctx, fmt.Errorf("failed to execute command: %w", err)
 		}
@@ -50,7 +53,7 @@ func (h *container) StepFn(command string) types.StepFn {
 		if err != nil {
 			return ctx, err
 		}
-		log.Info(ctx, "finished stepping in container", "command", command, "out", string(out))
+		log.Info(ctx, "finished stepping in container", "command", config.Command, "out", string(out))
 
 		return ctx, nil
 	}

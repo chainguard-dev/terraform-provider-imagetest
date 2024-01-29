@@ -54,8 +54,9 @@ type FeatureResourceModel struct {
 }
 
 type FeatureStepModel struct {
-	Name types.String `tfsdk:"name"`
-	Cmd  types.String `tfsdk:"cmd"`
+	Name    types.String `tfsdk:"name"`
+	Cmd     types.String `tfsdk:"cmd"`
+	Workdir types.String `tfsdk:"workdir"`
 }
 
 func (r *FeatureResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -86,10 +87,16 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"name": schema.StringAttribute{
-							Optional: true,
+							Description: "An identifying name for this step",
+							Optional:    true,
 						},
 						"cmd": schema.StringAttribute{
-							Required: true,
+							Description: "The command or set of commands that should be run at this step",
+							Required:    true,
+						},
+						"workdir": schema.StringAttribute{
+							Description: "An optional working directory for the step to run in",
+							Optional:    true,
 						},
 					},
 				},
@@ -100,10 +107,16 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"name": schema.StringAttribute{
-							Optional: true,
+							Description: "An identifying name for this step",
+							Optional:    true,
 						},
 						"cmd": schema.StringAttribute{
-							Required: true,
+							Description: "The command or set of commands that should be run at this step",
+							Required:    true,
+						},
+						"workdir": schema.StringAttribute{
+							Description: "An optional working directory for the step to run in",
+							Optional:    true,
 						},
 					},
 				},
@@ -114,10 +127,16 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"name": schema.StringAttribute{
-							Optional: true,
+							Description: "An identifying name for this step",
+							Optional:    true,
 						},
 						"cmd": schema.StringAttribute{
-							Required: true,
+							Description: "The command or set of commands that should be run at this step",
+							Required:    true,
+						},
+						"workdir": schema.StringAttribute{
+							Description: "An optional working directory for the step to run in",
+							Optional:    true,
 						},
 					},
 				},
@@ -256,15 +275,15 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		WithDescription(data.Description.ValueString())
 
 	for _, before := range data.Before {
-		builder = builder.WithBefore(before.Name.ValueString(), harness.StepFn(before.Cmd.ValueString()))
+		builder = builder.WithBefore(before.Name.ValueString(), harness.StepFn(before.StepConfig()))
 	}
 
 	for _, step := range data.Steps {
-		builder = builder.WithAssessment(step.Name.ValueString(), harness.StepFn(step.Cmd.ValueString()))
+		builder = builder.WithAssessment(step.Name.ValueString(), harness.StepFn(step.StepConfig()))
 	}
 
 	for _, after := range data.After {
-		builder = builder.WithAfter(after.Name.ValueString(), harness.StepFn(after.Cmd.ValueString()))
+		builder = builder.WithAfter(after.Name.ValueString(), harness.StepFn(after.StepConfig()))
 	}
 
 	log.Info(ctx, fmt.Sprintf("testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString()))
@@ -345,4 +364,11 @@ func (r *FeatureResource) Delete(ctx context.Context, req resource.DeleteRequest
 
 func (r *FeatureResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func (s *FeatureStepModel) StepConfig() itypes.StepConfig {
+	return itypes.StepConfig{
+		Command:    s.Cmd.ValueString(),
+		WorkingDir: s.Workdir.ValueString(),
+	}
 }
