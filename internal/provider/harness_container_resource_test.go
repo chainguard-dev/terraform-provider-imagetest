@@ -85,3 +85,42 @@ resource "imagetest_feature" "test" {
 		},
 	})
 }
+
+func TestAccHarnessContainerResourceProviderWithWorkingDir(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_container" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple container based test"
+  description = "Test that we can spin up a container and run some steps with a working directory"
+  harness = imagetest_harness_container.test
+  steps = [
+    {
+      workdir = "/tmp"
+      name = "Echo"
+      cmd = "echo test >> .testfile"
+    },
+    {
+      workdir = "/tmp"
+      name = "Cat"
+      cmd = "cat .testfile"
+    }
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
+	})
+}

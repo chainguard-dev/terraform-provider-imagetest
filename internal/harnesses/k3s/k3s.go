@@ -148,17 +148,21 @@ func (h *k3s) Setup() types.StepFn {
 		g.Go(func() error {
 			// Wait for the k3s cluster to be ready
 			// TODO: Replace this with proper wait.Conditions, this will be ~50% faster if we just scan the startup logs looking for containerd's ready message
-			if _, err := h.service.Exec(ctx, `
+			if _, err := h.service.Exec(ctx, provider.ExecConfig{
+				Command: `
 tries=0; while ! k3s kubectl wait --for condition=ready nodes --all --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done
 tries=0; while ! k3s kubectl wait --for condition=ready pods --all -n kube-system --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done
-      `); err != nil {
+      `,
+			}); err != nil {
 				return fmt.Errorf("waiting for k3s cluster: %w", err)
 			}
 
 			// Move the kubeconfig into place, and give it the appropriate endpoint
-			if _, err := h.service.Exec(ctx, fmt.Sprintf(`
+			if _, err := h.service.Exec(ctx, provider.ExecConfig{
+				Command: fmt.Sprintf(`
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --server "https://%[1]s:6443" > /dev/null
-        `, h.id+"-service")); err != nil {
+        `, h.id+"-service"),
+			}); err != nil {
 				return fmt.Errorf("creating kubeconfig: %w", err)
 			}
 
@@ -209,10 +213,13 @@ func (h *k3s) Destroy(ctx context.Context) error {
 }
 
 // StepFn implements types.Harness.
-func (h *k3s) StepFn(command string) types.StepFn {
+func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in k3s sandbox container", "command", command)
-		r, err := h.sandbox.Exec(ctx, command)
+		log.Info(ctx, "stepping in k3s sandbox container", "command", config.Command)
+		r, err := h.sandbox.Exec(ctx, provider.ExecConfig{
+			Command:    config.Command,
+			WorkingDir: config.WorkingDir,
+		})
 		if err != nil {
 			return ctx, err
 		}
@@ -222,7 +229,7 @@ func (h *k3s) StepFn(command string) types.StepFn {
 			return ctx, err
 		}
 
-		log.Info(ctx, "finished stepping in k3s sandbox container", "command", command, "out", string(out))
+		log.Info(ctx, "finished stepping in k3s sandbox container", "command", config.Command, "out", string(out))
 
 		return ctx, nil
 	}

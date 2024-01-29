@@ -140,7 +140,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		Env:        map[string]string{},
 	}
 
-	mounts := []ContainerResourceMountModel{}
+	mounts := make([]ContainerResourceMountModel, 0)
 	if data.Mounts != nil {
 		mounts = data.Mounts
 	}

@@ -28,9 +28,9 @@ func NewHost() types.Harness {
 }
 
 // StepFn implements types.Harn.
-func (h *host) StepFn(command string) types.StepFn {
+func (h *host) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
-		if _, err := h.exec(ctx, []string{"sh", "-c", command}); err != nil {
+		if _, err := h.exec(ctx, []string{"sh", "-c", config.Command}); err != nil {
 			return ctx, fmt.Errorf("running step on host: %w", err)
 		}
 		return ctx, nil

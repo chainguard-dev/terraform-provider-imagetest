@@ -151,12 +151,15 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 }
 
 // Exec implements Provider.
-func (p *DockerProvider) Exec(ctx context.Context, command string) (io.Reader, error) {
-	resp, err := p.cli.ContainerExecCreate(ctx, p.id, types.ExecConfig{
-		Cmd:          []string{"/bin/sh", "-c", command},
+func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader, error) {
+	execConfig := types.ExecConfig{
+		Cmd:          []string{"/bin/sh", "-c", config.Command},
+		WorkingDir:   config.WorkingDir,
 		AttachStderr: true,
 		AttachStdout: true,
-	})
+	}
+
+	resp, err := p.cli.ContainerExecCreate(ctx, p.id, execConfig)
 	if err != nil {
 		return nil, err
 	}
