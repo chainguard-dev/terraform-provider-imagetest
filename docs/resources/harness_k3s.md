@@ -28,6 +28,7 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 - `image` (String) The full image reference to use for the k3s container.
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
+- `sandbox` (Attributes) A map of configuration for the sandbox container. (see [below for nested schema](#nestedatt--sandbox))
 
 ### Read-Only
 
@@ -85,3 +86,32 @@ Optional:
 - `ca_file` (String)
 - `cert_file` (String)
 - `key_file` (String)
+
+
+
+<a id="nestedatt--sandbox"></a>
+### Nested Schema for `sandbox`
+
+Optional:
+
+- `envs` (Map of String) Environment variables to set on the container.
+- `image` (String) The full image reference to use for the container.
+- `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--sandbox--mounts))
+- `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--sandbox--networks))
+- `privileged` (Boolean)
+
+<a id="nestedatt--sandbox--mounts"></a>
+### Nested Schema for `sandbox.mounts`
+
+Required:
+
+- `destination` (String) The absolute path on the container to mount the source directory.
+- `source` (String) The relative or absolute path on the host to the source directory to mount.
+
+
+<a id="nestedatt--sandbox--networks"></a>
+### Nested Schema for `sandbox.networks`
+
+Required:
+
+- `name` (String) The name of the existing network to attach the container to.

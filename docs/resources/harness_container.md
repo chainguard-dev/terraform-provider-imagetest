@@ -23,7 +23,7 @@ A harness that runs steps in a sandbox container.
 ### Optional
 
 - `envs` (Map of String) Environment variables to set on the container.
-- `image` (String) The full image reference to use for the k3s container.
+- `image` (String) The full image reference to use for the container.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `privileged` (Boolean)

@@ -42,6 +42,25 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		Cni:           true,
 		MetricsServer: false,
 		Traefik:       false,
+		Sandbox: provider.DockerRequest{
+			ContainerRequest: provider.ContainerRequest{
+				Image:      "cgr.dev/chainguard/kubectl:latest-dev",
+				Entrypoint: []string{"/bin/sh", "-c"},
+				Cmd:        []string{"tail -f /dev/null"},
+				Env: map[string]string{
+					"KUBECONFIG": "/k3s-config/k3s.yaml",
+				},
+				Networks: []string{"bridge"},
+				User:     "0:0",
+			},
+			Mounts: []mount.Mount{
+				{
+					Type:   mount.TypeVolume,
+					Source: id + "-config",
+					Target: "/k3s-config",
+				},
+			},
+		},
 	}
 
 	for _, o := range opts {
@@ -102,27 +121,9 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		return nil, err
 	}
 
-	sandbox, err := provider.NewDocker(k3s.sandboxName(), provider.DockerRequest{
-		ContainerRequest: provider.ContainerRequest{
-			// TODO: Dynamically build this with predetermined apks
-			Image:      "cgr.dev/chainguard/kubectl:latest-dev",
-			Entrypoint: []string{"/bin/sh", "-c"},
-			Cmd:        []string{"tail -f /dev/null"},
-			Networks:   append([]string{k3s.serviceName()}, opt.Networks...),
-			Env: map[string]string{
-				"KUBECONFIG": "/k3s-config/k3s.yaml",
-			},
-			// TODO: Not needed with wolfi-base images
-			User: "0:0",
-		},
-		Mounts: []mount.Mount{
-			{
-				Type:   mount.TypeVolume,
-				Source: id + "-config",
-				Target: "/k3s-config",
-			},
-		},
-	})
+	opt.Sandbox.Networks = append(opt.Sandbox.Networks, k3s.serviceName())
+
+	sandbox, err := provider.NewDocker(k3s.sandboxName(), opt.Sandbox)
 	if err != nil {
 		return nil, err
 	}

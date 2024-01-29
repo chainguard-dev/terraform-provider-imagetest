@@ -3,9 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -45,6 +47,7 @@ type HarnessK3sResourceModel struct {
 	DisableMetricsServer types.Bool                               `tfsdk:"disable_metrics_server"`
 	Registries           map[string]RegistryResourceModel         `tfsdk:"registries"`
 	Networks             map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Sandbox              types.Object                             `tfsdk:"sandbox"`
 }
 
 type RegistryResourceModel struct {
@@ -67,6 +70,14 @@ type RegistryResourceTlsModel struct {
 
 type RegistryResourceMirrorModel struct {
 	Endpoints types.List `tfsdk:"endpoints"`
+}
+
+type HarnessK3sSandboxResourceModel struct {
+	Image      types.String                             `tfsdk:"image"`
+	Privileged types.Bool                               `tfsdk:"privileged"`
+	Envs       types.Map                                `tfsdk:"envs"`
+	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
+	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 }
 
 func (r *HarnessK3sResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -160,6 +171,11 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 					},
 				},
 			},
+			"sandbox": schema.SingleNestedAttribute{
+				Description: "A map of configuration for the sandbox container.",
+				Optional:    true,
+				Attributes:  addContainerResourceSchemaAttributes(),
+			},
 		}),
 	}
 }
@@ -186,6 +202,43 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts := []k3s.Option{
 		k3s.WithImage(data.Image.ValueString()),
+	}
+
+	if !data.Sandbox.IsNull() {
+		sandbox := &HarnessK3sSandboxResourceModel{}
+		resp.Diagnostics.Append(data.Sandbox.As(ctx, &sandbox, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		if !sandbox.Image.IsNull() {
+			kopts = append(kopts, k3s.WithSandboxImage(sandbox.Image.ValueString()))
+		}
+
+		for _, m := range sandbox.Mounts {
+			src, err := filepath.Abs(m.Source.ValueString())
+			if err != nil {
+				resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))
+				return
+			}
+
+			kopts = append(kopts, k3s.WithSandboxMounts(mount.Mount{
+				Type:   mount.TypeBind,
+				Source: src,
+				Target: m.Destination.ValueString(),
+			}))
+		}
+
+		for _, n := range sandbox.Networks {
+			kopts = append(kopts, k3s.WithSandboxNetworks(n.Name.ValueString()))
+		}
+
+		envs := make(map[string]string)
+		if diags := sandbox.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid envs input: %s", diags.Errors()))
+			return
+		}
+		kopts = append(kopts, k3s.WithSandboxEnv(envs))
 	}
 
 	registries := make(map[string]RegistryResourceModel)
