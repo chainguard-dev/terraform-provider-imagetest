@@ -67,6 +67,9 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		Cmd:          p.req.Cmd,
 		AttachStdout: true,
 		AttachStderr: true,
+		Labels: map[string]string{
+			"imagetest": "true",
+		},
 	}, &container.HostConfig{
 		NetworkMode: container.NetworkMode(mode.ID),
 		Mounts:      p.req.Mounts,
