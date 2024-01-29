@@ -11,3 +11,7 @@ terraform-provider-imagetest:
 .PHONY: clean
 clean:
 	rm terraform-provider-imagetest
+
+.PHONY: go-generate
+go-generate:
+	go generate -v ./...
