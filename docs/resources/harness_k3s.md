@@ -29,6 +29,7 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
 - `sandbox` (Attributes) A map of configuration for the sandbox container. (see [below for nested schema](#nestedatt--sandbox))
+- `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only
 
@@ -115,3 +116,12 @@ Required:
 Required:
 
 - `name` (String) The name of the existing network to attach the container to.
+
+
+
+<a id="nestedatt--timeouts"></a>
+### Nested Schema for `timeouts`
+
+Optional:
+
+- `create` (String) The maximum time to wait for the k3s harness to be created.
