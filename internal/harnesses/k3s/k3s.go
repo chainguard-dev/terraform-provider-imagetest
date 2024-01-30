@@ -147,12 +147,18 @@ func (h *k3s) Setup() types.StepFn {
 
 		// Wait for the k3s service
 		g.Go(func() error {
-			// Wait for the k3s cluster to be ready
-			// TODO: Replace this with proper wait.Conditions, this will be ~50% faster if we just scan the startup logs looking for containerd's ready message
+			// Block until k3s is ready. It is up to the caller to ensure the context
+			// is cancelled to stop waiting.
+			// TODO: Replace this with a better wait.Conditions, this will be ~50%
+			// faster if we just scan the startup logs looking for containerd's ready
+			// message
 			if _, err := h.service.Exec(ctx, provider.ExecConfig{
 				Command: `
-tries=0; while ! k3s kubectl wait --for condition=ready nodes --all --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done
-tries=0; while ! k3s kubectl wait --for condition=ready pods --all -n kube-system --timeout 120s && [ $tries -lt 30 ]; do sleep 2; tries=$((tries+1)); done
+while true; do
+  if k3s kubectl wait --for condition=ready pods --all -n kube-system; then
+    break
+  fi
+done
       `,
 			}); err != nil {
 				return fmt.Errorf("waiting for k3s cluster: %w", err)

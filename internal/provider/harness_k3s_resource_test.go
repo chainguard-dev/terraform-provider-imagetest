@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -86,6 +87,38 @@ EOM
       workdir = "/src"
     },
   ]
+}
+          `,
+			},
+		},
+	})
+}
+
+func TestAccHarnessK3sResourceTimeout(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				ExpectError:        regexp.MustCompile(".*timed out.*"),
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  timeouts = {
+    create = "1s"
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Dummy"
+  description = "Should never get here"
+  harness = imagetest_harness_k3s.test
+  steps = []
 }
           `,
 			},

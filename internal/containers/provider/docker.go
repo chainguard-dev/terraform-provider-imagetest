@@ -172,20 +172,40 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 	if err != nil {
 		return nil, err
 	}
-	defer attach.Close()
+
+	doneChan := make(chan struct{})
+	defer close(doneChan)
+
+	// listen for context cancellation that signals the exec attachment should be
+	// closed, which triggers stdcopy.StdCopy to finish/fail
+	go func() {
+		select {
+		case <-ctx.Done():
+			attach.Close()
+		case <-doneChan:
+		}
+	}()
 
 	if err := p.cli.ContainerExecStart(ctx, resp.ID, check); err != nil {
 		return nil, err
 	}
 
 	out := &bytes.Buffer{}
-	if _, err := stdcopy.StdCopy(out, out, attach.Reader); err != nil {
+	if _, err := stdcopy.StdCopy(out, out, attach.Conn); err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("timed out waiting for command to finish: %w", ctx.Err())
+		}
 		return nil, err
 	}
+	doneChan <- struct{}{}
 
-	// Block until the command is done
 	var exitCode int
-	for {
+
+	// poll the exec status until it is stopped running
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
 		exec, err := p.cli.ContainerExecInspect(ctx, resp.ID)
 		if err != nil {
 			return nil, err
@@ -193,14 +213,11 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 
 		if !exec.Running {
 			exitCode = exec.ExitCode
+			if exitCode != 0 {
+				return nil, fmt.Errorf("command exited with non-zero exit code: %d\n\n%s", exitCode, out.String())
+			}
 			break
 		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if exitCode != 0 {
-		return nil, fmt.Errorf("command exited with non-zero exit code: %d\n\n%s", exitCode, out.String())
 	}
 
 	return out, nil

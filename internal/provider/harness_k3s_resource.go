@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -15,6 +17,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+)
+
+const (
+	defaultHarnessK3sCreateTimeout = 5 * time.Minute
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -48,6 +54,7 @@ type HarnessK3sResourceModel struct {
 	Registries           map[string]RegistryResourceModel         `tfsdk:"registries"`
 	Networks             map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Sandbox              types.Object                             `tfsdk:"sandbox"`
+	Timeouts             timeouts.Value                           `tfsdk:"timeouts"`
 }
 
 type RegistryResourceModel struct {
@@ -171,6 +178,10 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 					},
 				},
 			},
+			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+				Create:            true,
+				CreateDescription: "The maximum time to wait for the k3s harness to be created.",
+			}),
 			"sandbox": schema.SingleNestedAttribute{
 				Description: "A map of configuration for the sandbox container.",
 				Optional:    true,
@@ -209,6 +220,13 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
+
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
+	resp.Diagnostics.Append(diags...)
+
+	log.Info(ctx, "creating k3s harness", "timeout", timeout.String())
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	kopts := []k3s.Option{
 		k3s.WithImage(data.Image.ValueString()),
