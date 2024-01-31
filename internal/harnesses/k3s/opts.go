@@ -15,6 +15,7 @@ type Opt struct {
 	Cni           bool
 	MetricsServer bool
 	Networks      []string
+	Resources     provider.ContainerResourcesRequest
 
 	Registries map[string]*RegistryOpt
 	Mirrors    map[string]*RegistryMirrorOpt
@@ -169,6 +170,20 @@ func WithSandboxEnv(envs provider.Env) Option {
 		for k, v := range envs {
 			opt.Sandbox.Env[k] = v
 		}
+		return nil
+	}
+}
+
+func WithResources(req provider.ContainerResourcesRequest) Option {
+	return func(opt *Opt) error {
+		opt.Resources = req
+		return nil
+	}
+}
+
+func WithSandboxResources(req provider.ContainerResourcesRequest) Option {
+	return func(opt *Opt) error {
+		opt.Sandbox.Resources = req
 		return nil
 	}
 }

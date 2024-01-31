@@ -7,6 +7,8 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 type ExecConfig struct {
@@ -32,6 +34,16 @@ type ContainerRequest struct {
 	Networks   []string
 	Privileged bool
 	Files      []File
+	// An abstraction over common memory/cpu/disk resources requests and limits
+	Resources ContainerResourcesRequest
+}
+
+type ContainerResourcesRequest struct {
+	CpuRequest resource.Quantity
+	CpuLimit   resource.Quantity
+
+	MemoryRequest resource.Quantity
+	MemoryLimit   resource.Quantity
 }
 
 type Env map[string]string
