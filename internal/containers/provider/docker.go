@@ -77,8 +77,9 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		RestartPolicy: container.RestartPolicy{
 			Name: "no",
 		},
-		// Hide from the OOM killer. This is a default value that's adopted by
-		// similar kubernetes in docker tools (k3d, kind, etc...).
+		// Use a low OOM score to prevent the kernel's OOM killer from needlessly
+		// killing this container. This value is adopted from other kubernetes in
+		// docker tools such as kind and k3d.
 		OomScoreAdj: -999,
 	}, nil, nil, p.name)
 	if err != nil {
