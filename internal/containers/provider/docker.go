@@ -149,6 +149,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		Env:          p.req.Env.ToSlice(),
 		Entrypoint:   p.req.Entrypoint,
 		Cmd:          p.req.Cmd,
+		WorkingDir:   p.req.Workdir,
 		AttachStdout: true,
 		AttachStderr: true,
 		Labels:       p.labels,

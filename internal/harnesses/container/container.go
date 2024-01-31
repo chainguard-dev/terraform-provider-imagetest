@@ -62,6 +62,9 @@ func (h *container) StepFn(config types.StepConfig) types.StepFn {
 }
 
 type Config struct {
+	Entrypoint []string
+	Command    []string
+	Workdir    string
 	Env        map[string]string
 	Ref        name.Reference
 	Mounts     []ConfigMount
@@ -88,11 +91,19 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 		})
 	}
 
+	if cfg.Command == nil || len(cfg.Command) == 0 {
+		cfg.Command = []string{"tail -f /dev/null"}
+	}
+
+	if cfg.Entrypoint == nil || len(cfg.Entrypoint) == 0 {
+		cfg.Entrypoint = []string{"/bin/sh", "-c"}
+	}
+
 	p, err := provider.NewDocker(name, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        cfg.Ref,
-			Entrypoint: []string{"/bin/sh", "-c"},
-			Cmd:        []string{"tail -f /dev/null"},
+			Entrypoint: cfg.Entrypoint,
+			Cmd:        cfg.Command,
 			Env:        cfg.Env,
 			Networks:   cfg.Networks,
 			Resources: provider.ContainerResourcesRequest{
@@ -100,6 +111,7 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 				CpuRequest:    resource.MustParse("100m"),
 				MemoryRequest: resource.MustParse("250Mi"),
 			},
+			Workdir: cfg.Workdir,
 		},
 		Mounts: mounts,
 	})
