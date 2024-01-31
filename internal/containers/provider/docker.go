@@ -59,7 +59,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
-	resp, err := p.cli.ContainerCreate(ctx, &container.Config{
+	config := &container.Config{
 		Image:        p.req.Image,
 		User:         p.req.User,
 		Env:          p.req.Env.ToSlice(),
@@ -70,18 +70,22 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		Labels: map[string]string{
 			"imagetest": "true",
 		},
-	}, &container.HostConfig{
+	}
+
+	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(mode.ID),
 		Mounts:      p.req.Mounts,
 		Privileged:  p.req.Privileged,
 		RestartPolicy: container.RestartPolicy{
 			Name: "no",
 		},
-		// Use a low OOM score to prevent the kernel's OOM killer from needlessly
-		// killing this container. This value is adopted from other kubernetes in
-		// docker tools such as kind and k3d.
-		OomScoreAdj: -999,
-	}, nil, nil, p.name)
+		Resources: container.Resources{
+			MemoryReservation: p.req.Resources.MemoryRequest.Value(),
+			Memory:            p.req.Resources.CpuLimit.Value(),
+		},
+	}
+
+	resp, err := p.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, p.name)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}

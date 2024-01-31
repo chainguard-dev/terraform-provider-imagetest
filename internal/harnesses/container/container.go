@@ -10,6 +10,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 var _ types.Harness = &container{}
@@ -93,6 +94,11 @@ func New(_ context.Context, name string, cfg Config) (types.Harness, error) {
 			Cmd:        []string{"tail -f /dev/null"},
 			Env:        cfg.Env,
 			Networks:   cfg.Networks,
+			Resources: provider.ContainerResourcesRequest{
+				// Default to something small just for "scheduling" purposes
+				CpuRequest:    resource.MustParse("100m"),
+				MemoryRequest: resource.MustParse("250Mi"),
+			},
 		},
 		Mounts: mounts,
 	})

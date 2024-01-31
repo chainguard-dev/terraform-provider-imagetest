@@ -110,7 +110,7 @@ resource "imagetest_harness_k3s" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
   timeouts = {
-    create = "1s"
+    create = "5s"
   }
 }
 

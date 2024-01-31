@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"golang.org/x/sync/errgroup"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/google/go-containerregistry/pkg/name"
 
@@ -42,6 +43,12 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		Cni:           true,
 		MetricsServer: false,
 		Traefik:       false,
+		// Default to the bare minimum k3s needs to run properly
+		// https://docs.k3s.io/installation/requirements#hardware
+		Resources: provider.ContainerResourcesRequest{
+			MemoryRequest: resource.MustParse("1Gi"),
+			CpuRequest:    resource.MustParse("1"),
+		},
 		Sandbox: provider.DockerRequest{
 			ContainerRequest: provider.ContainerRequest{
 				Image:      "cgr.dev/chainguard/kubectl:latest-dev",
@@ -52,6 +59,12 @@ func New(id string, opts ...Option) (types.Harness, error) {
 				},
 				Networks: []string{"bridge"},
 				User:     "0:0",
+				// Default to something small just for "scheduling" purposes, the bulk of
+				// the work happens in the service container
+				Resources: provider.ContainerResourcesRequest{
+					MemoryRequest: resource.MustParse("250Mi"),
+					CpuRequest:    resource.MustParse("100m"),
+				},
 			},
 			Mounts: []mount.Mount{
 				{
@@ -108,12 +121,21 @@ func New(id string, opts ...Option) (types.Harness, error) {
 					Mode:     0644,
 				},
 			},
+			Resources: opt.Resources,
 		},
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
 				Source: id + "-config",
 				Target: "/etc/rancher/k3s",
+			},
+			{
+				Type:   mount.TypeTmpfs,
+				Target: "/run",
+			},
+			{
+				Type:   mount.TypeTmpfs,
+				Target: "/var/run",
 			},
 		},
 	})
@@ -158,6 +180,7 @@ while true; do
   if k3s kubectl wait --for condition=ready pods --all -n kube-system; then
     break
   fi
+  sleep 2
 done
       `,
 			}); err != nil {
