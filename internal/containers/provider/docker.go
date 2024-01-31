@@ -77,6 +77,9 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		RestartPolicy: container.RestartPolicy{
 			Name: "no",
 		},
+		// Hide from the OOM killer. This is a default value that's adopted by
+		// similar kubernetes in docker tools (k3d, kind, etc...).
+		OomScoreAdj: -999,
 	}, nil, nil, p.name)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
