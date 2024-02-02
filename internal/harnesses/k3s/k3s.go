@@ -177,10 +177,10 @@ func (h *k3s) Setup() types.StepFn {
 			if _, err := h.service.Exec(ctx, provider.ExecConfig{
 				Command: `
 while true; do
-  if k3s kubectl wait --for condition=ready pods --all -n kube-system; then
+  if k3s kubectl cluster-info; then
     break
   fi
-  sleep 2
+  sleep 0.5
 done
       `,
 			}); err != nil {
