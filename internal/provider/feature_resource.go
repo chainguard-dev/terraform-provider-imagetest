@@ -264,6 +264,11 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 			}
 
 			// Destroy the harness...
+			if r.store.SkipTeardown() {
+				resp.Diagnostics.AddWarning(fmt.Sprintf("skipping harness [%s] teardown because IMAGETEST_SKIP_TEARDOWN is set", data.Harness.Id.ValueString()), "harness must be removed manually")
+				return
+			}
+
 			if err := harness.Destroy(ctx); err != nil {
 				resp.Diagnostics.AddError("failed to destroy harness", err.Error())
 				return

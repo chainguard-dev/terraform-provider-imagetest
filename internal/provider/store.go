@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"log/slog"
 	"math/big"
+	"os"
 	"sync"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
@@ -64,6 +65,13 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
 	// TODO: More backends?
 	return inventory.NewFile(data.Seed.ValueString())
+}
+
+// SkipTeardown returns true if the IMAGETEST_SKIP_TEARDOWN environment
+// variable is declared.
+func (s *ProviderStore) SkipTeardown() bool {
+	v := os.Getenv("IMAGETEST_SKIP_TEARDOWN")
+	return v != ""
 }
 
 func newSmap[K comparable, V any]() *smap[K, V] {
