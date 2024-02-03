@@ -1,7 +1,12 @@
 package features
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var _ types.Feature = &feature{}
@@ -51,48 +56,69 @@ func (b *FeatureBuilder) WithDescription(desc string) *FeatureBuilder {
 	return b
 }
 
-func (b *FeatureBuilder) WithBefore(name string, fn types.StepFn) *FeatureBuilder {
-	b.feat.steps = append(b.feat.steps, newStep(name, types.Before, fn))
-	return b
-}
-
-func (b *FeatureBuilder) WithAfter(name string, fn types.StepFn) *FeatureBuilder {
-	b.feat.steps = append(b.feat.steps, newStep(name, types.After, fn))
-	return b
-}
-
-func (b *FeatureBuilder) WithAssessment(name string, fn types.StepFn) *FeatureBuilder {
-	b.feat.steps = append(b.feat.steps, newStep(name, types.Assessment, fn))
-	return b
-}
-
-func (b *FeatureBuilder) WithLabels(labels map[string]string) *FeatureBuilder {
-	b.feat.labels = labels
-	return b
-}
-
 func (b *FeatureBuilder) WithStep(step types.Step) *FeatureBuilder {
 	b.feat.steps = append(b.feat.steps, step)
 	return b
 }
 
-type step struct {
-	fn    types.StepFn
-	name  string
-	level types.Level
-}
+type StepOpt func(*step)
 
-func newStep(name string, level types.Level, fn types.StepFn) *step {
-	return &step{
+func NewStep(name string, level types.Level, fn types.StepFn, opts ...StepOpt) types.Step {
+	step := &step{
 		name:  name,
 		level: level,
 		fn:    fn,
+		backoff: wait.Backoff{
+			// default to the equivalent of no retry
+			Duration: 0 * time.Second,
+			Steps:    1,
+			Factor:   1.0,
+		},
 	}
+
+	for _, opt := range opts {
+		opt(step)
+	}
+
+	return step
+}
+
+func WithStepBackoff(backoff wait.Backoff) StepOpt {
+	return func(s *step) {
+		s.backoff = backoff
+	}
+}
+
+type step struct {
+	fn      types.StepFn
+	name    string
+	level   types.Level
+	backoff wait.Backoff
 }
 
 // Fn implements types.Step.
 func (s *step) Fn() types.StepFn {
-	return s.fn
+	return func(ctx context.Context) (context.Context, error) {
+		var rerr error
+		var retries int
+
+		err := wait.ExponentialBackoffWithContext(ctx, s.backoff, func(ctx context.Context) (bool, error) {
+			retries++
+			if _, err := s.fn(ctx); err != nil {
+				if rerr != nil {
+					rerr = fmt.Errorf("%w\n[%d/%d]: error %v", rerr, retries, s.backoff.Steps, err)
+				} else {
+					rerr = fmt.Errorf("[%d/%d]: error %v", retries, s.backoff.Steps, err)
+				}
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			return ctx, fmt.Errorf("step failed after %d retries:\n%w", retries, rerr)
+		}
+		return ctx, nil
+	}
 }
 
 // Level implements types.Step.

@@ -13,8 +13,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/float64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -54,9 +58,16 @@ type FeatureResourceModel struct {
 }
 
 type FeatureStepModel struct {
-	Name    types.String `tfsdk:"name"`
-	Cmd     types.String `tfsdk:"cmd"`
-	Workdir types.String `tfsdk:"workdir"`
+	Name    types.String             `tfsdk:"name"`
+	Cmd     types.String             `tfsdk:"cmd"`
+	Workdir types.String             `tfsdk:"workdir"`
+	Retry   *FeatureStepBackoffModel `tfsdk:"retry"`
+}
+
+type FeatureStepBackoffModel struct {
+	Attempts types.Int64   `tfsdk:"attempts"`
+	Delay    types.String  `tfsdk:"delay"`
+	Factor   types.Float64 `tfsdk:"factor"`
 }
 
 func (r *FeatureResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -98,6 +109,11 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 							Description: "An optional working directory for the step to run in",
 							Optional:    true,
 						},
+						"retry": schema.SingleNestedAttribute{
+							Description: "Optional retry configuration for the step",
+							Optional:    true,
+							Attributes:  addFeatureStepBackoffSchemaAttributes(),
+						},
 					},
 				},
 			},
@@ -118,6 +134,11 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 							Description: "An optional working directory for the step to run in",
 							Optional:    true,
 						},
+						"retry": schema.SingleNestedAttribute{
+							Description: "Optional retry configuration for the step",
+							Optional:    true,
+							Attributes:  addFeatureStepBackoffSchemaAttributes(),
+						},
 					},
 				},
 			},
@@ -137,6 +158,11 @@ func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest
 						"workdir": schema.StringAttribute{
 							Description: "An optional working directory for the step to run in",
 							Optional:    true,
+						},
+						"retry": schema.SingleNestedAttribute{
+							Description: "Optional retry configuration for the step",
+							Optional:    true,
+							Attributes:  addFeatureStepBackoffSchemaAttributes(),
 						},
 					},
 				},
@@ -280,20 +306,34 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		WithDescription(data.Description.ValueString())
 
 	for _, before := range data.Before {
-		builder = builder.WithBefore(before.Name.ValueString(), harness.StepFn(before.StepConfig()))
-	}
-
-	for _, step := range data.Steps {
-		builder = builder.WithAssessment(step.Name.ValueString(), harness.StepFn(step.StepConfig()))
+		step, err := r.step(harness, itypes.Before, before)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to create before step", err.Error())
+			return
+		}
+		builder = builder.WithStep(step)
 	}
 
 	for _, after := range data.After {
-		builder = builder.WithAfter(after.Name.ValueString(), harness.StepFn(after.StepConfig()))
+		step, err := r.step(harness, itypes.After, after)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to create after step", err.Error())
+			return
+		}
+		builder = builder.WithStep(step)
+	}
+
+	for _, assess := range data.Steps {
+		step, err := r.step(harness, itypes.Assessment, assess)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to create assessment step", err.Error())
+			return
+		}
+		builder = builder.WithStep(step)
 	}
 
 	log.Info(ctx, fmt.Sprintf("testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString()))
 
-	// TODO: Add retry backoffs
 	if err := r.test(ctx, builder.Build()); err != nil {
 		resp.Diagnostics.AddError("failed to test feature", err.Error())
 		return
@@ -301,6 +341,32 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *FeatureResource) step(harness itypes.Harness, level itypes.Level, model FeatureStepModel) (itypes.Step, error) {
+	opts := []features.StepOpt{}
+
+	if model.Retry != nil {
+		duration, err := time.ParseDuration(model.Retry.Delay.ValueString())
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, features.WithStepBackoff(wait.Backoff{
+			Duration: duration,
+			Steps:    int(model.Retry.Attempts.ValueInt64()),
+			Factor:   model.Retry.Factor.ValueFloat64(),
+			// Set a small default value just as a best practice, even though this
+			// isn't exposed, in reality it will never be noticed
+			Jitter: 0.05,
+		}))
+	}
+
+	return features.NewStep(
+		model.Name.ValueString(),
+		level,
+		harness.StepFn(model.StepConfig()),
+		opts...,
+	), nil
 }
 
 func (r *FeatureResource) test(ctx context.Context, feature itypes.Feature) (err error) {
@@ -375,5 +441,26 @@ func (s *FeatureStepModel) StepConfig() itypes.StepConfig {
 	return itypes.StepConfig{
 		Command:    s.Cmd.ValueString(),
 		WorkingDir: s.Workdir.ValueString(),
+	}
+}
+
+func addFeatureStepBackoffSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"attempts": schema.Int64Attribute{
+			Description: "The maximum number of attempts to retry the step.",
+			Required:    true,
+		},
+		"delay": schema.StringAttribute{
+			Description: "The delay to wait before retrying. Defaults to immediately retrying (0s).",
+			Optional:    true,
+			Computed:    true,
+			Default:     stringdefault.StaticString("0s"),
+		},
+		"factor": schema.Float64Attribute{
+			Description: "The factor to multiply the delay by on each retry. The default value of 1.0 means no delay increase per retry.",
+			Optional:    true,
+			Computed:    true,
+			Default:     float64default.StaticFloat64(1.0),
+		},
 	}
 }
