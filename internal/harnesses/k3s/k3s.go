@@ -46,7 +46,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		// Default to the bare minimum k3s needs to run properly
 		// https://docs.k3s.io/installation/requirements#hardware
 		Resources: provider.ContainerResourcesRequest{
-			MemoryRequest: resource.MustParse("1Gi"),
+			MemoryRequest: resource.MustParse("2Gi"),
 			CpuRequest:    resource.MustParse("1"),
 		},
 		Sandbox: provider.DockerRequest{
