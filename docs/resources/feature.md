@@ -62,7 +62,21 @@ Required:
 Optional:
 
 - `name` (String) An identifying name for this step
+- `retry` (Attributes) Optional retry configuration for the step (see [below for nested schema](#nestedatt--after--retry))
 - `workdir` (String) An optional working directory for the step to run in
+
+<a id="nestedatt--after--retry"></a>
+### Nested Schema for `after.retry`
+
+Required:
+
+- `attempts` (Number) The maximum number of attempts to retry the step.
+
+Optional:
+
+- `delay` (String) The delay to wait before retrying. Defaults to immediately retrying (0s).
+- `factor` (Number) The factor to multiply the delay by on each retry. The default value of 1.0 means no delay increase per retry.
+
 
 
 <a id="nestedatt--before"></a>
@@ -75,7 +89,21 @@ Required:
 Optional:
 
 - `name` (String) An identifying name for this step
+- `retry` (Attributes) Optional retry configuration for the step (see [below for nested schema](#nestedatt--before--retry))
 - `workdir` (String) An optional working directory for the step to run in
+
+<a id="nestedatt--before--retry"></a>
+### Nested Schema for `before.retry`
+
+Required:
+
+- `attempts` (Number) The maximum number of attempts to retry the step.
+
+Optional:
+
+- `delay` (String) The delay to wait before retrying. Defaults to immediately retrying (0s).
+- `factor` (Number) The factor to multiply the delay by on each retry. The default value of 1.0 means no delay increase per retry.
+
 
 
 <a id="nestedatt--steps"></a>
@@ -88,7 +116,21 @@ Required:
 Optional:
 
 - `name` (String) An identifying name for this step
+- `retry` (Attributes) Optional retry configuration for the step (see [below for nested schema](#nestedatt--steps--retry))
 - `workdir` (String) An optional working directory for the step to run in
+
+<a id="nestedatt--steps--retry"></a>
+### Nested Schema for `steps.retry`
+
+Required:
+
+- `attempts` (Number) The maximum number of attempts to retry the step.
+
+Optional:
+
+- `delay` (String) The delay to wait before retrying. Defaults to immediately retrying (0s).
+- `factor` (Number) The factor to multiply the delay by on each retry. The default value of 1.0 means no delay increase per retry.
+
 
 
 <a id="nestedatt--timeouts"></a>
