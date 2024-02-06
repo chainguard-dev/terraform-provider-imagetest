@@ -230,6 +230,9 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts := []k3s.Option{
 		k3s.WithImage(data.Image.ValueString()),
+		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
+		k3s.WithTraefikDisabled(data.DisableTraefik.ValueBool()),
+		k3s.WithMetricsServerDisabled(data.DisableMetricsServer.ValueBool()),
 	}
 
 	if !data.Sandbox.IsNull() {

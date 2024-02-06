@@ -187,3 +187,24 @@ func WithSandboxResources(req provider.ContainerResourcesRequest) Option {
 		return nil
 	}
 }
+
+func WithCniDisabled(disabled bool) Option {
+	return func(opt *Opt) error {
+		opt.Cni = !disabled
+		return nil
+	}
+}
+
+func WithTraefikDisabled(disabled bool) Option {
+	return func(opt *Opt) error {
+		opt.Traefik = !disabled
+		return nil
+	}
+}
+
+func WithMetricsServerDisabled(disabled bool) Option {
+	return func(opt *Opt) error {
+		opt.MetricsServer = !disabled
+		return nil
+	}
+}
