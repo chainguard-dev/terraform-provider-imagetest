@@ -3,13 +3,17 @@ package provider
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"sync"
 	"time"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -21,8 +25,10 @@ const (
 	DockerDefaultNetworkName = "imagetest"
 )
 
+var ErrNetworkNotFound = errors.New("network not found")
+
 type DockerProvider struct {
-	cli *client.Client
+	cli *DockerClient
 	// id is the ID of the running container it is run
 	id string
 	// name is the name to use for the container
@@ -43,8 +49,29 @@ type DockerNetworkRequest struct {
 	Name string
 }
 
+// DockerClient is a wrapper around the Docker client that provides a mutex to
+// ensure the unsafe operations can be done safely.
+type DockerClient struct {
+	*client.Client
+	mu sync.Mutex
+}
+
+func NewDockerClient() (*DockerClient, error) {
+	cli, err := client.NewClientWithOpts(
+		client.WithAPIVersionNegotiation(),
+		client.WithVersionFromEnv(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating docker client: %w", err)
+	}
+	return &DockerClient{
+		mu:     sync.Mutex{},
+		Client: cli,
+	}, nil
+}
+
 // NewDocker creates a new DockerProvider with the given client.
-func NewDocker(name string, cli *client.Client, req DockerRequest) (*DockerProvider, error) {
+func NewDocker(name string, cli *DockerClient, req DockerRequest) (*DockerProvider, error) {
 	return &DockerProvider{
 		name: name,
 		req:  req,
@@ -58,15 +85,22 @@ func NewDocker(name string, cli *client.Client, req DockerRequest) (*DockerProvi
 // CreateNetwork creates a user defined bridge network with the given name only
 // if it doesn't exist.
 func (p *DockerProvider) CreateNetwork(ctx context.Context, name string) (string, error) {
-	res, err := p.cli.NetworkInspect(ctx, name, types.NetworkInspectOptions{})
+	// network creations are not guaranteed to be concurrent safe when using a
+	// name. since we're supporting concurrent creations with the same name, we
+	// need to lock the network creation operation
+	p.cli.mu.Lock()
+	defer p.cli.mu.Unlock()
+
+	existingID, err := p.GetNetwork(ctx, name)
 	if err == nil {
-		return res.ID, nil
+		return existingID, nil
 	}
 
 	mode, err := p.cli.NetworkCreate(ctx, name, types.NetworkCreate{
-		Attachable: false,
-		Driver:     "bridge",
-		Labels:     p.labels,
+		Attachable:     true,
+		Driver:         "bridge",
+		Labels:         p.labels,
+		CheckDuplicate: true,
 		Options: map[string]string{
 			// These are defaults on most daemons, but explicitly set these to ensure
 			// consistency
@@ -80,9 +114,31 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, name string) (string
 	return mode.ID, nil
 }
 
+func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, error) {
+	existing, err := p.cli.NetworkList(ctx, types.NetworkListOptions{
+		Filters: filters.NewArgs(filters.Arg("name", fmt.Sprintf("^/?%s$", name))),
+	})
+	if err != nil {
+		return "", fmt.Errorf("listing networks: %w", err)
+	}
+
+	log.Info(ctx, fmt.Sprintf("networks existing: %v", existing))
+
+	if len(existing) == 0 {
+		return "", ErrNetworkNotFound
+	}
+
+	targetNetwork, err := p.cli.NetworkInspect(ctx, existing[0].ID, types.NetworkInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("inspecting network %s: %w", name, err)
+	}
+
+	return targetNetwork.ID, nil
+}
+
 // Start implements Provider.
 func (p *DockerProvider) Start(ctx context.Context) error {
-	nw, err := p.CreateNetwork(ctx, DockerDefaultNetworkName)
+	networkId, err := p.CreateNetwork(ctx, DockerDefaultNetworkName)
 	if err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
@@ -99,7 +155,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 	}
 
 	hostConfig := &container.HostConfig{
-		NetworkMode: container.NetworkMode(nw),
+		NetworkMode: container.NetworkMode(networkId),
 		Mounts:      p.req.Mounts,
 		Privileged:  p.req.Privileged,
 		RestartPolicy: container.RestartPolicy{

@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/docker/docker/client"
+	cprovider "github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -197,13 +197,11 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	}
 	p.store.labels = labels
 
-	cli, err := client.NewClientWithOpts(
-		client.WithAPIVersionNegotiation(),
-		client.WithVersionFromEnv(),
-	)
+	cli, err := cprovider.NewDockerClient()
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create docker client", err.Error())
 		return
+
 	}
 	p.store.cli = cli
 

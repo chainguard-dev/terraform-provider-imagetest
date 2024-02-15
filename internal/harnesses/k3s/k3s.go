@@ -17,7 +17,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
 )
 
 const (
@@ -39,7 +38,7 @@ type k3s struct {
 	sandbox provider.Provider
 }
 
-func New(id string, cli *client.Client, opts ...Option) (types.Harness, error) {
+func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
 	opt := &Opt{
 		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
