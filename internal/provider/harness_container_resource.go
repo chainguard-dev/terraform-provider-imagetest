@@ -158,7 +158,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		cfg.Env[k] = v
 	}
 
-	harness, err := container.New(ctx, data.Id.ValueString(), cfg)
+	harness, err := container.New(data.Id.ValueString(), r.store.cli, cfg)
 	if err != nil {
 		resp.Diagnostics.AddError("invalid provider data", "...")
 		return

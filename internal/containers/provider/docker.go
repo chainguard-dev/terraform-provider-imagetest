@@ -43,15 +43,8 @@ type DockerNetworkRequest struct {
 	Name string
 }
 
-func NewDocker(name string, req DockerRequest) (*DockerProvider, error) {
-	cli, err := client.NewClientWithOpts(
-		client.WithAPIVersionNegotiation(),
-		client.WithVersionFromEnv(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
+// NewDocker creates a new DockerProvider with the given client.
+func NewDocker(name string, cli *client.Client, req DockerRequest) (*DockerProvider, error) {
 	return &DockerProvider{
 		name: name,
 		req:  req,

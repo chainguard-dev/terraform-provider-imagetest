@@ -328,7 +328,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts = append(kopts, k3s.WithNetworks(networks...))
 
-	harness, err := k3s.New(data.Id.ValueString(), kopts...)
+	harness, err := k3s.New(data.Id.ValueString(), r.store.cli, kopts...)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to initialize k3s harness", err.Error())
 		return

@@ -17,6 +17,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/client"
 )
 
 const (
@@ -38,7 +39,7 @@ type k3s struct {
 	sandbox provider.Provider
 }
 
-func New(id string, opts ...Option) (types.Harness, error) {
+func New(id string, cli *client.Client, opts ...Option) (types.Harness, error) {
 	opt := &Opt{
 		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
@@ -98,7 +99,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		return nil, fmt.Errorf("creating k3s registries config: %w", err)
 	}
 
-	service, err := provider.NewDocker(id, provider.DockerRequest{
+	service, err := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        opt.ImageRef,
 			Cmd:        []string{"server"},
@@ -138,7 +139,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		return nil, err
 	}
 
-	sandbox, err := provider.NewDocker(k3s.id+"-sandbox", opt.Sandbox)
+	sandbox, err := provider.NewDocker(k3s.id+"-sandbox", cli, opt.Sandbox)
 	if err != nil {
 		return nil, err
 	}
