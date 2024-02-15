@@ -9,6 +9,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -117,8 +118,6 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequ
 			"image": schema.StringAttribute{
 				Description: "The full image reference to use for the k3s container.",
 				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("cgr.dev/chainguard/k3s:latest"),
 			},
 			"registries": schema.MapNestedAttribute{
 				Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
@@ -224,15 +223,22 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
 	resp.Diagnostics.Append(diags...)
 
-	log.Info(ctx, "creating k3s harness", "timeout", timeout.String())
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	kopts := []k3s.Option{
-		k3s.WithImage(data.Image.ValueString()),
 		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
 		k3s.WithTraefikDisabled(data.DisableTraefik.ValueBool()),
 		k3s.WithMetricsServerDisabled(data.DisableMetricsServer.ValueBool()),
+	}
+
+	if !data.Image.IsNull() {
+		ref, err := name.ParseReference(data.Image.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))
+			return
+		}
+		kopts = append(kopts, k3s.WithImageRef(ref))
 	}
 
 	if !data.Sandbox.IsNull() {
@@ -243,7 +249,12 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		}
 
 		if !sandbox.Image.IsNull() {
-			kopts = append(kopts, k3s.WithSandboxImage(sandbox.Image.ValueString()))
+			ref, err := name.ParseReference(sandbox.Image.ValueString())
+			if err != nil {
+				resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid sandbox image reference: %s", err))
+				return
+			}
+			kopts = append(kopts, k3s.WithSandboxImageRef(ref))
 		}
 
 		for _, m := range sandbox.Mounts {

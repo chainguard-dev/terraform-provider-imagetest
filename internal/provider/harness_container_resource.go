@@ -7,6 +7,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -89,8 +90,15 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
+	ref, err := name.ParseReference(data.Image.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))
+		return
+
+	}
+
 	cfg := container.Config{
-		Image:      data.Image.ValueString(),
+		Ref:        ref,
 		Privileged: data.Privileged.ValueBool(),
 		Mounts:     []container.ConfigMount{},
 		Networks:   []string{},

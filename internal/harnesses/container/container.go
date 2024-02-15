@@ -10,6 +10,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -62,7 +63,7 @@ func (h *container) StepFn(config types.StepConfig) types.StepFn {
 
 type Config struct {
 	Env        map[string]string
-	Image      string
+	Ref        name.Reference
 	Mounts     []ConfigMount
 	Networks   []string
 	Privileged bool
@@ -89,7 +90,7 @@ func New(_ context.Context, name string, cfg Config) (types.Harness, error) {
 
 	p, err := provider.NewDocker(name, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
-			Image:      cfg.Image,
+			Ref:        cfg.Ref,
 			Entrypoint: []string{"/bin/sh", "-c"},
 			Cmd:        []string{"tail -f /dev/null"},
 			Env:        cfg.Env,

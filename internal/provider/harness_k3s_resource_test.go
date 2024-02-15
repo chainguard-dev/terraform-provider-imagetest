@@ -102,7 +102,7 @@ func TestAccHarnessK3sResourceTimeout(t *testing.T) {
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
-				ExpectError:        regexp.MustCompile(".*timed out.*"),
+				ExpectError:        regexp.MustCompile(".*context deadline.*"),
 				Config: `
 data "imagetest_inventory" "this" {}
 
@@ -110,7 +110,7 @@ resource "imagetest_harness_k3s" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
   timeouts = {
-    create = "2s"
+    create = "0s"
   }
 }
 
