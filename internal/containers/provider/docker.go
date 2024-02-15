@@ -16,7 +16,10 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-const DockerProviderName = "docker"
+const (
+	DockerProviderName       = "docker"
+	DockerDefaultNetworkName = "imagetest"
+)
 
 type DockerProvider struct {
 	cli *client.Client
@@ -25,6 +28,9 @@ type DockerProvider struct {
 	// name is the name to use for the container
 	name string
 	req  DockerRequest
+	// labels are internal labels attached to all resources created by this
+	// provider
+	labels map[string]string
 }
 
 type DockerRequest struct {
@@ -32,8 +38,16 @@ type DockerRequest struct {
 	Mounts []mount.Mount
 }
 
+type DockerNetworkRequest struct {
+	types.NetworkCreate
+	Name string
+}
+
 func NewDocker(name string, req DockerRequest) (*DockerProvider, error) {
-	cli, err := client.NewClientWithOpts()
+	cli, err := client.NewClientWithOpts(
+		client.WithAPIVersionNegotiation(),
+		client.WithVersionFromEnv(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -42,47 +56,71 @@ func NewDocker(name string, req DockerRequest) (*DockerProvider, error) {
 		name: name,
 		req:  req,
 		cli:  cli,
+		labels: map[string]string{
+			"imagetest": "true",
+		},
 	}, nil
+}
+
+// CreateNetwork creates a user defined bridge network with the given name only
+// if it doesn't exist.
+func (p *DockerProvider) CreateNetwork(ctx context.Context, name string) (string, error) {
+	res, err := p.cli.NetworkInspect(ctx, name, types.NetworkInspectOptions{})
+	if err == nil {
+		return res.ID, nil
+	}
+
+	mode, err := p.cli.NetworkCreate(ctx, name, types.NetworkCreate{
+		Attachable: false,
+		Driver:     "bridge",
+		Labels:     p.labels,
+		Options: map[string]string{
+			// These are defaults on most daemons, but explicitly set these to ensure
+			// consistency
+			"com.docker.network.bridge.enable_ip_masquerade": "true",
+			"com.docker.network.driver.mtu":                  "65535",
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return mode.ID, nil
 }
 
 // Start implements Provider.
 func (p *DockerProvider) Start(ctx context.Context) error {
-	if err := p.pull(ctx, p.req.Image); err != nil {
-		return fmt.Errorf("pulling image: %w", err)
-	}
-
-	mode, err := p.cli.NetworkCreate(ctx, p.name, types.NetworkCreate{
-		Attachable: true,
-		Driver:     "bridge",
-	})
+	nw, err := p.CreateNetwork(ctx, DockerDefaultNetworkName)
 	if err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
 	config := &container.Config{
-		Image:        p.req.Image,
+		Image:        p.req.Ref.Name(),
 		User:         p.req.User,
 		Env:          p.req.Env.ToSlice(),
 		Entrypoint:   p.req.Entrypoint,
 		Cmd:          p.req.Cmd,
 		AttachStdout: true,
 		AttachStderr: true,
-		Labels: map[string]string{
-			"imagetest": "true",
-		},
+		Labels:       p.labels,
 	}
 
 	hostConfig := &container.HostConfig{
-		NetworkMode: container.NetworkMode(mode.ID),
+		NetworkMode: container.NetworkMode(nw),
 		Mounts:      p.req.Mounts,
 		Privileged:  p.req.Privileged,
 		RestartPolicy: container.RestartPolicy{
-			Name: "no",
+			Name:              "on-failure",
+			MaximumRetryCount: 1,
 		},
 		Resources: container.Resources{
 			MemoryReservation: p.req.Resources.MemoryRequest.Value(),
 			Memory:            p.req.Resources.CpuLimit.Value(),
 		},
+	}
+
+	if err := p.pull(ctx); err != nil {
+		return fmt.Errorf("pulling image: %w", err)
 	}
 
 	resp, err := p.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, p.name)
@@ -103,10 +141,6 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := p.cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return fmt.Errorf("starting container: %w", err)
-	}
-
 	for _, id := range p.req.Networks {
 		networkResource, err := p.cli.NetworkInspect(ctx, id, types.NetworkInspectOptions{})
 		if err != nil {
@@ -116,6 +150,10 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		if err := p.cli.NetworkConnect(ctx, networkResource.ID, resp.ID, &network.EndpointSettings{}); err != nil {
 			return fmt.Errorf("connecting container to user defined network: %w", err)
 		}
+	}
+
+	if err := p.cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("starting container: %w", err)
 	}
 
 	return nil
@@ -231,11 +269,10 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 	return out, nil
 }
 
-// pull the image if it doesn't exist in the daemon
-// TODO: Do this with ggcr.
-func (p *DockerProvider) pull(ctx context.Context, imageId string) error {
+// pull the image if it doesn't exist in the daemon.
+func (p *DockerProvider) pull(ctx context.Context) error {
 	// check if the imageId exists in the daemon
-	_, _, err := p.cli.ImageInspectWithRaw(ctx, imageId)
+	_, _, err := p.cli.ImageInspectWithRaw(ctx, p.req.Ref.Name())
 	if err != nil {
 		if !client.IsErrNotFound(err) {
 			return fmt.Errorf("checking if image exists: %w", err)
@@ -243,7 +280,7 @@ func (p *DockerProvider) pull(ctx context.Context, imageId string) error {
 	}
 
 	// pull the image if it doesn't exist
-	pull, err := p.cli.ImagePull(ctx, imageId, types.ImagePullOptions{})
+	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), types.ImagePullOptions{})
 	if err != nil {
 		return err
 	}

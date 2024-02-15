@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	K3sImage = "cgr.dev/chainguard/k3s:latest"
+	K3sImageTag     = "cgr.dev/chainguard/k3s:latest"
+	KubectlImageTag = "cgr.dev/chainguard/kubectl:latest-dev"
 )
 
 type k3s struct {
@@ -39,7 +40,7 @@ type k3s struct {
 
 func New(id string, opts ...Option) (types.Harness, error) {
 	opt := &Opt{
-		Image:         K3sImage,
+		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
 		MetricsServer: false,
 		Traefik:       false,
@@ -51,14 +52,13 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		},
 		Sandbox: provider.DockerRequest{
 			ContainerRequest: provider.ContainerRequest{
-				Image:      "cgr.dev/chainguard/kubectl:latest-dev",
+				Ref:        name.MustParseReference(KubectlImageTag),
 				Entrypoint: []string{"/bin/sh", "-c"},
 				Cmd:        []string{"tail -f /dev/null"},
 				Env: map[string]string{
 					"KUBECONFIG": "/k3s-config/k3s.yaml",
 				},
-				Networks: []string{"bridge"},
-				User:     "0:0",
+				User: "0:0",
 				// Default to something small just for "scheduling" purposes, the bulk of
 				// the work happens in the service container
 				Resources: provider.ContainerResourcesRequest{
@@ -88,11 +88,6 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		opt:  opt,
 	}
 
-	ref, err := name.ParseReference(opt.Image)
-	if err != nil {
-		return nil, fmt.Errorf("invalid image reference: %w", err)
-	}
-
 	kcfg, err := k3s.genConfig()
 	if err != nil {
 		return nil, fmt.Errorf("creating k3s config: %w", err)
@@ -103,9 +98,9 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		return nil, fmt.Errorf("creating k3s registries config: %w", err)
 	}
 
-	service, err := provider.NewDocker(k3s.serviceName(), provider.DockerRequest{
+	service, err := provider.NewDocker(id, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
-			Image:      ref.Name(),
+			Ref:        opt.ImageRef,
 			Cmd:        []string{"server"},
 			Privileged: true,
 			Networks:   opt.Networks,
@@ -135,7 +130,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 			},
 			{
 				Type:   mount.TypeTmpfs,
-				Target: "/var/run",
+				Target: "/tmp",
 			},
 		},
 	})
@@ -143,9 +138,7 @@ func New(id string, opts ...Option) (types.Harness, error) {
 		return nil, err
 	}
 
-	opt.Sandbox.Networks = append(opt.Sandbox.Networks, k3s.serviceName())
-
-	sandbox, err := provider.NewDocker(k3s.sandboxName(), opt.Sandbox)
+	sandbox, err := provider.NewDocker(k3s.id+"-sandbox", opt.Sandbox)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +184,7 @@ done
 			if _, err := h.service.Exec(ctx, provider.ExecConfig{
 				Command: fmt.Sprintf(`
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --server "https://%[1]s:6443" > /dev/null
-        `, h.id+"-service"),
+        `, h.id),
 			}); err != nil {
 				return fmt.Errorf("creating kubeconfig: %w", err)
 			}
@@ -265,14 +258,6 @@ func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	}
 }
 
-func (h *k3s) serviceName() string {
-	return h.id + "-service"
-}
-
-func (h *k3s) sandboxName() string {
-	return h.id + "-sandbox"
-}
-
 func (h *k3s) genRegistries() (io.Reader, error) {
 	// who needs an an api when you have yaml and gotemplates!11!
 	cfgtmpl := `
@@ -328,7 +313,7 @@ disable:
 {{- if not .Cni }}
 flannel-backend: none
 {{- end }}
-`, h.serviceName())
+`, h.id)
 
 	tmpl, err := template.New("config").Parse(cfgtmpl)
 	if err != nil {

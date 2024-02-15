@@ -8,6 +8,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -26,7 +27,7 @@ type Provider interface {
 }
 
 type ContainerRequest struct {
-	Image      string
+	Ref        name.Reference
 	Entrypoint []string
 	User       string // uid:gid
 	Env        Env

@@ -10,7 +10,7 @@ import (
 )
 
 type Opt struct {
-	Image         string
+	ImageRef      name.Reference
 	Traefik       bool
 	Cni           bool
 	MetricsServer bool
@@ -46,9 +46,9 @@ type RegistryMirrorOpt struct {
 
 type Option func(*Opt) error
 
-func WithImage(image string) Option {
+func WithImageRef(ref name.Reference) Option {
 	return func(opt *Opt) error {
-		opt.Image = image
+		opt.ImageRef = ref
 		return nil
 	}
 }
@@ -134,9 +134,9 @@ func WithNetworks(networks ...string) Option {
 	}
 }
 
-func WithSandboxImage(image string) Option {
+func WithSandboxImageRef(ref name.Reference) Option {
 	return func(opt *Opt) error {
-		opt.Sandbox.Image = image
+		opt.Sandbox.Ref = ref
 		return nil
 	}
 }
