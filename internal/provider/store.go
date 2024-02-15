@@ -7,10 +7,10 @@ import (
 	"os"
 	"sync"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
-	"github.com/docker/docker/client"
 	slogmulti "github.com/samber/slog-multi"
 )
 
@@ -28,7 +28,7 @@ type ProviderStore struct {
 
 	// cli is the Docker client. it is initialized once during the providers
 	// Configure() stage and reused for any resource that requires it.
-	cli *client.Client
+	cli *provider.DockerClient
 }
 
 func NewProviderStore() *ProviderStore {

@@ -10,7 +10,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
 	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -77,7 +76,7 @@ type ConfigMount struct {
 	Destination string
 }
 
-func New(name string, cli *client.Client, cfg Config) (types.Harness, error) {
+func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, error) {
 	// TODO: Support more providers
 
 	mounts := make([]mount.Mount, 0, len(cfg.Mounts))
