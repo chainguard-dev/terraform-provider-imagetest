@@ -91,7 +91,7 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 		})
 	}
 
-	if cfg.Command == nil || len(cfg.Command) == 0 {
+	if len(cfg.Command) == 0 {
 		cfg.Command = []string{"tail -f /dev/null"}
 	}
 
