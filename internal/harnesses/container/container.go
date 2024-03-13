@@ -62,16 +62,17 @@ func (h *container) StepFn(config types.StepConfig) types.StepFn {
 }
 
 type Config struct {
-	Env        map[string]string
-	Ref        name.Reference
-	Mounts     []ConfigMount
-	Networks   []string
-	Privileged bool
+	Env            map[string]string
+	Ref            name.Reference
+	Mounts         []ConfigMount
+	ManagedVolumes []ConfigMount
+	Networks       []string
+	Privileged     bool
 }
 
-// ConfigMount is a simplified wrapper around mount.Mount, intended to
-// only support BindMounts.
+// ConfigMount is a simplified wrapper around mount.Mount.
 type ConfigMount struct {
+	Type        mount.Type
 	Source      string
 	Destination string
 }
@@ -82,13 +83,22 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 	mounts := make([]mount.Mount, 0, len(cfg.Mounts))
 	for _, m := range cfg.Mounts {
 		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
+			Type:   m.Type,
 			Source: m.Source,
 			Target: m.Destination,
 		})
 	}
 
-	p, err := provider.NewDocker(name, cli, provider.DockerRequest{
+	managedVolumes := make([]mount.Mount, 0, len(cfg.ManagedVolumes))
+	for _, m := range cfg.ManagedVolumes {
+		managedVolumes = append(managedVolumes, mount.Mount{
+			Type:   m.Type,
+			Source: m.Source,
+			Target: m.Destination,
+		})
+	}
+
+	p := provider.NewDocker(name, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        cfg.Ref,
 			Entrypoint: []string{"/bin/sh", "-c"},
@@ -101,11 +111,9 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 				MemoryRequest: resource.MustParse("250Mi"),
 			},
 		},
-		Mounts: mounts,
+		Mounts:         mounts,
+		ManagedVolumes: managedVolumes,
 	})
-	if err != nil {
-		return nil, err
-	}
 
 	return &container{
 		Base:     base.New(),

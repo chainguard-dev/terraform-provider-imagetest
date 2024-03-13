@@ -215,6 +215,7 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 func (p *ImageTestProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewFeatureResource,
+		NewContainerVolumeResource,
 		// Harnesses
 		NewHarnessK3sResource,
 		NewHarnessContainerResource,

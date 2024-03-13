@@ -88,11 +88,11 @@ type HarnessK3sSandboxResourceModel struct {
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 }
 
-func (r *HarnessK3sResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *HarnessK3sResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_harness_k3s"
 }
 
-func (r *HarnessK3sResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container networked to a running k3s cluster.`,
 
@@ -288,7 +288,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		registries = data.Registries
 	}
 
-	networks := []string{}
+	networks := make([]string, 0)
 	if data.Networks != nil {
 		for _, v := range data.Networks {
 			networks = append(networks, v.Name.ValueString())
