@@ -13,10 +13,10 @@ import (
 )
 
 type ExecConfig struct {
-	// The command to be executed in the provider
+	// The command to be executed in the provider.
 	Command string
 
-	// The working directory to be used to execute the command
+	// The working directory to be used to execute the command.
 	WorkingDir string
 }
 
@@ -29,6 +29,8 @@ type Provider interface {
 type ContainerRequest struct {
 	Ref        name.Reference
 	Entrypoint []string
+	Command    []string
+	Workdir    string
 	User       string // uid:gid
 	Env        Env
 	Cmd        []string

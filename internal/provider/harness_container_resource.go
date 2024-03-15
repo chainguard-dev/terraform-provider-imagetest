@@ -41,6 +41,9 @@ type HarnessContainerResourceModel struct {
 	Skipped   types.Bool               `tfsdk:"skipped"`
 
 	Image      types.String                             `tfsdk:"image"`
+	Workdir    types.String                             `tfsdk:"workdir"`
+	Entrypoint types.List                               `tfsdk:"entrypoint"`
+	Command    types.List                               `tfsdk:"command"`
 	Privileged types.Bool                               `tfsdk:"privileged"`
 	Envs       types.Map                                `tfsdk:"envs"`
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
@@ -94,11 +97,25 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	if err != nil {
 		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))
 		return
+	}
 
+	entrypoint := make([]string, 0, len(data.Entrypoint.Elements()))
+	if diags := data.Entrypoint.ElementsAs(ctx, &entrypoint, false); diags.HasError() {
+		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid entrypoint input: %s", diags.Errors()))
+		return
+	}
+
+	command := make([]string, 0, len(data.Command.Elements()))
+	if diags := data.Command.ElementsAs(ctx, &command, false); diags.HasError() {
+		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid command input: %s", diags.Errors()))
+		return
 	}
 
 	cfg := container.Config{
 		Ref:        ref,
+		Entrypoint: entrypoint,
+		Command:    command,
+		Workdir:    data.Workdir.ValueString(),
 		Privileged: data.Privileged.ValueBool(),
 		Mounts:     []container.ConfigMount{},
 		Networks:   []string{},
@@ -226,6 +243,20 @@ func (r *HarnessContainerResource) ImportState(ctx context.Context, req resource
 // is for other harnesses to require some sort of container configuration.
 func addContainerResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
 	defaults := map[string]schema.Attribute{
+		"command": schema.ListAttribute{
+			ElementType: types.StringType,
+			Description: "An optional command for the harness",
+			Optional:    true,
+		},
+		"entrypoint": schema.ListAttribute{
+			ElementType: types.StringType,
+			Description: "An optional entrypoint for the harness",
+			Optional:    true,
+		},
+		"workdir": schema.StringAttribute{
+			Description: "The default working directory for the harness container",
+			Optional:    true,
+		},
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the container.",
 			Optional:    true,

@@ -22,11 +22,14 @@ A harness that runs steps in a sandbox container.
 
 ### Optional
 
+- `command` (List of String) An optional command for the harness
+- `entrypoint` (List of String) An optional entrypoint for the harness
 - `envs` (Map of String) Environment variables to set on the container.
 - `image` (String) The full image reference to use for the container.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `privileged` (Boolean)
+- `workdir` (String) The default working directory for the harness container
 
 ### Read-Only
 
