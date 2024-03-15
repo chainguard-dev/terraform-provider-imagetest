@@ -35,8 +35,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		// TODO: Update this string with the published name of your provider.
-		Address: "registry.terraform.io/chainguard-dev/terraform-provider-imagetest",
+		Address: "registry.terraform.io/chainguard-dev/imagetest",
 		Debug:   debug,
 	}
 
