@@ -246,6 +246,8 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 			if err := p.cli.VolumeRemove(ctx, volume.Name, false); err != nil {
 				errs = append(errs, fmt.Errorf("failed to remove volume: %w", err))
 			}
+		} else {
+			errs = append(errs, fmt.Errorf("failed to inspect volume %s: %w", m.Source, err))
 		}
 	}
 
