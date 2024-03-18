@@ -100,6 +100,7 @@ Optional:
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--sandbox--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--sandbox--networks))
 - `privileged` (Boolean)
+- `volumes` (Attributes List) The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders. (see [below for nested schema](#nestedatt--sandbox--volumes))
 
 <a id="nestedatt--sandbox--mounts"></a>
 ### Nested Schema for `sandbox.mounts`
@@ -116,6 +117,33 @@ Required:
 Required:
 
 - `name` (String) The name of the existing network to attach the container to.
+
+
+<a id="nestedatt--sandbox--volumes"></a>
+### Nested Schema for `sandbox.volumes`
+
+Required:
+
+- `destination` (String)
+- `source` (Attributes) (see [below for nested schema](#nestedatt--sandbox--volumes--source))
+
+<a id="nestedatt--sandbox--volumes--source"></a>
+### Nested Schema for `sandbox.volumes.source`
+
+Required:
+
+- `id` (String)
+- `inventory` (Attributes) (see [below for nested schema](#nestedatt--sandbox--volumes--source--inventory))
+- `name` (String)
+
+<a id="nestedatt--sandbox--volumes--source--inventory"></a>
+### Nested Schema for `sandbox.volumes.source.name`
+
+Required:
+
+- `seed` (String)
+
+
 
 
 
