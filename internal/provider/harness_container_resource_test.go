@@ -7,10 +7,8 @@ import (
 )
 
 func TestAccHarnessContainerResource(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+	testCases := map[string][]resource.TestStep{
+		"basic container harness": {
 			{
 				ExpectNonEmptyPlan: true,
 				Config: `
@@ -35,14 +33,7 @@ resource "imagetest_feature" "test" {
         `,
 			},
 		},
-	})
-}
-
-func TestAccHarnessContainerResourceProvider(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+		"with resource provider": {
 			{
 				ExpectNonEmptyPlan: true,
 				Config: `
@@ -83,14 +74,7 @@ resource "imagetest_feature" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(),
 			},
 		},
-	})
-}
-
-func TestAccHarnessContainerResourceProviderWithWorkingDir(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+		"with working directory": {
 			{
 				ExpectNonEmptyPlan: true,
 				Config: `
@@ -122,5 +106,58 @@ resource "imagetest_feature" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(),
 			},
 		},
-	})
+		"with volumes configuration": {
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_container_volume" "volume" {
+  name = "volume-test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_harness_container" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  volumes = [
+    {
+      source = imagetest_container_volume.volume
+      destination = "/volume"
+    }
+  ]
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple container based test"
+  description = "Test that we can spin up a container and run some steps with a working directory"
+  harness = imagetest_harness_container.test
+  steps = [
+    {
+      workdir = "/tmp"
+      name = "Echo"
+      cmd = "echo test >> .testfile"
+    },
+    {
+      workdir = "/tmp"
+      name = "Cat"
+      cmd = "cat .testfile"
+    }
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				PreCheck:                 func() { testAccPreCheck(t) },
+				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				Steps:                    tc,
+			})
+		})
+	}
 }

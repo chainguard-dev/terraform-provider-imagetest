@@ -42,6 +42,9 @@ type DockerProvider struct {
 type DockerRequest struct {
 	ContainerRequest
 	Mounts []mount.Mount
+	// ManagedVolumes is the list of volumes that should be torn down when the
+	// provider finishes execution
+	ManagedVolumes []mount.Mount
 }
 
 type DockerNetworkRequest struct {
@@ -71,7 +74,7 @@ func NewDockerClient() (*DockerClient, error) {
 }
 
 // NewDocker creates a new DockerProvider with the given client.
-func NewDocker(name string, cli *DockerClient, req DockerRequest) (*DockerProvider, error) {
+func NewDocker(name string, cli *DockerClient, req DockerRequest) *DockerProvider {
 	return &DockerProvider{
 		name: name,
 		req:  req,
@@ -79,7 +82,7 @@ func NewDocker(name string, cli *DockerClient, req DockerRequest) (*DockerProvid
 		labels: map[string]string{
 			"imagetest": "true",
 		},
-	}, nil
+	}
 }
 
 // CreateNetwork creates a user defined bridge network with the given name only
@@ -156,7 +159,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(networkId),
-		Mounts:      p.req.Mounts,
+		Mounts:      append(p.req.Mounts, p.req.ManagedVolumes...),
 		Privileged:  p.req.Privileged,
 		RestartPolicy: container.RestartPolicy{
 			Name:              "on-failure",
@@ -230,6 +233,21 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 	if err == nil {
 		if err := p.cli.NetworkRemove(ctx, networkResource.ID); err != nil {
 			errs = append(errs, fmt.Errorf("removing network: %w", err))
+		}
+	}
+
+	for _, m := range p.req.ManagedVolumes {
+		if mount.TypeVolume != m.Type {
+			continue
+		}
+
+		volume, err := p.cli.VolumeInspect(ctx, m.Source)
+		if err == nil {
+			if err := p.cli.VolumeRemove(ctx, volume.Name, false); err != nil {
+				errs = append(errs, fmt.Errorf("failed to remove volume: %w", err))
+			}
+		} else {
+			errs = append(errs, fmt.Errorf("failed to inspect volume %s: %w", m.Source, err))
 		}
 	}
 

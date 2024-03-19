@@ -27,6 +27,11 @@ type FeatureHarnessResourceModel struct {
 	Skipped   types.Bool               `tfsdk:"skipped"`
 }
 
+type FeatureHarnessVolumeMountModel struct {
+	Source      ContainerVolumeResourceModel `tfsdk:"source"`
+	Destination string                       `tfsdk:"destination"`
+}
+
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
@@ -57,14 +62,11 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 	inv := InventoryDataSourceModel{}
 	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
-		resp.Diagnostics.AddError("failed to add harness", "retrieving inventory")
 		return
 	}
 
 	var name string
 	if diags := req.Config.GetAttribute(ctx, path.Root("name"), &name); diags.HasError() {
-		resp.Diagnostics.Append(diags.Errors()...)
-		resp.Diagnostics.AddError("failed to add harness", "getting harness name")
 		return
 	}
 
@@ -80,8 +82,6 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	id := fmt.Sprintf("%s-%s", name, invEnc)
 
 	if diag := resp.Plan.SetAttribute(ctx, path.Root("id"), id); diag.HasError() {
-		resp.Diagnostics.Append(diag.Errors()...)
-		resp.Diagnostics.AddError("failed to set harness id", "...")
 		return
 	}
 
@@ -143,7 +143,7 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 	return skip
 }
 
-//  AddHarnessSchemaAttributes adds common attributes to the given map. values
+// AddHarnessSchemaAttributes adds common attributes to the given map. values
 // provided in attrs will override any specified defaults.
 func addHarnessResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
 	defaults := map[string]schema.Attribute{

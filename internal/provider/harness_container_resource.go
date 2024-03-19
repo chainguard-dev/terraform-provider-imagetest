@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/docker/docker/api/types/mount"
+
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -35,10 +37,11 @@ type HarnessContainerResource struct {
 
 // HarnessContainerResourceModel describes the resource data model.
 type HarnessContainerResourceModel struct {
-	Id        types.String             `tfsdk:"id"`
-	Name      types.String             `tfsdk:"name"`
-	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
-	Skipped   types.Bool               `tfsdk:"skipped"`
+	Id        types.String                     `tfsdk:"id"`
+	Name      types.String                     `tfsdk:"name"`
+	Inventory InventoryDataSourceModel         `tfsdk:"inventory"`
+	Skipped   types.Bool                       `tfsdk:"skipped"`
+	Volumes   []FeatureHarnessVolumeMountModel `tfsdk:"volumes"`
 
 	Image      types.String                             `tfsdk:"image"`
 	Privileged types.Bool                               `tfsdk:"privileged"`
@@ -56,11 +59,11 @@ type ContainerResourceModelNetwork struct {
 	Name types.String `tfsdk:"name"`
 }
 
-func (r *HarnessContainerResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *HarnessContainerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_harness_container"
 }
 
-func (r *HarnessContainerResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
 
@@ -132,21 +135,32 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		}
 	}
 
-	for _, mount := range mounts {
-		src, err := filepath.Abs(mount.Source.ValueString())
+	for _, m := range mounts {
+		src, err := filepath.Abs(m.Source.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))
 			return
 		}
 
 		cfg.Mounts = append(cfg.Mounts, container.ConfigMount{
+			Type:        mount.TypeBind,
 			Source:      src,
-			Destination: mount.Destination.ValueString(),
+			Destination: m.Destination.ValueString(),
 		})
 	}
 
 	for _, network := range networks {
 		cfg.Networks = append(cfg.Networks, network.Name.ValueString())
+	}
+
+	if data.Volumes != nil {
+		for _, vol := range data.Volumes {
+			cfg.ManagedVolumes = append(cfg.ManagedVolumes, container.ConfigMount{
+				Type:        mount.TypeVolume,
+				Source:      vol.Source.Id.ValueString(),
+				Destination: vol.Destination,
+			})
+		}
 	}
 
 	envs := make(map[string]string)
@@ -269,6 +283,36 @@ func addContainerResourceSchemaAttributes(attrs map[string]schema.Attribute) map
 					},
 				},
 			},
+		},
+		"volumes": schema.ListNestedAttribute{
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"source": schema.SingleNestedAttribute{
+						Attributes: map[string]schema.Attribute{
+							"id": schema.StringAttribute{
+								Required: true,
+							},
+							"name": schema.StringAttribute{
+								Required: true,
+							},
+							"inventory": schema.SingleNestedAttribute{
+								Required: true,
+								Attributes: map[string]schema.Attribute{
+									"seed": schema.StringAttribute{
+										Required: true,
+									},
+								},
+							},
+						},
+						Required: true,
+					},
+					"destination": schema.StringAttribute{
+						Required: true,
+					},
+				},
+			},
+			Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
+			Optional:    true,
 		},
 	}
 
