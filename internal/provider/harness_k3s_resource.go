@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+
+	"github.com/docker/docker/api/types/volume"
+
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
@@ -328,14 +332,28 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts = append(kopts, k3s.WithNetworks(networks...))
 
-	harness, err := k3s.New(data.Id.ValueString(), r.store.cli, kopts...)
+	id := data.Id.ValueString()
+	configVolumeName := id + "-config"
+
+	_, err := r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Labels: provider.DefaultLabels,
+		Name:   configVolumeName,
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create config volume for k3s harness", err.Error())
+		return
+	}
+
+	kopts = append(kopts, k3s.WithContainerVolumeName(configVolumeName))
+
+	harness, err := k3s.New(id, r.store.cli, kopts...)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to initialize k3s harness", err.Error())
 		return
 	}
-	r.store.harnesses.Set(data.Id.ValueString(), harness)
+	r.store.harnesses.Set(id, harness)
 
-	log.Info(ctx, fmt.Sprintf("creating k3s harness [%s]", data.Id.ValueString()))
+	log.Info(ctx, fmt.Sprintf("creating k3s harness [%s]", id))
 
 	// Finally, create the harness
 	// TODO: Change this signature

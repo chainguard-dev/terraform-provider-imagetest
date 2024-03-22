@@ -8,10 +8,8 @@ import (
 )
 
 func TestAccHarnessK3sResource(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+	testCases := map[string][]resource.TestStep{
+		"happy path": {
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
@@ -37,14 +35,7 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
-	})
-}
-
-func TestAccHarnessK3sResourceWithWorkingDirectory(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+		"with working directory": {
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
@@ -91,18 +82,11 @@ EOM
           `,
 			},
 		},
-	})
-}
-
-func TestAccHarnessK3sResourceTimeout(t *testing.T) {
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
+		"timeout": {
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
-				ExpectError:        regexp.MustCompile(".*context deadline.*"),
+				ExpectError:        regexp.MustCompile(`.*context\s+deadline.*`),
 				Config: `
 data "imagetest_inventory" "this" {}
 
@@ -123,5 +107,15 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
-	})
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				PreCheck:                 func() { testAccPreCheck(t) },
+				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				Steps:                    tc,
+			})
+		})
+	}
 }

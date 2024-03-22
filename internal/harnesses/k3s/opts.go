@@ -20,7 +20,8 @@ type Opt struct {
 	Registries map[string]*RegistryOpt
 	Mirrors    map[string]*RegistryMirrorOpt
 
-	Sandbox provider.DockerRequest
+	Sandbox             provider.DockerRequest
+	ContainerVolumeName string
 }
 
 type RegistryOpt struct {
@@ -205,6 +206,13 @@ func WithTraefikDisabled(disabled bool) Option {
 func WithMetricsServerDisabled(disabled bool) Option {
 	return func(opt *Opt) error {
 		opt.MetricsServer = !disabled
+		return nil
+	}
+}
+
+func WithContainerVolumeName(volumeName string) Option {
+	return func(opt *Opt) error {
+		opt.ContainerVolumeName = volumeName
 		return nil
 	}
 }
