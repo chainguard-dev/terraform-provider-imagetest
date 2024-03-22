@@ -39,7 +39,7 @@ type k3s struct {
 }
 
 func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
-	opt := &Opt{
+	harnessOptions := &Opt{
 		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
 		MetricsServer: false,
@@ -66,26 +66,25 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 					CpuRequest:    resource.MustParse("100m"),
 				},
 			},
-			Mounts: []mount.Mount{
-				{
-					Type:   mount.TypeVolume,
-					Source: id + "-config",
-					Target: "/k3s-config",
-				},
-			},
 		},
 	}
 
 	for _, o := range opts {
-		if err := o(opt); err != nil {
+		if err := o(harnessOptions); err != nil {
 			return nil, err
 		}
 	}
 
+	harnessOptions.Sandbox.Mounts = append(harnessOptions.Sandbox.Mounts, mount.Mount{
+		Type:   mount.TypeVolume,
+		Source: harnessOptions.ContainerVolumeName,
+		Target: "/k3s-config",
+	})
+
 	k3s := &k3s{
 		Base: base.New(),
 		id:   id,
-		opt:  opt,
+		opt:  harnessOptions,
 	}
 
 	kcfg, err := k3s.genConfig()
@@ -100,10 +99,10 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 
 	service := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
-			Ref:        opt.ImageRef,
+			Ref:        harnessOptions.ImageRef,
 			Cmd:        []string{"server"},
 			Privileged: true,
-			Networks:   opt.Networks,
+			Networks:   harnessOptions.Networks,
 			Files: []provider.File{
 				{
 					Contents: kcfg,
@@ -116,14 +115,16 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 					Mode:     0644,
 				},
 			},
-			Resources: opt.Resources,
+			Resources: harnessOptions.Resources,
 		},
-		Mounts: []mount.Mount{
+		ManagedVolumes: []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
-				Source: id + "-config",
+				Source: harnessOptions.ContainerVolumeName,
 				Target: "/etc/rancher/k3s",
 			},
+		},
+		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeTmpfs,
 				Target: "/run",
@@ -135,7 +136,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		},
 	})
 
-	sandbox := provider.NewDocker(k3s.id+"-sandbox", cli, opt.Sandbox)
+	sandbox := provider.NewDocker(k3s.id+"-sandbox", cli, harnessOptions.Sandbox)
 
 	k3s.service = service
 	k3s.sandbox = sandbox
