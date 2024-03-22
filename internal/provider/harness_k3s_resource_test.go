@@ -86,7 +86,7 @@ EOM
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
-				ExpectError:        regexp.MustCompile(".*context\\s+deadline.*"),
+				ExpectError:        regexp.MustCompile(`.*context\s+deadline.*`),
 				Config: `
 data "imagetest_inventory" "this" {}
 
