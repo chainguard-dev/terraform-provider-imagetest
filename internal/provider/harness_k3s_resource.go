@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+
 	"github.com/docker/docker/api/types/volume"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
@@ -334,7 +336,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	configVolumeName := id + "-config"
 
 	_, err := r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Labels: map[string]string{"owner": "imagetest"},
+		Labels: provider.DefaultLabels,
 		Name:   configVolumeName,
 	})
 	if err != nil {

@@ -25,7 +25,12 @@ const (
 	DockerDefaultNetworkName = "imagetest"
 )
 
-var ErrNetworkNotFound = errors.New("network not found")
+var (
+	ErrNetworkNotFound = errors.New("network not found")
+	DefaultLabels      = map[string]string{
+		"dev.chainguard.imagetest": "true",
+	}
+)
 
 type DockerProvider struct {
 	cli *DockerClient
@@ -76,12 +81,10 @@ func NewDockerClient() (*DockerClient, error) {
 // NewDocker creates a new DockerProvider with the given client.
 func NewDocker(name string, cli *DockerClient, req DockerRequest) *DockerProvider {
 	return &DockerProvider{
-		name: name,
-		req:  req,
-		cli:  cli,
-		labels: map[string]string{
-			"imagetest": "true",
-		},
+		name:   name,
+		req:    req,
+		cli:    cli,
+		labels: DefaultLabels,
 	}
 }
 
