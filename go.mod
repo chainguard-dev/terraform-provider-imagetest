@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.7.0
 	github.com/samber/slog-multi v1.0.2
 	golang.org/x/sync v0.6.0
-	k8s.io/apimachinery v0.29.2
+	k8s.io/apimachinery v0.29.3
 )
 
 require (
@@ -62,7 +62,7 @@ require (
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/docker/docker v24.0.7+incompatible
 	github.com/fatih/color v1.16.0 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-checkpoint v0.5.0 // indirect
