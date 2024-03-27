@@ -68,7 +68,38 @@ func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRe
 		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
 
 		Attributes: addHarnessResourceSchemaAttributes(
-			addContainerResourceSchemaAttributes(map[string]schema.Attribute{}),
+			addContainerResourceSchemaAttributes(map[string]schema.Attribute{
+				"volumes": schema.ListNestedAttribute{
+					NestedObject: schema.NestedAttributeObject{
+						Attributes: map[string]schema.Attribute{
+							"source": schema.SingleNestedAttribute{
+								Attributes: map[string]schema.Attribute{
+									"id": schema.StringAttribute{
+										Required: true,
+									},
+									"name": schema.StringAttribute{
+										Required: true,
+									},
+									"inventory": schema.SingleNestedAttribute{
+										Required: true,
+										Attributes: map[string]schema.Attribute{
+											"seed": schema.StringAttribute{
+												Required: true,
+											},
+										},
+									},
+								},
+								Required: true,
+							},
+							"destination": schema.StringAttribute{
+								Required: true,
+							},
+						},
+					},
+					Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
+					Optional:    true,
+				},
+			}),
 		),
 	}
 }
@@ -283,36 +314,6 @@ func addContainerResourceSchemaAttributes(attrs map[string]schema.Attribute) map
 					},
 				},
 			},
-		},
-		"volumes": schema.ListNestedAttribute{
-			NestedObject: schema.NestedAttributeObject{
-				Attributes: map[string]schema.Attribute{
-					"source": schema.SingleNestedAttribute{
-						Attributes: map[string]schema.Attribute{
-							"id": schema.StringAttribute{
-								Required: true,
-							},
-							"name": schema.StringAttribute{
-								Required: true,
-							},
-							"inventory": schema.SingleNestedAttribute{
-								Required: true,
-								Attributes: map[string]schema.Attribute{
-									"seed": schema.StringAttribute{
-										Required: true,
-									},
-								},
-							},
-						},
-						Required: true,
-					},
-					"destination": schema.StringAttribute{
-						Required: true,
-					},
-				},
-			},
-			Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
-			Optional:    true,
 		},
 	}
 
