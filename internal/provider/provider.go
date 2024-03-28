@@ -33,6 +33,7 @@ type ImageTestProviderModel struct {
 type ImageTestProviderHarnessModel struct {
 	Container *ProviderHarnessContainerModel `tfsdk:"container"`
 	K3s       *ProviderHarnessK3sModel       `tfsdk:"k3s"`
+	Docker    *ProviderHarnessDockerModel    `tfsdk:"docker"`
 }
 
 type ProviderHarnessContainerModel struct {
@@ -44,6 +45,13 @@ type ProviderHarnessContainerModel struct {
 type ProviderHarnessK3sModel struct {
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Registries map[string]RegistryResourceModel         `tfsdk:"registries"`
+}
+
+type ProviderHarnessDockerModel struct {
+	SocketPath *string                                  `tfsdk:"socket_path"`
+	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Envs       types.Map                                `tfsdk:"envs"`
+	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 }
 
 type ProviderLoggerModel struct {
@@ -177,6 +185,49 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 							},
 						},
 					},
+					"docker": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"socket_path": schema.StringAttribute{
+								Required:    false,
+								Optional:    true,
+								Description: "The Docker socket path.",
+							},
+							"envs": schema.MapAttribute{
+								Description: "Environment variables to set on the container.",
+								Optional:    true,
+								ElementType: types.StringType,
+							},
+							"networks": schema.MapNestedAttribute{
+								Description: "A map of existing networks to attach the container to.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"name": schema.StringAttribute{
+											Description: "The name of the existing network to attach the container to.",
+											Required:    true,
+										},
+									},
+								},
+							},
+							"mounts": schema.ListNestedAttribute{
+								Description: "The list of mounts to create on the container.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"source": schema.StringAttribute{
+											Description: "The relative or absolute path on the host to the source directory to mount.",
+											Required:    true,
+										},
+										"destination": schema.StringAttribute{
+											Description: "The absolute path on the container to mount the source directory to.",
+											Required:    true,
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -212,13 +263,14 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	resp.ResourceData = p.store
 }
 
-func (p *ImageTestProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewFeatureResource,
 		NewContainerVolumeResource,
 		// Harnesses
 		NewHarnessK3sResource,
 		NewHarnessContainerResource,
+		NewHarnessDockerResource,
 	}
 }
 

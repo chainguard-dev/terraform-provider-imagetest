@@ -324,7 +324,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		}
 
 		if rdata.Mirror != nil {
-			endpoints := []string{}
+			endpoints := make([]string, 0)
 			if diags := rdata.Mirror.Endpoints.ElementsAs(ctx, &endpoints, false); diags.HasError() {
 				resp.Diagnostics.AddError("failed to convert mirror endpoints", "...")
 				return
