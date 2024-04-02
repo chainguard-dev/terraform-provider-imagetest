@@ -43,6 +43,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
 		MetricsServer: false,
+		Snapshotter:   "overlayfs",
 		Traefik:       false,
 		// Default to the bare minimum k3s needs to run properly
 		// https://docs.k3s.io/installation/requirements#hardware
@@ -308,7 +309,8 @@ disable:
 {{- if not .Cni }}
 flannel-backend: none
 {{- end }}
-`, h.id)
+snapshotter: "%[2]s"
+`, h.id, h.opt.Snapshotter)
 
 	tmpl, err := template.New("config").Parse(cfgtmpl)
 	if err != nil {
