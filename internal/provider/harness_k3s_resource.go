@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -236,6 +237,8 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		k3s.WithMetricsServerDisabled(data.DisableMetricsServer.ValueBool()),
 	}
 
+	kopts = append(kopts, r.workstationOpts()...)
+
 	if !data.Image.IsNull() {
 		ref, err := name.ParseReference(data.Image.ValueString())
 		if err != nil {
@@ -407,4 +410,15 @@ func (r *HarnessK3sResource) Delete(ctx context.Context, req resource.DeleteRequ
 
 func (r *HarnessK3sResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// workstationOpts holds any workstation specific k3s configuration.
+func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
+	opts := []k3s.Option{}
+
+	if os.Getenv("WORKSTATION") != "" {
+		opts = append(opts, k3s.WithContainerSnapshotter(k3s.K3sContainerSnapshotterNative))
+	}
+
+	return opts
 }

@@ -22,6 +22,7 @@ type Opt struct {
 
 	Sandbox             provider.DockerRequest
 	ContainerVolumeName string
+	Snapshotter         K3sContainerSnapshotter
 }
 
 type RegistryOpt struct {
@@ -44,6 +45,13 @@ type RegistryTlsOpt struct {
 type RegistryMirrorOpt struct {
 	Endpoints []string
 }
+
+type K3sContainerSnapshotter string
+
+const (
+	K3sContainerSnapshotterNative    K3sContainerSnapshotter = "native"
+	K3sContainerSnapshotterOverlayfs K3sContainerSnapshotter = "overlayfs"
+)
 
 type Option func(*Opt) error
 
@@ -131,6 +139,13 @@ func WithNetworks(networks ...string) Option {
 			opt.Sandbox.Networks = []string{}
 		}
 		opt.Sandbox.Networks = append(opt.Sandbox.Networks, networks...)
+		return nil
+	}
+}
+
+func WithContainerSnapshotter(snapshotter K3sContainerSnapshotter) Option {
+	return func(opt *Opt) error {
+		opt.Snapshotter = snapshotter
 		return nil
 	}
 }
