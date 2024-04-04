@@ -344,7 +344,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 func (r *FeatureResource) step(harness itypes.Harness, level itypes.Level, model FeatureStepModel) (itypes.Step, error) {
-	opts := []features.StepOpt{}
+	opts := make([]features.StepOpt, 0)
 
 	if model.Retry != nil {
 		duration, err := time.ParseDuration(model.Retry.Delay.ValueString())

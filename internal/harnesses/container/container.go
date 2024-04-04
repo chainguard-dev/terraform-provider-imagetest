@@ -110,6 +110,7 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 				CpuRequest:    resource.MustParse("100m"),
 				MemoryRequest: resource.MustParse("250Mi"),
 			},
+			Privileged: cfg.Privileged,
 		},
 		Mounts:         mounts,
 		ManagedVolumes: managedVolumes,

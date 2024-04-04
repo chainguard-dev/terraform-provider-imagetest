@@ -70,8 +70,8 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	// the ID is the {name}-{inventory-hash}. its intentially chose to be more
-	// user friendly than just a hash, since it is prepended to resources the
+	// The ID is the {name}-{inventory-hash}. It's intentionally chose to be more
+	// user-friendly than just a hash, since it is prepended to resources the
 	// harnesses will create.
 	invEnc, err := r.store.Encode(inv.Seed.ValueString())
 	if err != nil {

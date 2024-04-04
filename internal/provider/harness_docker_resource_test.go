@@ -6,7 +6,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-func TestAccHarnessContainerResource(t *testing.T) {
+func TestHarnessDockerResource(t *testing.T) {
 	testCases := map[string][]resource.TestStep{
 		"basic container harness": {
 			{
@@ -14,15 +14,15 @@ func TestAccHarnessContainerResource(t *testing.T) {
 				Config: `
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name      = "test"
   inventory = data.imagetest_inventory.this
 }
 
 resource "imagetest_feature" "test" {
-  name        = "Simple container based test"
+  name        = "Simple Docker based test"
   description = "Test that we can spin up a container and run some steps"
-  harness     = imagetest_harness_container.test
+  harness     = imagetest_harness_docker.test
   steps = [
     {
       name = "wolfi"
@@ -39,7 +39,7 @@ resource "imagetest_feature" "test" {
 				Config: `
 provider "imagetest" {
   harnesses = {
-    container = {
+    docker = {
       envs = {
         foo = "foo"
         baz = "override"
@@ -50,7 +50,7 @@ provider "imagetest" {
 
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
   envs = {
@@ -60,9 +60,9 @@ resource "imagetest_harness_container" "test" {
 }
 
 resource "imagetest_feature" "test" {
-  name = "Simple container based test"
-  description = "Test that we can spin up a container and run some steps"
-  harness = imagetest_harness_container.test
+  name = "Simple Docker based test"
+  description = "Test that we can spin up a container and run some steps with environment variables"
+  harness = imagetest_harness_docker.test
   steps = [
     {
       name = "Echo"
@@ -80,15 +80,15 @@ resource "imagetest_feature" "test" {
 				Config: `
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
 }
 
 resource "imagetest_feature" "test" {
-  name = "Simple container based test"
+  name = "Simple Docker based test"
   description = "Test that we can spin up a container and run some steps with a working directory"
-  harness = imagetest_harness_container.test
+  harness = imagetest_harness_docker.test
   steps = [
     {
       workdir = "/tmp"
@@ -117,7 +117,7 @@ resource "imagetest_container_volume" "volume" {
   inventory = data.imagetest_inventory.this
 }
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
   volumes = [
@@ -129,9 +129,9 @@ resource "imagetest_harness_container" "test" {
 }
 
 resource "imagetest_feature" "test" {
-  name = "Simple container based test"
-  description = "Test that we can spin up a volume and write some stuff in it"
-  harness = imagetest_harness_container.test
+  name = "Simple Docker based test"
+  description = "Test that we can spin up a container and run some steps with a volume working directory"
+  harness = imagetest_harness_docker.test
   steps = [
     {
       workdir = "/volume"
@@ -142,7 +142,33 @@ resource "imagetest_feature" "test" {
       workdir = "/volume"
       name = "Cat"
       cmd = "cat .testfile"
-    }
+    },
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
+		"docker works": {
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple Docker based test"
+  description = "Verify that docker images runs"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "Echo"
+      cmd = "docker run hello-world"
+    },
   ]
 }
         `,
