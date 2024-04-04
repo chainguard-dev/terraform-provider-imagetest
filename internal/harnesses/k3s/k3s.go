@@ -54,8 +54,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		Sandbox: provider.DockerRequest{
 			ContainerRequest: provider.ContainerRequest{
 				Ref:        name.MustParseReference(KubectlImageTag),
-				Entrypoint: []string{"/bin/sh", "-c"},
-				Cmd:        []string{"tail -f /dev/null"},
+				Entrypoint: base.DefaultEntrypoint(),
+				Cmd:        base.DefaultCmd(),
 				Env: map[string]string{
 					"KUBECONFIG": "/k3s-config/k3s.yaml",
 				},

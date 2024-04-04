@@ -71,3 +71,17 @@ func (h *Base) Done() error {
 	}
 	return nil
 }
+
+// DefaultEntrypoint returns the default entrypoint command used for multiple harnesses. This is currently used like this
+// in several places, so we might as well make it reusable.
+// Not safe to be made into a variable since slices are mutable and therefore cannot be made constant in Go.
+func DefaultEntrypoint() []string {
+	return []string{"/bin/sh", "-c"}
+}
+
+// DefaultCmd returns the default command used for multiple harnesses. This is currently used like this
+// in several places, so we might as well make it reusable.
+// Not safe to be made into a variable since slices are mutable and therefore cannot be made constant in Go.
+func DefaultCmd() []string {
+	return []string{"tail -f /dev/null"}
+}
