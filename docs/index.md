@@ -63,9 +63,9 @@ Required:
 Optional:
 
 - `envs` (Map of String) Environment variables to set on the container.
+- `host_socket_path` (String) The Docker host socket path.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--harnesses--docker--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--harnesses--docker--networks))
-- `socket_path` (String) The Docker socket path.
 
 <a id="nestedatt--harnesses--docker--mounts"></a>
 ### Nested Schema for `harnesses.docker.mounts`

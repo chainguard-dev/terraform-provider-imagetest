@@ -48,10 +48,10 @@ type ProviderHarnessK3sModel struct {
 }
 
 type ProviderHarnessDockerModel struct {
-	SocketPath *string                                  `tfsdk:"socket_path"`
-	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
-	Envs       types.Map                                `tfsdk:"envs"`
-	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
+	HostSocketPath *string                                  `tfsdk:"host_socket_path"`
+	Networks       map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Envs           types.Map                                `tfsdk:"envs"`
+	Mounts         []ContainerResourceMountModel            `tfsdk:"mounts"`
 }
 
 type ProviderLoggerModel struct {
@@ -188,10 +188,10 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					"docker": schema.SingleNestedAttribute{
 						Optional: true,
 						Attributes: map[string]schema.Attribute{
-							"socket_path": schema.StringAttribute{
+							"host_socket_path": schema.StringAttribute{
 								Required:    false,
 								Optional:    true,
-								Description: "The Docker socket path.",
+								Description: "The Docker host socket path.",
 							},
 							"envs": schema.MapAttribute{
 								Description: "Environment variables to set on the container.",

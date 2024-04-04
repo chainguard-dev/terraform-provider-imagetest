@@ -11,7 +11,7 @@ type HarnessDockerOptions struct {
 	ManagedVolumes []container.ConfigMount
 	Networks       []string
 	Mounts         []container.ConfigMount
-	SocketPath     string
+	HostSocketPath string
 	Envs           provider.Env
 }
 
@@ -69,9 +69,9 @@ func WithEnvs(env ...provider.Env) Option {
 	}
 }
 
-func WithSocketPath(socketPath string) Option {
+func WithHostSocketPath(socketPath string) Option {
 	return func(opt *HarnessDockerOptions) error {
-		opt.SocketPath = socketPath
+		opt.HostSocketPath = socketPath
 		return nil
 	}
 }
