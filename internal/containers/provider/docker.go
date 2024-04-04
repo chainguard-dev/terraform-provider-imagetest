@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -352,7 +352,7 @@ func (p *DockerProvider) pull(ctx context.Context) error {
 	}
 
 	// pull the image if it doesn't exist
-	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), types.ImagePullOptions{})
+	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), image.PullOptions{})
 	if err != nil {
 		return err
 	}
