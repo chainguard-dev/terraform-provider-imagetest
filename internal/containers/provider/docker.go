@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -209,7 +209,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		}
 	}
 
-	if err := p.cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := p.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("starting container: %w", err)
 	}
 
@@ -227,7 +227,7 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("stopping container %s: %w", p.id, err))
 	}
 
-	if err := p.cli.ContainerRemove(ctx, p.id, types.ContainerRemoveOptions{
+	if err := p.cli.ContainerRemove(ctx, p.id, container.RemoveOptions{
 		RemoveVolumes: true,
 		Force:         true,
 	}); err != nil {
@@ -352,7 +352,7 @@ func (p *DockerProvider) pull(ctx context.Context) error {
 	}
 
 	// pull the image if it doesn't exist
-	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), types.ImagePullOptions{})
+	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), image.PullOptions{})
 	if err != nil {
 		return err
 	}
