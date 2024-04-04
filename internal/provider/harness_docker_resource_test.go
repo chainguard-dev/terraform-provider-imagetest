@@ -162,12 +162,46 @@ resource "imagetest_harness_docker" "test" {
 
 resource "imagetest_feature" "test" {
   name = "Simple Docker based test"
-  description = "Verify that docker images runs"
+  description = "Verify that the Hello World Docker image runs"
   harness = imagetest_harness_docker.test
   steps = [
     {
       name = "Echo"
-      cmd = "docker run hello-world"
+      cmd = "docker run --rm hello-world"
+    },
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
+		"with socket path": {
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+provider "imagetest" {
+  harnesses = {
+    docker = {
+      host_socket_path = "/var/run/docker.sock"
+    }
+  }
+}
+
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple Docker based test"
+  description = "Verify that the Hello World Docker image runs"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "Echo"
+      cmd = "docker run --rm hello-world"
     },
   ]
 }

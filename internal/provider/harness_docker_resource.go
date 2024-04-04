@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	ContainerImage = "cgr.dev/chainguard/wolfi-base:latest" // TODO(mauren): create a docker-cli image
+	ContainerImage = "cgr.dev/chainguard/docker-cli:latest-dev"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -101,8 +101,8 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	if r.store.providerResourceData.Harnesses != nil &&
 		r.store.providerResourceData.Harnesses.Docker != nil &&
-		r.store.providerResourceData.Harnesses.Docker.SocketPath != nil {
-		opts = append(opts, docker.WithSocketPath(*r.store.providerResourceData.Harnesses.Docker.SocketPath))
+		r.store.providerResourceData.Harnesses.Docker.HostSocketPath != nil {
+		opts = append(opts, docker.WithHostSocketPath(*r.store.providerResourceData.Harnesses.Docker.HostSocketPath))
 	}
 
 	mounts := make([]ContainerResourceMountModel, 0)

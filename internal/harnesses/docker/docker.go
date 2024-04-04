@@ -33,8 +33,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	}
 
 	dockerSocketPath := DefaultDockerSocketPath
-	if options.SocketPath != "" {
-		dockerSocketPath = options.SocketPath
+	if options.HostSocketPath != "" {
+		dockerSocketPath = options.HostSocketPath
 	}
 
 	var managedVolumes []mount.Mount
@@ -68,6 +68,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 			Cmd:        base.DefaultCmd(),
 			Networks:   options.Networks,
 			Env:        options.Envs,
+			User:       "0:0", // required to be able to change path permissions, access the socket, other tasks
 		},
 		Mounts:         mounts,
 		ManagedVolumes: managedVolumes,
@@ -84,12 +85,6 @@ func (h *docker) Setup() types.StepFn {
 	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
 		if err := h.container.Start(ctx); err != nil {
 			return ctx, fmt.Errorf("failed starting docker service: %w", err)
-		}
-
-		if _, err := h.container.Exec(ctx, provider.ExecConfig{
-			Command: "apk add docker-cli",
-		}); err != nil {
-			return ctx, fmt.Errorf("failed finishing setup: %w", err)
 		}
 
 		return ctx, nil
