@@ -167,7 +167,7 @@ resource "imagetest_feature" "test" {
   steps = [
     {
       name = "Echo"
-      cmd = "docker images"
+      cmd = "docker run hello-world"
     },
   ]
 }
