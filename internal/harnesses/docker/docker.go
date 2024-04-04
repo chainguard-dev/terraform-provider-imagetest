@@ -64,8 +64,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	container := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        options.ImageRef,
-			Entrypoint: []string{"/bin/sh", "-c"},
-			Cmd:        []string{"tail -f /dev/null"},
+			Entrypoint: base.DefaultEntrypoint(),
+			Cmd:        base.DefaultCmd(),
 			Networks:   options.Networks,
 			Env:        options.Envs,
 		},
