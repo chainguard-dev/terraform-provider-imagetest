@@ -93,7 +93,6 @@ func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.Creat
 
 	inv := InventoryDataSourceModel{}
 	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
-		resp.Diagnostics.AddError("failed to create volume", "retrieving inventory")
 		return
 	}
 

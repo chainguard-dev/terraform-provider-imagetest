@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-
-	"github.com/docker/docker/api/types/volume"
-
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -98,110 +97,13 @@ func (r *HarnessK3sResource) Metadata(_ context.Context, req resource.MetadataRe
 }
 
 func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	schemaAttributes := util.MergeSchemaMaps(
+		addHarnessResourceSchemaAttributes(),
+		defaultK3sHarnessResourceSchemaAttributes(ctx))
+
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container networked to a running k3s cluster.`,
-
-		Attributes: addHarnessResourceSchemaAttributes(map[string]schema.Attribute{
-			"disable_cni": schema.BoolAttribute{
-				Description: "When true, the builtin (flannel) CNI will be disabled.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-			},
-			"disable_traefik": schema.BoolAttribute{
-				Description: "When true, the builtin traefik ingress controller will be disabled.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-			},
-			"disable_metrics_server": schema.BoolAttribute{
-				Description: "When true, the builtin metrics server will be disabled.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-			},
-			"image": schema.StringAttribute{
-				Description: "The full image reference to use for the k3s container.",
-				Optional:    true,
-			},
-			"registries": schema.MapNestedAttribute{
-				Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"auth": schema.SingleNestedAttribute{
-							Optional: true,
-							Attributes: map[string]schema.Attribute{
-								"username": schema.StringAttribute{
-									Optional: true,
-								},
-								"password": schema.StringAttribute{
-									Optional:  true,
-									Sensitive: true,
-								},
-								"auth": schema.StringAttribute{
-									Optional: true,
-								},
-							},
-						},
-						"tls": schema.SingleNestedAttribute{
-							Optional: true,
-							Attributes: map[string]schema.Attribute{
-								"cert_file": schema.StringAttribute{
-									Optional: true,
-								},
-								"key_file": schema.StringAttribute{
-									Optional: true,
-								},
-								"ca_file": schema.StringAttribute{
-									Optional: true,
-								},
-							},
-						},
-						"mirror": schema.SingleNestedAttribute{
-							Optional: true,
-							Attributes: map[string]schema.Attribute{
-								"endpoints": schema.ListAttribute{
-									ElementType: basetypes.StringType{},
-									Optional:    true,
-								},
-							},
-						},
-					},
-				},
-			},
-			"networks": schema.MapNestedAttribute{
-				Description: "A map of existing networks to attach the harness containers to.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"name": schema.StringAttribute{
-							Description: "The name of the existing network to attach the harness containers to.",
-							Required:    true,
-						},
-					},
-				},
-			},
-			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
-				Create:            true,
-				CreateDescription: "The maximum time to wait for the k3s harness to be created.",
-			}),
-			"sandbox": schema.SingleNestedAttribute{
-				Description: "A map of configuration for the sandbox container.",
-				Optional:    true,
-				Attributes: addContainerResourceSchemaAttributes(
-					map[string]schema.Attribute{
-						// Override the default image to use one with kubectl instead
-						"image": schema.StringAttribute{
-							Description: "The full image reference to use for the container.",
-							Optional:    true,
-							Computed:    true,
-							Default:     stringdefault.StaticString("cgr.dev/chainguard/kubectl:latest-dev"),
-						},
-					},
-				),
-			},
-		}),
+		Attributes:          schemaAttributes,
 	}
 }
 
@@ -284,7 +186,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 		envs := make(map[string]string)
 		if diags := sandbox.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid envs input: %s", diags.Errors()))
 			return
 		}
 		kopts = append(kopts, k3s.WithSandboxEnv(envs))
@@ -326,7 +227,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		if rdata.Mirror != nil {
 			endpoints := make([]string, 0)
 			if diags := rdata.Mirror.Endpoints.ElementsAs(ctx, &endpoints, false); diags.HasError() {
-				resp.Diagnostics.AddError("failed to convert mirror endpoints", "...")
 				return
 			}
 			kopts = append(kopts, k3s.WithRegistryMirror(rname, endpoints...))
@@ -414,11 +314,120 @@ func (r *HarnessK3sResource) ImportState(ctx context.Context, req resource.Impor
 
 // workstationOpts holds any workstation specific k3s configuration.
 func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
-	opts := []k3s.Option{}
+	opts := make([]k3s.Option, 0)
 
 	if os.Getenv("WORKSTATION") != "" {
 		opts = append(opts, k3s.WithContainerSnapshotter(k3s.K3sContainerSnapshotterNative))
 	}
 
 	return opts
+}
+
+func defaultK3sHarnessResourceSchemaAttributes(ctx context.Context) map[string]schema.Attribute {
+	sandboxAttributes := map[string]schema.Attribute{
+		// Override the default image to use one with kubectl instead
+		"image": schema.StringAttribute{
+			Description: "The full image reference to use for the container.",
+			Optional:    true,
+			Computed:    true,
+			Default:     stringdefault.StaticString("cgr.dev/chainguard/kubectl:latest-dev"),
+		},
+	}
+
+	// must be kept in this order so the image attribute provided in sandboxAttributes overrides the default image
+	sandboxAttributes = util.MergeSchemaMaps(
+		defaultContainerResourceSchemaAttributes(),
+		sandboxAttributes)
+
+	return map[string]schema.Attribute{
+		"disable_cni": schema.BoolAttribute{
+			Description: "When true, the builtin (flannel) CNI will be disabled.",
+			Optional:    true,
+			Computed:    true,
+			Default:     booldefault.StaticBool(false),
+		},
+		"disable_traefik": schema.BoolAttribute{
+			Description: "When true, the builtin traefik ingress controller will be disabled.",
+			Optional:    true,
+			Computed:    true,
+			Default:     booldefault.StaticBool(true),
+		},
+		"disable_metrics_server": schema.BoolAttribute{
+			Description: "When true, the builtin metrics server will be disabled.",
+			Optional:    true,
+			Computed:    true,
+			Default:     booldefault.StaticBool(true),
+		},
+		"image": schema.StringAttribute{
+			Description: "The full image reference to use for the k3s container.",
+			Optional:    true,
+		},
+		"registries": schema.MapNestedAttribute{
+			Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"auth": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"username": schema.StringAttribute{
+								Optional: true,
+							},
+							"password": schema.StringAttribute{
+								Optional:  true,
+								Sensitive: true,
+							},
+							"auth": schema.StringAttribute{
+								Optional: true,
+							},
+						},
+					},
+					"tls": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"cert_file": schema.StringAttribute{
+								Optional: true,
+							},
+							"key_file": schema.StringAttribute{
+								Optional: true,
+							},
+							"ca_file": schema.StringAttribute{
+								Optional: true,
+							},
+						},
+					},
+					"mirror": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"endpoints": schema.ListAttribute{
+								ElementType: basetypes.StringType{},
+								Optional:    true,
+							},
+						},
+					},
+				},
+			},
+		},
+		"networks": schema.MapNestedAttribute{
+			Description: "A map of existing networks to attach the harness containers to.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						Description: "The name of the existing network to attach the harness containers to.",
+						Required:    true,
+					},
+				},
+			},
+		},
+		"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+			Create:            true,
+			CreateDescription: "The maximum time to wait for the k3s harness to be created.",
+		}),
+		"sandbox": schema.SingleNestedAttribute{
+			Description: "A map of configuration for the sandbox container.",
+			Optional:    true,
+			Attributes:  sandboxAttributes,
+		},
+	}
 }
