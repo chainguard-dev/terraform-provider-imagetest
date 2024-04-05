@@ -3,12 +3,12 @@
 page_title: "imagetest_feature Resource - terraform-provider-imagetest"
 subcategory: ""
 description: |-
-  Example resource
+  Feature resource, used to evaluate the steps of a given test
 ---
 
 # imagetest_feature (Resource)
 
-Example resource
+Feature resource, used to evaluate the steps of a given test
 
 
 

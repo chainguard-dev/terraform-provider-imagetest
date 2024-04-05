@@ -3,12 +3,12 @@
 page_title: "imagetest_inventory Data Source - terraform-provider-imagetest"
 subcategory: ""
 description: |-
-  Example data source
+  Inventory data source. Keeps track of harness resources.
 ---
 
 # imagetest_inventory (Data Source)
 
-Example data source
+Inventory data source. Keeps track of harness resources.
 
 
 
