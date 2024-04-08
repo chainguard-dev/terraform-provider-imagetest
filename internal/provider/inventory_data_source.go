@@ -29,15 +29,14 @@ type InventoryDataSourceModel struct {
 	Seed types.String `tfsdk:"seed"`
 }
 
-func (d *InventoryDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *InventoryDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_inventory"
 }
 
-func (d *InventoryDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (d *InventoryDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Example data source",
-
+		MarkdownDescription: "Inventory data source. Keeps track of harness resources.",
 		Attributes: map[string]schema.Attribute{
 			"seed": schema.StringAttribute{
 				Computed: true,
@@ -46,7 +45,7 @@ func (d *InventoryDataSource) Schema(ctx context.Context, req datasource.SchemaR
 	}
 }
 
-func (d *InventoryDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *InventoryDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return

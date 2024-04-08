@@ -100,14 +100,11 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 
 	inv := InventoryDataSourceModel{}
 	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
-		resp.Diagnostics.AddError("failed to add harness", "retrieving inventory")
 		return false
 	}
 
 	var id string
 	if diags := req.Plan.GetAttribute(ctx, path.Root("id"), &id); diags.HasError() {
-		resp.Diagnostics.Append(diags.Errors()...)
-		resp.Diagnostics.AddError("failed to add harness", "getting harness id")
 		return false
 	}
 
@@ -145,8 +142,8 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 
 // AddHarnessSchemaAttributes adds common attributes to the given map. values
 // provided in attrs will override any specified defaults.
-func addHarnessResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
-	defaults := map[string]schema.Attribute{
+func addHarnessResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
 		"id": schema.StringAttribute{
 			Description: "The unique identifier for the harness. This is generated from the inventory seed and harness name.",
 			Computed:    true,
@@ -169,16 +166,10 @@ func addHarnessResourceSchemaAttributes(attrs map[string]schema.Attribute) map[s
 			Computed:    true,
 		},
 	}
-
-	for k, v := range defaults {
-		attrs[k] = v
-	}
-
-	return attrs
 }
 
-func addFeatureHarnessResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
-	defaults := map[string]schema.Attribute{
+func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
 		"harness": schema.SingleNestedAttribute{
 			Required: true,
 			Attributes: map[string]schema.Attribute{
@@ -202,10 +193,4 @@ func addFeatureHarnessResourceSchemaAttributes(attrs map[string]schema.Attribute
 			},
 		},
 	}
-
-	for k, v := range defaults {
-		attrs[k] = v
-	}
-
-	return attrs
 }

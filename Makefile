@@ -10,7 +10,7 @@ terraform-provider-imagetest: goimports lint testacc
 
 .PHONY: clean
 clean:
-	rm terraform-provider-imagetest
+	rm -v terraform-provider-imagetest || true
 
 .PHONY: go-generate
 go-generate:

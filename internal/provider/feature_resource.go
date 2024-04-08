@@ -9,6 +9,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -17,7 +18,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -70,116 +70,125 @@ type FeatureStepBackoffModel struct {
 	Factor   types.Float64 `tfsdk:"factor"`
 }
 
-func (r *FeatureResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *FeatureResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_feature"
 }
 
-func (r *FeatureResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *FeatureResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	featureSchemaAttributes := util.MergeSchemaMaps(
+		defaultFeatureHarnessResourceSchemaAttributes(),
+		extraFeatureSchemaAttributes(ctx))
+
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Example resource",
+		MarkdownDescription: "Feature resource, used to evaluate the steps of a given test",
+		Attributes:          featureSchemaAttributes,
+	}
+}
 
-		Attributes: addFeatureHarnessResourceSchemaAttributes(map[string]schema.Attribute{
-			"id": schema.StringAttribute{
-				Description: "ID is an encoded hash of the feature name and harness ID. It is used as a computed unique identifier of the feature within a given harness.",
-				Computed:    true,
-			},
-			"name": schema.StringAttribute{
-				Description: "The name of the feature",
-				Required:    true,
-			},
-			"description": schema.StringAttribute{
-				Description: "A descriptor of the feature",
-				Optional:    true,
-			},
-			"before": schema.ListNestedAttribute{
-				Description: "Actions to run against the harness before the core feature steps.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"name": schema.StringAttribute{
-							Description: "An identifying name for this step",
-							Optional:    true,
-						},
-						"cmd": schema.StringAttribute{
-							Description: "The command or set of commands that should be run at this step",
-							Required:    true,
-						},
-						"workdir": schema.StringAttribute{
-							Description: "An optional working directory for the step to run in",
-							Optional:    true,
-						},
-						"retry": schema.SingleNestedAttribute{
-							Description: "Optional retry configuration for the step",
-							Optional:    true,
-							Attributes:  addFeatureStepBackoffSchemaAttributes(),
-						},
+// extraFeatureSchemaAttributes returns the attributes for the Terraform schema that should be included in addition to
+// the default ones.
+func extraFeatureSchemaAttributes(ctx context.Context) map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"id": schema.StringAttribute{
+			Description: "ID is an encoded hash of the feature name and harness ID. It is used as a computed unique identifier of the feature within a given harness.",
+			Computed:    true,
+		},
+		"name": schema.StringAttribute{
+			Description: "The name of the feature",
+			Required:    true,
+		},
+		"description": schema.StringAttribute{
+			Description: "A descriptor of the feature",
+			Optional:    true,
+		},
+		"before": schema.ListNestedAttribute{
+			Description: "Actions to run against the harness before the core feature steps.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						Description: "An identifying name for this step",
+						Optional:    true,
+					},
+					"cmd": schema.StringAttribute{
+						Description: "The command or set of commands that should be run at this step",
+						Required:    true,
+					},
+					"workdir": schema.StringAttribute{
+						Description: "An optional working directory for the step to run in",
+						Optional:    true,
+					},
+					"retry": schema.SingleNestedAttribute{
+						Description: "Optional retry configuration for the step",
+						Optional:    true,
+						Attributes:  addFeatureStepBackoffSchemaAttributes(),
 					},
 				},
 			},
-			"after": schema.ListNestedAttribute{
-				Description: "Actions to run againast the harness after the core steps have run OR after a step has failed.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"name": schema.StringAttribute{
-							Description: "An identifying name for this step",
-							Optional:    true,
-						},
-						"cmd": schema.StringAttribute{
-							Description: "The command or set of commands that should be run at this step",
-							Required:    true,
-						},
-						"workdir": schema.StringAttribute{
-							Description: "An optional working directory for the step to run in",
-							Optional:    true,
-						},
-						"retry": schema.SingleNestedAttribute{
-							Description: "Optional retry configuration for the step",
-							Optional:    true,
-							Attributes:  addFeatureStepBackoffSchemaAttributes(),
-						},
+		},
+		"after": schema.ListNestedAttribute{
+			Description: "Actions to run againast the harness after the core steps have run OR after a step has failed.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						Description: "An identifying name for this step",
+						Optional:    true,
+					},
+					"cmd": schema.StringAttribute{
+						Description: "The command or set of commands that should be run at this step",
+						Required:    true,
+					},
+					"workdir": schema.StringAttribute{
+						Description: "An optional working directory for the step to run in",
+						Optional:    true,
+					},
+					"retry": schema.SingleNestedAttribute{
+						Description: "Optional retry configuration for the step",
+						Optional:    true,
+						Attributes:  addFeatureStepBackoffSchemaAttributes(),
 					},
 				},
 			},
-			"steps": schema.ListNestedAttribute{
-				Description: "Actions to run against the harness.",
-				Optional:    true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"name": schema.StringAttribute{
-							Description: "An identifying name for this step",
-							Optional:    true,
-						},
-						"cmd": schema.StringAttribute{
-							Description: "The command or set of commands that should be run at this step",
-							Required:    true,
-						},
-						"workdir": schema.StringAttribute{
-							Description: "An optional working directory for the step to run in",
-							Optional:    true,
-						},
-						"retry": schema.SingleNestedAttribute{
-							Description: "Optional retry configuration for the step",
-							Optional:    true,
-							Attributes:  addFeatureStepBackoffSchemaAttributes(),
-						},
+		},
+		"steps": schema.ListNestedAttribute{
+			Description: "Actions to run against the harness.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						Description: "An identifying name for this step",
+						Optional:    true,
+					},
+					"cmd": schema.StringAttribute{
+						Description: "The command or set of commands that should be run at this step",
+						Required:    true,
+					},
+					"workdir": schema.StringAttribute{
+						Description: "An optional working directory for the step to run in",
+						Optional:    true,
+					},
+					"retry": schema.SingleNestedAttribute{
+						Description: "Optional retry configuration for the step",
+						Optional:    true,
+						Attributes:  addFeatureStepBackoffSchemaAttributes(),
 					},
 				},
 			},
-			"labels": schema.MapAttribute{
-				Description: "A set of labels used to optionally filter execution of the feature",
-				Optional:    true,
-				ElementType: basetypes.StringType{},
-			},
-			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
-				Create: true,
-			}),
+		},
+		"labels": schema.MapAttribute{
+			Description: "A set of labels used to optionally filter execution of the feature",
+			Optional:    true,
+			ElementType: basetypes.StringType{},
+		},
+		"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+			Create: true,
 		}),
 	}
 }
 
-func (r *FeatureResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *FeatureResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
@@ -213,7 +222,6 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 	labels := make(map[string]string)
 	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
-		resp.Diagnostics.AddError("failed to convert labels", "...")
 		return
 	}
 
@@ -225,8 +233,6 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if diag := resp.Plan.SetAttribute(ctx, path.Root("id"), id); diag.HasError() {
-		resp.Diagnostics.Append(diag.Errors()...)
-		resp.Diagnostics.AddError("failed to set feature id", "...")
 		return
 	}
 
@@ -413,7 +419,7 @@ func (r *FeatureResource) test(ctx context.Context, feature itypes.Feature) (err
 	return nil
 }
 
-func (r *FeatureResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+func (r *FeatureResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {
 }
 
 func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -430,7 +436,7 @@ func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *FeatureResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 }
 
 func (r *FeatureResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

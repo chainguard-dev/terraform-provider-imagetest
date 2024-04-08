@@ -243,7 +243,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 
 	labels := make(map[string]string)
 	if diag := data.Labels.ElementsAs(ctx, &labels, false); diag.HasError() {
-		resp.Diagnostics.AddError("invalid provider data", "...")
 		return
 	}
 	p.store.labels = labels

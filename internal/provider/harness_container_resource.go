@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/docker/docker/api/types/mount"
-
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -64,43 +64,14 @@ func (r *HarnessContainerResource) Metadata(_ context.Context, req resource.Meta
 }
 
 func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	schemaAttributes := util.MergeSchemaMaps(
+		addHarnessResourceSchemaAttributes(),
+		defaultContainerResourceSchemaAttributes(),
+		extraContainerResourceSchemaAttributes())
+
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
-
-		Attributes: addHarnessResourceSchemaAttributes(
-			addContainerResourceSchemaAttributes(map[string]schema.Attribute{
-				"volumes": schema.ListNestedAttribute{
-					NestedObject: schema.NestedAttributeObject{
-						Attributes: map[string]schema.Attribute{
-							"source": schema.SingleNestedAttribute{
-								Attributes: map[string]schema.Attribute{
-									"id": schema.StringAttribute{
-										Required: true,
-									},
-									"name": schema.StringAttribute{
-										Required: true,
-									},
-									"inventory": schema.SingleNestedAttribute{
-										Required: true,
-										Attributes: map[string]schema.Attribute{
-											"seed": schema.StringAttribute{
-												Required: true,
-											},
-										},
-									},
-								},
-								Required: true,
-							},
-							"destination": schema.StringAttribute{
-								Required: true,
-							},
-						},
-					},
-					Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
-					Optional:    true,
-				},
-			}),
-		),
+		Attributes:          schemaAttributes,
 	}
 }
 
@@ -159,7 +130,6 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 			envs := make(map[string]string)
 			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-				resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid envs input: %s", diags.Errors()))
 				return
 			}
 			cfg.Env = envs
@@ -196,7 +166,6 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 	envs := make(map[string]string)
 	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid envs input: %s", diags.Errors()))
 		return
 	}
 	for k, v := range envs {
@@ -266,11 +235,11 @@ func (r *HarnessContainerResource) ImportState(ctx context.Context, req resource
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// addContainerResourceSchemaAttributes adds common container resource
+// defaultContainerResourceSchemaAttributes adds common container resource
 // attributes to the given map. this function is provided knowing how common it
 // is for other harnesses to require some sort of container configuration.
-func addContainerResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
-	defaults := map[string]schema.Attribute{
+func defaultContainerResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the container.",
 			Optional:    true,
@@ -316,10 +285,39 @@ func addContainerResourceSchemaAttributes(attrs map[string]schema.Attribute) map
 			},
 		},
 	}
+}
 
-	for k, v := range attrs {
-		defaults[k] = v
+func extraContainerResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"volumes": schema.ListNestedAttribute{
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"source": schema.SingleNestedAttribute{
+						Attributes: map[string]schema.Attribute{
+							"id": schema.StringAttribute{
+								Required: true,
+							},
+							"name": schema.StringAttribute{
+								Required: true,
+							},
+							"inventory": schema.SingleNestedAttribute{
+								Required: true,
+								Attributes: map[string]schema.Attribute{
+									"seed": schema.StringAttribute{
+										Required: true,
+									},
+								},
+							},
+						},
+						Required: true,
+					},
+					"destination": schema.StringAttribute{
+						Required: true,
+					},
+				},
+			},
+			Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
+			Optional:    true,
+		},
 	}
-
-	return defaults
 }

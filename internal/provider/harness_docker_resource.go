@@ -8,14 +8,14 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
-
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -61,12 +61,13 @@ func (r *HarnessDockerResource) Metadata(_ context.Context, req resource.Metadat
 }
 
 func (r *HarnessDockerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	schemaAttributes := util.MergeSchemaMaps(
+		addHarnessResourceSchemaAttributes(),
+		addDockerResourceSchemaAttributes())
+
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container with access to a Docker daemon.`,
-
-		Attributes: addHarnessResourceSchemaAttributes(
-			addDockerResourceSchemaAttributes(map[string]schema.Attribute{}),
-		),
+		Attributes:          schemaAttributes,
 	}
 }
 
@@ -230,8 +231,8 @@ func (r *HarnessDockerResource) ImportState(ctx context.Context, req resource.Im
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func addDockerResourceSchemaAttributes(attrs map[string]schema.Attribute) map[string]schema.Attribute {
-	defaults := map[string]schema.Attribute{
+func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the container.",
 			Optional:    true,
@@ -307,10 +308,4 @@ func addDockerResourceSchemaAttributes(attrs map[string]schema.Attribute) map[st
 			Optional:    true,
 		},
 	}
-
-	for k, v := range attrs {
-		defaults[k] = v
-	}
-
-	return defaults
 }
