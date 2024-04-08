@@ -58,6 +58,14 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 				Cmd:        base.DefaultCmd(),
 				Env: map[string]string{
 					"KUBECONFIG": "/k3s-config/k3s.yaml",
+					"ENV":        "/root/.ashrc",
+				},
+				Files: []provider.File{
+					{
+						Contents: bytes.NewBufferString("alias k=kubectl"),
+						Target:   "/root/.ashrc",
+						Mode:     644,
+					},
 				},
 				User: "0:0",
 				// Default to something small just for "scheduling" purposes, the bulk of
