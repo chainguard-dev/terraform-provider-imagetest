@@ -3,6 +3,8 @@ package provider
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,8 +20,10 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/google/go-containerregistry/pkg/authn"
 )
 
 const (
@@ -68,6 +72,7 @@ type DockerClient struct {
 
 func NewDockerClient() (*DockerClient, error) {
 	cli, err := client.NewClientWithOpts(
+		client.FromEnv,
 		client.WithAPIVersionNegotiation(),
 		client.WithVersionFromEnv(),
 	)
@@ -351,8 +356,33 @@ func (p *DockerProvider) pull(ctx context.Context) error {
 		}
 	}
 
+	// create our own auth token... why this isn't handled by the client is
+	// beyond me
+	a, err := authn.DefaultKeychain.Resolve(p.req.Ref.Context().Registry)
+	if err != nil {
+		return fmt.Errorf("resolving keychain for registry %s: %w", p.req.Ref.Context().Registry, err)
+	}
+
+	acfg, err := a.Authorization()
+	if err != nil {
+		return fmt.Errorf("getting authorization for registry %s: %w", p.req.Ref.Context().Registry, err)
+	}
+
+	auth := registry.AuthConfig{
+		Username: acfg.Username,
+		Password: acfg.Password,
+		Auth:     acfg.Auth,
+	}
+
+	authdata, err := json.Marshal(auth)
+	if err != nil {
+		return fmt.Errorf("marshaling auth data: %w", err)
+	}
+
 	// pull the image if it doesn't exist
-	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), image.PullOptions{})
+	pull, err := p.cli.ImagePull(ctx, p.req.Ref.Name(), image.PullOptions{
+		RegistryAuth: base64.URLEncoding.EncodeToString(authdata),
+	})
 	if err != nil {
 		return err
 	}
