@@ -52,6 +52,7 @@ type ProviderHarnessDockerModel struct {
 	Networks       map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Envs           types.Map                                `tfsdk:"envs"`
 	Mounts         []ContainerResourceMountModel            `tfsdk:"mounts"`
+	Registries     map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
 }
 
 type ProviderLoggerModel struct {
@@ -222,6 +223,29 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 										"destination": schema.StringAttribute{
 											Description: "The absolute path on the container to mount the source directory to.",
 											Required:    true,
+										},
+									},
+								},
+							},
+							"registries": schema.MapNestedAttribute{
+								Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
+								Optional:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"auth": schema.SingleNestedAttribute{
+											Optional: true,
+											Attributes: map[string]schema.Attribute{
+												"username": schema.StringAttribute{
+													Optional: true,
+												},
+												"password": schema.StringAttribute{
+													Optional:  true,
+													Sensitive: true,
+												},
+												"auth": schema.StringAttribute{
+													Optional: true,
+												},
+											},
 										},
 									},
 								},

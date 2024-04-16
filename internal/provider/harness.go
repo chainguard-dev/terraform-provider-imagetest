@@ -32,6 +32,18 @@ type FeatureHarnessVolumeMountModel struct {
 	Destination string                       `tfsdk:"destination"`
 }
 
+type RegistryResourceAuthModel struct {
+	Username types.String `tfsdk:"username"`
+	Password types.String `tfsdk:"password"`
+	Auth     types.String `tfsdk:"auth"`
+}
+
+type RegistryResourceTlsModel struct {
+	CertFile types.String `tfsdk:"cert_file"`
+	KeyFile  types.String `tfsdk:"key_file"`
+	CaFile   types.String `tfsdk:"ca_file"`
+}
+
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {

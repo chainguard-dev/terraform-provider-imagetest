@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -26,20 +27,8 @@ type Opt struct {
 }
 
 type RegistryOpt struct {
-	Auth *RegistryAuthOpt
-	Tls  *RegistryTlsOpt
-}
-
-type RegistryAuthOpt struct {
-	Username string
-	Password string
-	Auth     string
-}
-
-type RegistryTlsOpt struct {
-	CertFile string
-	KeyFile  string
-	CaFile   string
+	Auth *base.RegistryAuthOpt
+	Tls  *base.RegistryTlsOpt
 }
 
 type RegistryMirrorOpt struct {
@@ -71,7 +60,7 @@ func WithAuthFromStatic(registry, username, password, auth string) Option {
 			opt.Registries[registry] = &RegistryOpt{}
 		}
 
-		opt.Registries[registry].Auth = &RegistryAuthOpt{
+		opt.Registries[registry].Auth = &base.RegistryAuthOpt{
 			Username: username,
 			Password: password,
 			Auth:     auth,
@@ -105,7 +94,7 @@ func WithAuthFromKeychain(registry string) Option {
 			return fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
 		}
 
-		opt.Registries[registry].Auth = &RegistryAuthOpt{
+		opt.Registries[registry].Auth = &base.RegistryAuthOpt{
 			Username: acfg.Username,
 			Password: acfg.Password,
 			Auth:     acfg.Auth,
