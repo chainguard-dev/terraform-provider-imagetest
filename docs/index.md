@@ -66,6 +66,7 @@ Optional:
 - `host_socket_path` (String) The Docker host socket path.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--harnesses--docker--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--harnesses--docker--networks))
+- `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--harnesses--docker--registries))
 
 <a id="nestedatt--harnesses--docker--mounts"></a>
 ### Nested Schema for `harnesses.docker.mounts`
@@ -82,6 +83,24 @@ Required:
 Required:
 
 - `name` (String) The name of the existing network to attach the container to.
+
+
+<a id="nestedatt--harnesses--docker--registries"></a>
+### Nested Schema for `harnesses.docker.registries`
+
+Optional:
+
+- `auth` (Attributes) (see [below for nested schema](#nestedatt--harnesses--docker--registries--auth))
+
+<a id="nestedatt--harnesses--docker--registries--auth"></a>
+### Nested Schema for `harnesses.docker.registries.auth`
+
+Optional:
+
+- `auth` (String)
+- `password` (String, Sensitive)
+- `username` (String)
+
 
 
 

@@ -27,6 +27,7 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `privileged` (Boolean)
+- `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
 - `volumes` (Attributes List) The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders. (see [below for nested schema](#nestedatt--volumes))
 
 ### Read-Only
@@ -57,6 +58,35 @@ Required:
 Required:
 
 - `name` (String) The name of the existing network to attach the container to.
+
+
+<a id="nestedatt--registries"></a>
+### Nested Schema for `registries`
+
+Optional:
+
+- `auth` (Attributes) (see [below for nested schema](#nestedatt--registries--auth))
+- `tls` (Attributes) (see [below for nested schema](#nestedatt--registries--tls))
+
+<a id="nestedatt--registries--auth"></a>
+### Nested Schema for `registries.auth`
+
+Optional:
+
+- `auth` (String)
+- `password` (String, Sensitive)
+- `username` (String)
+
+
+<a id="nestedatt--registries--tls"></a>
+### Nested Schema for `registries.tls`
+
+Optional:
+
+- `ca_file` (String)
+- `cert_file` (String)
+- `key_file` (String)
+
 
 
 <a id="nestedatt--volumes"></a>
