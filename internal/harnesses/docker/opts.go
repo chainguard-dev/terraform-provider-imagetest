@@ -1,18 +1,29 @@
 package docker
 
 import (
+	"fmt"
+
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
 type HarnessDockerOptions struct {
-	ImageRef       name.Reference
-	ManagedVolumes []container.ConfigMount
-	Networks       []string
-	Mounts         []container.ConfigMount
-	HostSocketPath string
-	Envs           provider.Env
+	ImageRef         name.Reference
+	ManagedVolumes   []container.ConfigMount
+	Networks         []string
+	Mounts           []container.ConfigMount
+	HostSocketPath   string
+	Envs             provider.Env
+	Registries       map[string]*RegistryOpt
+	ConfigVolumeName string
+}
+
+type RegistryOpt struct {
+	Auth *base.RegistryAuthOpt
+	Tls  *base.RegistryTlsOpt
 }
 
 type Option func(*HarnessDockerOptions) error
@@ -49,6 +60,59 @@ func WithNetworks(networks ...string) Option {
 	}
 }
 
+func WithAuthFromStatic(registry, username, password, auth string) Option {
+	return func(opt *HarnessDockerOptions) error {
+		if opt.Registries == nil {
+			opt.Registries = make(map[string]*RegistryOpt)
+		}
+		if _, ok := opt.Registries[registry]; !ok {
+			opt.Registries[registry] = &RegistryOpt{}
+		}
+
+		opt.Registries[registry].Auth = &base.RegistryAuthOpt{
+			Username: username,
+			Password: password,
+			Auth:     auth,
+		}
+
+		return nil
+	}
+}
+
+func WithAuthFromKeychain(registry string) Option {
+	return func(opt *HarnessDockerOptions) error {
+		if opt.Registries == nil {
+			opt.Registries = make(map[string]*RegistryOpt)
+		}
+		if _, ok := opt.Registries[registry]; !ok {
+			opt.Registries[registry] = &RegistryOpt{}
+		}
+
+		r, err := name.NewRegistry(registry)
+		if err != nil {
+			return fmt.Errorf("invalid registry name: %w", err)
+		}
+
+		a, err := authn.DefaultKeychain.Resolve(r)
+		if err != nil {
+			return fmt.Errorf("resolving keychain for registry %s: %w", r.String(), err)
+		}
+
+		acfg, err := a.Authorization()
+		if err != nil {
+			return fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
+		}
+
+		opt.Registries[registry].Auth = &base.RegistryAuthOpt{
+			Username: acfg.Username,
+			Password: acfg.Password,
+			Auth:     acfg.Auth,
+		}
+
+		return nil
+	}
+}
+
 func WithEnvs(env ...provider.Env) Option {
 	return func(opt *HarnessDockerOptions) error {
 		if env == nil {
@@ -72,6 +136,13 @@ func WithEnvs(env ...provider.Env) Option {
 func WithHostSocketPath(socketPath string) Option {
 	return func(opt *HarnessDockerOptions) error {
 		opt.HostSocketPath = socketPath
+		return nil
+	}
+}
+
+func WithConfigVolumeName(configVolumeName string) Option {
+	return func(opt *HarnessDockerOptions) error {
+		opt.ConfigVolumeName = configVolumeName
 		return nil
 	}
 }

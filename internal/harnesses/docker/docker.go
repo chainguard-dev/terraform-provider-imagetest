@@ -1,7 +1,10 @@
 package docker
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -22,6 +25,16 @@ type docker struct {
 	id string
 
 	container provider.Provider
+}
+
+type dockerAuthEntry struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	Auth     string `json:"auth,omitempty"`
+}
+
+type dockerConfig struct {
+	Auths map[string]dockerAuthEntry `json:"auths,omitempty"`
 }
 
 func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
@@ -46,6 +59,12 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		})
 	}
 
+	managedVolumes = append(managedVolumes, mount.Mount{
+		Type:   mount.TypeVolume,
+		Target: "/root/.docker",
+		Source: options.ConfigVolumeName,
+	})
+
 	var mounts []mount.Mount
 	mounts = append(mounts, mount.Mount{
 		Type:   mount.TypeBind,
@@ -61,6 +80,11 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		})
 	}
 
+	dockerConfigJson, err := createDockerConfigJSON(options.Registries)
+	if err != nil {
+		return nil, err
+	}
+
 	container := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        options.ImageRef,
@@ -69,6 +93,13 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 			Networks:   options.Networks,
 			Env:        options.Envs,
 			User:       "0:0", // required to be able to change path permissions, access the socket, other tasks
+			Files: []provider.File{
+				{
+					Contents: bytes.NewBuffer(dockerConfigJson),
+					Target:   "/root/.docker/config.json",
+					Mode:     0644,
+				},
+			},
 		},
 		Mounts:         mounts,
 		ManagedVolumes: managedVolumes,
@@ -119,4 +150,31 @@ func (h *docker) StepFn(config types.StepConfig) types.StepFn {
 
 		return ctx, nil
 	}
+}
+
+// createDockerConfigJSON creates a Docker config.json file used by the harness for auth.
+func createDockerConfigJSON(registryAuths map[string]*RegistryOpt) ([]byte, error) {
+	authConfig := dockerConfig{}
+	authConfig.Auths = make(map[string]dockerAuthEntry)
+
+	for k, v := range registryAuths {
+		base64Auth := v.Auth.Auth
+		if base64Auth == "" {
+			auth := fmt.Sprintf("%s:%s", v.Auth.Username, v.Auth.Password)
+			base64Auth = base64.StdEncoding.EncodeToString([]byte(auth))
+		}
+
+		authConfig.Auths[k] = dockerAuthEntry{
+			Username: v.Auth.Username,
+			Password: v.Auth.Password,
+			Auth:     base64Auth,
+		}
+	}
+
+	dockerConfigJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize Docker config.dockerConfigJSON contents: %w", err)
+	}
+
+	return dockerConfigJSON, nil
 }

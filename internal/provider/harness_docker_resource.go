@@ -11,6 +11,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -54,6 +55,11 @@ type HarnessDockerResourceModel struct {
 	Envs       types.Map                                `tfsdk:"envs"`
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
+}
+
+type DockerRegistryResourceModel struct {
+	Auth *RegistryResourceAuthModel `tfsdk:"auth"`
 }
 
 func (r *HarnessDockerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -111,6 +117,11 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		mounts = data.Mounts
 	}
 
+	registries := make(map[string]DockerRegistryResourceModel)
+	if data.Registries != nil {
+		registries = data.Registries
+	}
+
 	networks := make(map[string]ContainerResourceModelNetwork)
 	if data.Networks != nil {
 		networks = data.Networks
@@ -124,11 +135,30 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 				networks[k] = v
 			}
 
+			for k, v := range c.Registries {
+				registries[k] = v
+			}
+
 			envs := make(provider.Env)
 			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
 				return
 			}
 			opts = append(opts, docker.WithEnvs(envs))
+		}
+	}
+
+	for regAddress, regInfo := range registries {
+		if regInfo.Auth != nil {
+			if regInfo.Auth.Auth.IsNull() && regInfo.Auth.Password.IsNull() && regInfo.Auth.Username.IsNull() {
+				opts = append(opts, docker.WithAuthFromKeychain(regAddress))
+			} else {
+				opts = append(opts,
+					docker.WithAuthFromStatic(
+						regAddress,
+						regInfo.Auth.Username.ValueString(),
+						regInfo.Auth.Password.ValueString(),
+						regInfo.Auth.Auth.ValueString()))
+			}
 		}
 	}
 
@@ -167,6 +197,18 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	opts = append(opts, docker.WithEnvs(envs))
 
 	id := data.Id.ValueString()
+	configVolumeName := id + "-config"
+
+	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Labels: provider.DefaultLabels,
+		Name:   configVolumeName,
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create config volume for the Docker harness", err.Error())
+		return
+	}
+
+	opts = append(opts, docker.WithConfigVolumeName(configVolumeName))
 
 	harness, err := docker.New(id, r.store.cli, opts...)
 	if err != nil {
@@ -273,6 +315,43 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 					"destination": schema.StringAttribute{
 						Description: "The absolute path on the container to mount the source directory.",
 						Required:    true,
+					},
+				},
+			},
+		},
+		"registries": schema.MapNestedAttribute{
+			Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"auth": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"username": schema.StringAttribute{
+								Optional: true,
+							},
+							"password": schema.StringAttribute{
+								Optional:  true,
+								Sensitive: true,
+							},
+							"auth": schema.StringAttribute{
+								Optional: true,
+							},
+						},
+					},
+					"tls": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"cert_file": schema.StringAttribute{
+								Optional: true,
+							},
+							"key_file": schema.StringAttribute{
+								Optional: true,
+							},
+							"ca_file": schema.StringAttribute{
+								Optional: true,
+							},
+						},
 					},
 				},
 			},
