@@ -130,7 +130,7 @@ Optional:
 - `tls` (Attributes) (see [below for nested schema](#nestedatt--harnesses--k3s--registries--tls))
 
 <a id="nestedatt--harnesses--k3s--registries--auth"></a>
-### Nested Schema for `harnesses.k3s.registries.tls`
+### Nested Schema for `harnesses.k3s.registries.auth`
 
 Optional:
 
@@ -140,7 +140,7 @@ Optional:
 
 
 <a id="nestedatt--harnesses--k3s--registries--mirror"></a>
-### Nested Schema for `harnesses.k3s.registries.tls`
+### Nested Schema for `harnesses.k3s.registries.mirror`
 
 Optional:
 
