@@ -1,6 +1,8 @@
 module github.com/chainguard-dev/terraform-provider-imagetest
 
-go 1.21
+go 1.22.0
+
+toolchain go1.22.2
 
 require (
 	github.com/dustinkirkland/golang-petname v0.0.0-20231002161417-6a283f1aaaf2
@@ -14,7 +16,7 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.7.0
 	github.com/samber/slog-multi v1.0.2
 	golang.org/x/sync v0.7.0
-	k8s.io/apimachinery v0.29.4
+	k8s.io/apimachinery v0.30.0
 )
 
 require (
@@ -55,7 +57,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.24.0 // indirect
 	go.opentelemetry.io/otel/trace v1.24.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.17.0 // indirect
+	golang.org/x/tools v0.18.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
