@@ -11,14 +11,15 @@ import (
 )
 
 type HarnessDockerOptions struct {
-	ImageRef         name.Reference
-	ManagedVolumes   []container.ConfigMount
-	Networks         []string
-	Mounts           []container.ConfigMount
-	HostSocketPath   string
-	Envs             provider.Env
-	Registries       map[string]*RegistryOpt
-	ConfigVolumeName string
+	ImageRef           name.Reference
+	ManagedVolumes     []container.ConfigMount
+	Networks           []string
+	Mounts             []container.ConfigMount
+	HostSocketPath     string
+	Envs               provider.Env
+	Registries         map[string]*RegistryOpt
+	ConfigVolumeName   string
+	ContainerResources *provider.ContainerResourcesRequest
 }
 
 type RegistryOpt struct {
@@ -143,6 +144,13 @@ func WithHostSocketPath(socketPath string) Option {
 func WithConfigVolumeName(configVolumeName string) Option {
 	return func(opt *HarnessDockerOptions) error {
 		opt.ConfigVolumeName = configVolumeName
+		return nil
+	}
+}
+
+func WithContainerResources(request *provider.ContainerResourcesRequest) Option {
+	return func(opt *HarnessDockerOptions) error {
+		opt.ContainerResources = request
 		return nil
 	}
 }

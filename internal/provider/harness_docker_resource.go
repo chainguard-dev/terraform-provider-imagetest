@@ -19,10 +19,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	resource2 "k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
 	ContainerImage = "cgr.dev/chainguard/docker-cli:latest-dev"
+
+	DefaultMemoryRequest = "1Gi"
+	DefaultMemoryLimit   = "2Gi"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -56,6 +60,7 @@ type HarnessDockerResourceModel struct {
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
+	Resources  *ContainerResources                      `tfsdk:"resources"`
 }
 
 type DockerRegistryResourceModel struct {
@@ -126,6 +131,13 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	if data.Networks != nil {
 		networks = data.Networks
 	}
+
+	resourceRequests, err := parseResources(data.Resources)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to parse resources", err.Error())
+		return
+	}
+	opts = append(opts, docker.WithContainerResources(resourceRequests))
 
 	if r.store.providerResourceData.Harnesses != nil {
 		if c := r.store.providerResourceData.Harnesses.Docker; c != nil {
@@ -228,6 +240,38 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// Parses the resource requests and returns an error when syntax is incorrect.
+func parseResources(resources *ContainerResources) (*provider.ContainerResourcesRequest, error) {
+	memoryRequest := DefaultMemoryRequest
+	memoryLimit := DefaultMemoryLimit
+
+	if resources != nil {
+		if !resources.MemoryRequest.IsNull() {
+			memoryRequest = resources.MemoryRequest.ValueString()
+		}
+
+		// Set memory limit only if memory request is set
+		if !resources.MemoryRequest.IsNull() && resources.MemoryLimit.IsNull() {
+			memoryLimit = memoryRequest
+		}
+	}
+
+	parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse memory request: %w", err)
+	}
+
+	parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse memory limit: %w", err)
+	}
+
+	return &provider.ContainerResourcesRequest{
+		MemoryRequest: parsedMemoryRequest,
+		MemoryLimit:   parsedMemoryLimit,
+	}, nil
 }
 
 func (r *HarnessDockerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -353,6 +397,22 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 							},
 						},
 					},
+				},
+			},
+		},
+		"resources": schema.SingleNestedAttribute{
+			Description: "Resource requests for the main harness container",
+			Optional:    true,
+			Attributes: map[string]schema.Attribute{
+				"memory_request": schema.StringAttribute{
+					Required:    false,
+					Optional:    true,
+					Description: "Amount of memory requested for the harness container",
+				},
+				"memory_limit": schema.StringAttribute{
+					Required:    false,
+					Optional:    true,
+					Description: "Amount of memory requested for the harness container",
 				},
 			},
 		},

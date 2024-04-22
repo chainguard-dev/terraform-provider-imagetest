@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/docker/docker/api/types/mount"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
@@ -85,6 +87,13 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		return nil, err
 	}
 
+	resources := provider.ContainerResourcesRequest{
+		MemoryRequest: resource.MustParse("4Gi"),
+	}
+	if options.ContainerResources != nil {
+		resources = *options.ContainerResources
+	}
+
 	container := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        options.ImageRef,
@@ -100,6 +109,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 					Mode:     0644,
 				},
 			},
+			Resources: resources,
 		},
 		Mounts:         mounts,
 		ManagedVolumes: managedVolumes,
