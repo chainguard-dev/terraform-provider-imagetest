@@ -24,9 +24,6 @@ import (
 
 const (
 	ContainerImage = "cgr.dev/chainguard/docker-cli:latest-dev"
-
-	DefaultMemoryRequest = "1Gi"
-	DefaultMemoryLimit   = "2Gi"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -244,34 +241,39 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 // Parses the resource requests and returns an error when syntax is incorrect.
 func parseResources(resources *ContainerResources) (*provider.ContainerResourcesRequest, error) {
-	memoryRequest := DefaultMemoryRequest
-	memoryLimit := DefaultMemoryLimit
+	if resources == nil {
+		return nil, nil
+	}
 
-	if resources != nil {
-		if !resources.MemoryRequest.IsNull() {
-			memoryRequest = resources.MemoryRequest.ValueString()
+	var memoryRequest, memoryLimit string
+	var resourceRequests provider.ContainerResourcesRequest
+	if !resources.MemoryRequest.IsNull() {
+		memoryRequest = resources.MemoryRequest.ValueString()
+
+		parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse memory request: %w", err)
 		}
+		resourceRequests.MemoryRequest = parsedMemoryRequest
+	}
 
-		// Set memory limit only if memory request is set
-		if !resources.MemoryRequest.IsNull() && resources.MemoryLimit.IsNull() {
+	if resources.MemoryLimit.IsNull() {
+		if memoryRequest != "" {
 			memoryLimit = memoryRequest
 		}
+	} else {
+		memoryLimit = resources.MemoryLimit.ValueString()
 	}
 
-	parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse memory request: %w", err)
+	if memoryLimit != "" {
+		parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse memory limit: %w", err)
+		}
+		resourceRequests.MemoryLimit = parsedMemoryLimit
 	}
 
-	parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse memory limit: %w", err)
-	}
-
-	return &provider.ContainerResourcesRequest{
-		MemoryRequest: parsedMemoryRequest,
-		MemoryLimit:   parsedMemoryLimit,
-	}, nil
+	return &resourceRequests, nil
 }
 
 func (r *HarnessDockerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {

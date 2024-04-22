@@ -88,7 +88,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	}
 
 	resources := provider.ContainerResourcesRequest{
-		MemoryRequest: resource.MustParse("4Gi"),
+		MemoryRequest: resource.MustParse("1Gi"),
+		MemoryLimit:   resource.MustParse("2Gi"),
 	}
 	if options.ContainerResources != nil {
 		resources = *options.ContainerResources
