@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	resource2 "k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -57,7 +58,7 @@ type HarnessDockerResourceModel struct {
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
-	Resources  *ContainerResources                      `tfsdk:"resources"`
+	Resources  types.Object                             `tfsdk:"resources"`
 }
 
 type DockerRegistryResourceModel struct {
@@ -129,12 +130,28 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		networks = data.Networks
 	}
 
-	resourceRequests, err := parseResources(data.Resources)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to parse resources", err.Error())
-		return
+	if !data.Resources.IsNull() {
+		var resources ContainerResources
+		resp.Diagnostics.Append(data.Resources.As(ctx, &resources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		var memoryResources *ContainerMemoryResources
+		resp.Diagnostics.Append(resources.Memory.As(ctx, &memoryResources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		if memoryResources != nil {
+			resourceRequests, err := parseMemoryResources(*memoryResources)
+			if err != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err.Error())
+				return
+			}
+			opts = append(opts, docker.WithContainerResources(resourceRequests))
+		}
 	}
-	opts = append(opts, docker.WithContainerResources(resourceRequests))
 
 	if r.store.providerResourceData.Harnesses != nil {
 		if c := r.store.providerResourceData.Harnesses.Docker; c != nil {
@@ -240,15 +257,11 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 }
 
 // Parses the resource requests and returns an error when syntax is incorrect.
-func parseResources(resources *ContainerResources) (*provider.ContainerResourcesRequest, error) {
-	if resources == nil {
-		return nil, nil
-	}
-
+func parseMemoryResources(memoryResources ContainerMemoryResources) (*provider.ContainerResourcesRequest, error) {
 	var memoryRequest, memoryLimit string
 	var resourceRequests provider.ContainerResourcesRequest
-	if !resources.MemoryRequest.IsNull() {
-		memoryRequest = resources.MemoryRequest.ValueString()
+	if !memoryResources.Request.IsNull() {
+		memoryRequest = memoryResources.Request.ValueString()
 
 		parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
 		if err != nil {
@@ -257,12 +270,12 @@ func parseResources(resources *ContainerResources) (*provider.ContainerResources
 		resourceRequests.MemoryRequest = parsedMemoryRequest
 	}
 
-	if resources.MemoryLimit.IsNull() {
+	if memoryResources.Limit.IsNull() {
 		if memoryRequest != "" {
 			memoryLimit = memoryRequest
 		}
 	} else {
-		memoryLimit = resources.MemoryLimit.ValueString()
+		memoryLimit = memoryResources.Limit.ValueString()
 	}
 
 	if memoryLimit != "" {
@@ -403,18 +416,20 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 			},
 		},
 		"resources": schema.SingleNestedAttribute{
-			Description: "Resource requests for the main harness container",
-			Optional:    true,
+			Optional: true,
 			Attributes: map[string]schema.Attribute{
-				"memory_request": schema.StringAttribute{
-					Required:    false,
-					Optional:    true,
-					Description: "Amount of memory requested for the harness container",
-				},
-				"memory_limit": schema.StringAttribute{
-					Required:    false,
-					Optional:    true,
-					Description: "Amount of memory requested for the harness container",
+				"memory": schema.SingleNestedAttribute{
+					Optional: true,
+					Attributes: map[string]schema.Attribute{
+						"request": schema.StringAttribute{
+							Optional:    true,
+							Description: "Amount of memory requested for the harness container",
+						},
+						"limit": schema.StringAttribute{
+							Optional:    true,
+							Description: "Limit of memory the harness container can consume",
+						},
+					},
 				},
 			},
 		},

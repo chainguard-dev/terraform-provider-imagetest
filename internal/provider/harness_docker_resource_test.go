@@ -220,7 +220,7 @@ resource "imagetest_harness_docker" "test" {
   inventory = data.imagetest_inventory.this
 
   resources = {
-    memory_resources = "2Gi"
+    memory = { request = "2Gi" }
   }
 }
 
@@ -251,8 +251,10 @@ resource "imagetest_harness_docker" "test" {
   inventory = data.imagetest_inventory.this
 
   resources = {
-    memory_resources = "256Mi"
-    memory_limit = "1Gi"
+    memory = {
+      request = "256Mi"
+      limit = "1Gi"
+    }
   }
 }
 

@@ -45,8 +45,12 @@ type RegistryResourceTlsModel struct {
 }
 
 type ContainerResources struct {
-	MemoryRequest types.String `tfsdk:"memory_request"`
-	MemoryLimit   types.String `tfsdk:"memory_limit"`
+	Memory types.Object `tfsdk:"memory"`
+}
+
+type ContainerMemoryResources struct {
+	Request types.String `tfsdk:"request"`
+	Limit   types.String `tfsdk:"limit"`
 }
 
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
