@@ -19,6 +19,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	resource2 "k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
@@ -56,6 +58,7 @@ type HarnessDockerResourceModel struct {
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
+	Resources  types.Object                             `tfsdk:"resources"`
 }
 
 type DockerRegistryResourceModel struct {
@@ -125,6 +128,29 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	networks := make(map[string]ContainerResourceModelNetwork)
 	if data.Networks != nil {
 		networks = data.Networks
+	}
+
+	if !data.Resources.IsNull() {
+		var resources ContainerResources
+		resp.Diagnostics.Append(data.Resources.As(ctx, &resources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		var memoryResources *ContainerMemoryResources
+		resp.Diagnostics.Append(resources.Memory.As(ctx, &memoryResources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		if memoryResources != nil {
+			resourceRequests, err := parseMemoryResources(*memoryResources)
+			if err != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err.Error())
+				return
+			}
+			opts = append(opts, docker.WithContainerResources(resourceRequests))
+		}
 	}
 
 	if r.store.providerResourceData.Harnesses != nil {
@@ -228,6 +254,39 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+// Parses the resource requests and returns an error when syntax is incorrect.
+func parseMemoryResources(memoryResources ContainerMemoryResources) (*provider.ContainerResourcesRequest, error) {
+	var memoryRequest, memoryLimit string
+	var resourceRequests provider.ContainerResourcesRequest
+	if !memoryResources.Request.IsNull() {
+		memoryRequest = memoryResources.Request.ValueString()
+
+		parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse memory request: %w", err)
+		}
+		resourceRequests.MemoryRequest = parsedMemoryRequest
+	}
+
+	if memoryResources.Limit.IsNull() {
+		if memoryRequest != "" {
+			memoryLimit = memoryRequest
+		}
+	} else {
+		memoryLimit = memoryResources.Limit.ValueString()
+	}
+
+	if memoryLimit != "" {
+		parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse memory limit: %w", err)
+		}
+		resourceRequests.MemoryLimit = parsedMemoryLimit
+	}
+
+	return &resourceRequests, nil
 }
 
 func (r *HarnessDockerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -351,6 +410,24 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 							"ca_file": schema.StringAttribute{
 								Optional: true,
 							},
+						},
+					},
+				},
+			},
+		},
+		"resources": schema.SingleNestedAttribute{
+			Optional: true,
+			Attributes: map[string]schema.Attribute{
+				"memory": schema.SingleNestedAttribute{
+					Optional: true,
+					Attributes: map[string]schema.Attribute{
+						"request": schema.StringAttribute{
+							Optional:    true,
+							Description: "Amount of memory requested for the harness container",
+						},
+						"limit": schema.StringAttribute{
+							Optional:    true,
+							Description: "Limit of memory the harness container can consume",
 						},
 					},
 				},

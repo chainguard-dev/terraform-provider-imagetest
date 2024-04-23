@@ -28,6 +28,7 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `privileged` (Boolean)
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
+- `resources` (Attributes) (see [below for nested schema](#nestedatt--resources))
 - `volumes` (Attributes List) The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders. (see [below for nested schema](#nestedatt--volumes))
 
 ### Read-Only
@@ -86,6 +87,23 @@ Optional:
 - `ca_file` (String)
 - `cert_file` (String)
 - `key_file` (String)
+
+
+
+<a id="nestedatt--resources"></a>
+### Nested Schema for `resources`
+
+Optional:
+
+- `memory` (Attributes) (see [below for nested schema](#nestedatt--resources--memory))
+
+<a id="nestedatt--resources--memory"></a>
+### Nested Schema for `resources.memory`
+
+Optional:
+
+- `limit` (String) Limit of memory the harness container can consume
+- `request` (String) Amount of memory requested for the harness container
 
 
 

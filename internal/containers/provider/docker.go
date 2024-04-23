@@ -177,7 +177,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		},
 		Resources: container.Resources{
 			MemoryReservation: p.req.Resources.MemoryRequest.Value(),
-			Memory:            p.req.Resources.CpuLimit.Value(),
+			Memory:            p.req.Resources.MemoryLimit.Value(),
 		},
 	}
 

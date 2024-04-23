@@ -44,6 +44,15 @@ type RegistryResourceTlsModel struct {
 	CaFile   types.String `tfsdk:"ca_file"`
 }
 
+type ContainerResources struct {
+	Memory types.Object `tfsdk:"memory"`
+}
+
+type ContainerMemoryResources struct {
+	Request types.String `tfsdk:"request"`
+	Limit   types.String `tfsdk:"limit"`
+}
+
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {

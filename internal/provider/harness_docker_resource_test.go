@@ -209,6 +209,71 @@ resource "imagetest_feature" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(),
 			},
 		},
+		"with resources": {
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+
+  resources = {
+    memory = { request = "2Gi" }
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple Docker based test"
+  description = "Verify that the Hello World Docker image runs"
+  harness = imagetest_harness_docker.test
+
+  steps = [
+    {
+      name = "Echo"
+      cmd = "docker run --rm hello-world"
+    },
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
+		"with resource limits": {
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+
+  resources = {
+    memory = {
+      request = "256Mi"
+      limit = "1Gi"
+    }
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple Docker based test"
+  description = "Verify that the Hello World Docker image runs"
+  harness = imagetest_harness_docker.test
+
+  steps = [
+    {
+      name = "Echo"
+      cmd = "docker run --rm hello-world"
+    },
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
