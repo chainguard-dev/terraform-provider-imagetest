@@ -29,6 +29,11 @@ type docker struct {
 	container provider.Provider
 }
 
+func (h *docker) ErrorLogs(_ context.Context) string {
+	// TODO implement something here
+	return ""
+}
+
 type dockerAuthEntry struct {
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`

@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-
-	"golang.org/x/sync/errgroup"
-	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/google/go-containerregistry/pkg/name"
+	"strings"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/google/go-containerregistry/pkg/name"
+	"golang.org/x/sync/errgroup"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
@@ -262,8 +261,65 @@ func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	}
 }
 
+func (h *k3s) ErrorLogs(ctx context.Context) string {
+	return h.printDebugLogs(ctx)
+}
+
+func (h *k3s) printDebugLogs(ctx context.Context) string {
+	failedPodsReader, err := h.sandbox.Exec(ctx, provider.ExecConfig{
+		Command: `kubectl get pods --all-namespaces --output=go-template='{{ range $pod := .items }}{{ range $status := .status.containerStatuses }}{{ if eq $status.state.waiting.reason "CrashLoopBackOff" }}{{ $pod.metadata.name }} {{ $pod.metadata.namespace }}{{ "\n" }}{{ end }}{{ end }}{{ end }}'`,
+	})
+	if err != nil {
+		return fmt.Sprintf("%s", err)
+	}
+
+	erroredPods, err := io.ReadAll(failedPodsReader)
+	if err != nil {
+		return fmt.Sprintf("%s", err)
+	}
+
+	erroredPodsSlice := strings.Split(string(erroredPods), "\n")
+	if len(erroredPodsSlice) == 0 {
+		return ""
+	}
+
+	log.Info(ctx, "===== additional logs for failed step =====")
+
+	buffer := &bytes.Buffer{}
+	for _, podData := range erroredPodsSlice {
+		data := strings.Split(podData, " ")
+		if len(data) < 2 {
+			continue
+		}
+
+		logsReader, err := h.sandbox.Exec(ctx, provider.ExecConfig{
+			Command: fmt.Sprintf(`kubectl logs %s --namespace %s`, data[0], data[1]),
+		})
+		if err != nil {
+			return fmt.Sprintf("%s", err)
+		}
+
+		logs, err := io.ReadAll(logsReader)
+		if err != nil {
+			return fmt.Sprintf("%s", err)
+		}
+
+		extraLogs := string(logs)
+		log.Info(ctx, string(logs))
+
+		_, err = buffer.WriteString(extraLogs)
+		if err != nil {
+			return fmt.Sprintf("%s", err)
+		}
+	}
+
+	log.Info(ctx, "===== end additional logs for failed step =====")
+
+	return buffer.String()
+}
+
 func (h *k3s) genRegistries() (io.Reader, error) {
-	// who needs an an api when you have yaml and gotemplates!11!
+	// who needs an api when you have yaml and gotemplates!11!
 	cfgtmpl := `
 mirrors:
   {{- range $k, $v := .Mirrors }}

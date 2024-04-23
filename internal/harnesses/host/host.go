@@ -20,6 +20,11 @@ type host struct {
 	env map[string]string
 }
 
+func (h *host) ErrorLogs(_ context.Context) string {
+	// TODO implement something here
+	return ""
+}
+
 func NewHost() types.Harness {
 	return &host{
 		Base: base.New(),
