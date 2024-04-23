@@ -8,7 +8,7 @@ require (
 	github.com/dustinkirkland/golang-petname v0.0.0-20231002161417-6a283f1aaaf2
 	github.com/go-logr/logr v1.4.1
 	github.com/google/go-containerregistry v0.19.1
-	github.com/hashicorp/terraform-plugin-docs v0.19.0
+	github.com/hashicorp/terraform-plugin-docs v0.19.1
 	github.com/hashicorp/terraform-plugin-framework v1.8.0
 	github.com/hashicorp/terraform-plugin-framework-timeouts v0.4.1
 	github.com/hashicorp/terraform-plugin-go v0.22.2
