@@ -19,7 +19,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
@@ -129,6 +128,42 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts = append(kopts, r.workstationOpts()...)
 
+	registries := make(map[string]RegistryResourceModel)
+	if data.Registries != nil {
+		registries = data.Registries
+	}
+
+	networks := make([]string, 0)
+	if data.Networks != nil {
+		for _, v := range data.Networks {
+			networks = append(networks, v.Name.ValueString())
+		}
+	}
+
+	if r.store.providerResourceData.Harnesses != nil {
+		if pc := r.store.providerResourceData.Harnesses.K3s; pc != nil {
+			for k, v := range pc.Registries {
+				registries[k] = v
+			}
+
+			for _, v := range pc.Networks {
+				networks = append(networks, v.Name.ValueString())
+			}
+
+			if pc.Sandbox != nil {
+				if !pc.Sandbox.Image.IsNull() {
+					ref, err := name.ParseReference(pc.Sandbox.Image.ValueString())
+					if err != nil {
+						resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid sandbox image reference: %s", err))
+						return
+					}
+					// will be overridden by resource specific sandbox images if specified
+					kopts = append(kopts, k3s.WithSandboxImageRef(ref))
+				}
+			}
+		}
+	}
+
 	if !data.Image.IsNull() {
 		ref, err := name.ParseReference(data.Image.ValueString())
 		if err != nil {
@@ -177,30 +212,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 			return
 		}
 		kopts = append(kopts, k3s.WithSandboxEnv(envs))
-	}
-
-	registries := make(map[string]RegistryResourceModel)
-	if data.Registries != nil {
-		registries = data.Registries
-	}
-
-	networks := make([]string, 0)
-	if data.Networks != nil {
-		for _, v := range data.Networks {
-			networks = append(networks, v.Name.ValueString())
-		}
-	}
-
-	if r.store.providerResourceData.Harnesses != nil {
-		if pc := r.store.providerResourceData.Harnesses.K3s; pc != nil {
-			for k, v := range pc.Registries {
-				registries[k] = v
-			}
-
-			for _, v := range pc.Networks {
-				networks = append(networks, v.Name.ValueString())
-			}
-		}
 	}
 
 	for rname, rdata := range registries {
@@ -317,8 +328,6 @@ func defaultK3sHarnessResourceSchemaAttributes(ctx context.Context) map[string]s
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the container.",
 			Optional:    true,
-			Computed:    true,
-			Default:     stringdefault.StaticString("cgr.dev/chainguard/kubectl:latest-dev"),
 		},
 	}
 
