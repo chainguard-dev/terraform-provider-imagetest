@@ -273,13 +273,14 @@ func (h *k3s) printDebugLogs(ctx context.Context) string {
 		return fmt.Sprintf("%s", err)
 	}
 
-	erroredPods, err := io.ReadAll(failedPodsReader)
+	erroredPodsBytes, err := io.ReadAll(failedPodsReader)
 	if err != nil {
 		return fmt.Sprintf("%s", err)
 	}
 
-	erroredPodsSlice := strings.Split(string(erroredPods), "\n")
-	if len(erroredPodsSlice) == 0 {
+	erroredPodsSlice := strings.Split(string(erroredPodsBytes), "\n")
+	if len(erroredPodsSlice) == 0 || (len(erroredPodsSlice) == 1 && "" == erroredPodsSlice[0]) {
+		// empty results
 		return ""
 	}
 

@@ -297,7 +297,11 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 
 			if r.store.EnableDebugLogging() {
 				errorLogs := harness.ErrorLogs(ctx)
-				resp.Diagnostics.AddError("error running harness test", errorLogs)
+
+				if "" != errorLogs {
+					// there must be some content here for the logs to be added as errors
+					resp.Diagnostics.AddError("error running harness test", errorLogs)
+				}
 			}
 
 			// Destroy the harness...
