@@ -20,7 +20,7 @@ type host struct {
 	env map[string]string
 }
 
-func (h *host) ErrorLogs(_ context.Context) string {
+func (h *host) DebugLogCommand() string {
 	// TODO implement something here
 	return ""
 }
@@ -32,7 +32,7 @@ func NewHost() types.Harness {
 	}
 }
 
-// StepFn implements types.Harn.
+// StepFn implements types.Harness.
 func (h *host) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
 		if _, err := h.exec(ctx, []string{"sh", "-c", config.Command}); err != nil {

@@ -29,7 +29,7 @@ type docker struct {
 	container provider.Provider
 }
 
-func (h *docker) ErrorLogs(_ context.Context) string {
+func (h *docker) DebugLogCommand() string {
 	// TODO implement something here
 	return ""
 }

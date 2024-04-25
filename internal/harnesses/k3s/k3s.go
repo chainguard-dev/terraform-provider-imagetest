@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"strings"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
@@ -261,62 +260,20 @@ func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	}
 }
 
-func (h *k3s) ErrorLogs(ctx context.Context) string {
-	return h.printDebugLogs(ctx)
-}
+func (h *k3s) DebugLogCommand() string {
+	return `PODLIST=$(kubectl get pods --all-namespaces --output=go-template='{{ range $pod := .items }}{{ range $status := .status.containerStatuses }}{{ if eq $status.state.waiting.reason "CrashLoopBackOff" }}{{ $pod.metadata.name }} {{ $pod.metadata.namespace }}{{ "\n" }}{{ end }}{{ end }}{{ end }}')
 
-func (h *k3s) printDebugLogs(ctx context.Context) string {
-	failedPodsReader, err := h.sandbox.Exec(ctx, provider.ExecConfig{
-		Command: `kubectl get pods --all-namespaces --output=go-template='{{ range $pod := .items }}{{ range $status := .status.containerStatuses }}{{ if eq $status.state.waiting.reason "CrashLoopBackOff" }}{{ $pod.metadata.name }} {{ $pod.metadata.namespace }}{{ "\n" }}{{ end }}{{ end }}{{ end }}'`,
-	})
-	if err != nil {
-		return fmt.Sprintf("%s", err)
-	}
+if [ -z "$PODLIST" ]; then
+  exit 0
+fi
 
-	erroredPodsBytes, err := io.ReadAll(failedPodsReader)
-	if err != nil {
-		return fmt.Sprintf("%s", err)
-	}
+IFS=
+for POD in ${PODLIST}; do
+  echo $POD | awk '{print "kubectl logs " $1 " --namespace " $2}' | xargs -I{} -t sh -c {}
+done
 
-	erroredPodsSlice := strings.Split(string(erroredPodsBytes), "\n")
-	if len(erroredPodsSlice) == 0 || (len(erroredPodsSlice) == 1 && "" == erroredPodsSlice[0]) {
-		// empty results
-		return ""
-	}
-
-	log.Info(ctx, "===== additional logs for failed step =====")
-
-	buffer := &bytes.Buffer{}
-	for _, podData := range erroredPodsSlice {
-		data := strings.Split(podData, " ")
-		if len(data) < 2 {
-			continue
-		}
-
-		logsReader, err := h.sandbox.Exec(ctx, provider.ExecConfig{
-			Command: fmt.Sprintf(`kubectl logs %s --namespace %s`, data[0], data[1]),
-		})
-		if err != nil {
-			return fmt.Sprintf("%s", err)
-		}
-
-		logs, err := io.ReadAll(logsReader)
-		if err != nil {
-			return fmt.Sprintf("%s", err)
-		}
-
-		extraLogs := string(logs)
-		log.Info(ctx, string(logs))
-
-		_, err = buffer.WriteString(extraLogs)
-		if err != nil {
-			return fmt.Sprintf("%s", err)
-		}
-	}
-
-	log.Info(ctx, "===== end additional logs for failed step =====")
-
-	return buffer.String()
+exit 1
+`
 }
 
 func (h *k3s) genRegistries() (io.Reader, error) {

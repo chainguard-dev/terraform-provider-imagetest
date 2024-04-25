@@ -23,7 +23,7 @@ type container struct {
 	provider provider.Provider
 }
 
-func (h *container) ErrorLogs(_ context.Context) string {
+func (h *container) DebugLogCommand() string {
 	// TODO implement something here
 	return ""
 }

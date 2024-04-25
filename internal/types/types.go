@@ -35,8 +35,8 @@ type Harness interface {
 	// StepFn returns a StepFn that executes the given command in the harness.
 	StepFn(config StepConfig) StepFn
 
-	// ErrorLogs outputs the error logs coming from the harness.
-	ErrorLogs(context.Context) string
+	// DebugLogCommand outputs the error logs coming from the harness.
+	DebugLogCommand() string
 }
 
 type Feature interface {
