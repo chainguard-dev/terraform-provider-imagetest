@@ -23,6 +23,11 @@ type container struct {
 	provider provider.Provider
 }
 
+func (h *container) DebugLogCommand() string {
+	// TODO implement something here
+	return ""
+}
+
 // Setup implements types.Harness.
 func (h *container) Setup() types.StepFn {
 	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
