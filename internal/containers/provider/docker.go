@@ -70,12 +70,20 @@ type DockerClient struct {
 	mu sync.Mutex
 }
 
-func NewDockerClient() (*DockerClient, error) {
-	cli, err := client.NewClientWithOpts(
-		client.FromEnv,
+func NewDockerClient(host string) (*DockerClient, error) {
+	// default options
+	var opts = []client.Opt{
+		client.FromEnv, // load config from env
 		client.WithAPIVersionNegotiation(),
 		client.WithVersionFromEnv(),
-	)
+	}
+
+	// add custom host path, if specified
+	if "" != host {
+		opts = append(opts, client.WithHost(host))
+	}
+
+	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}

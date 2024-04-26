@@ -25,6 +25,7 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
+	Host      types.String                   `tfsdk:"host"`
 	Log       *ProviderLoggerModel           `tfsdk:"log"`
 	Harnesses *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
 	Labels    types.Map                      `tfsdk:"labels"`
@@ -69,6 +70,10 @@ func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataR
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"host": schema.StringAttribute{
+				Optional:    true,
+				Description: "The Docker host (or socket path) to connect to",
+			},
 			"labels": schema.MapAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
@@ -271,7 +276,12 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	}
 	p.store.labels = labels
 
-	cli, err := cprovider.NewDockerClient()
+	host := ""
+	if !data.Host.IsNull() {
+		host = data.Host.ValueString()
+	}
+
+	cli, err := cprovider.NewDockerClient(host)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create docker client", err.Error())
 		return
