@@ -109,12 +109,6 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	}
 	opts = append(opts, docker.WithImageRef(ref))
 
-	if r.store.providerResourceData.Harnesses != nil &&
-		r.store.providerResourceData.Harnesses.Docker != nil &&
-		r.store.providerResourceData.Harnesses.Docker.HostSocketPath != nil {
-		opts = append(opts, docker.WithHostSocketPath(*r.store.providerResourceData.Harnesses.Docker.HostSocketPath))
-	}
-
 	mounts := make([]ContainerResourceMountModel, 0)
 	if data.Mounts != nil {
 		mounts = data.Mounts
@@ -150,6 +144,12 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 				return
 			}
 			opts = append(opts, docker.WithContainerResources(resourceRequests))
+		}
+	}
+
+	if !r.store.providerResourceData.Host.IsNull() {
+		if hostSocketPath := r.store.providerResourceData.Host.ValueString(); hostSocketPath != "" {
+			opts = append(opts, docker.WithHostSocketPath(hostSocketPath))
 		}
 	}
 
