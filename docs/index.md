@@ -18,6 +18,7 @@ description: |-
 ### Optional
 
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
+- `host` (String) The Docker host (or socket path) to connect to
 - `labels` (Map of String)
 - `log` (Attributes) (see [below for nested schema](#nestedatt--log))
 
@@ -63,7 +64,6 @@ Required:
 Optional:
 
 - `envs` (Map of String) Environment variables to set on the container.
-- `host_socket_path` (String) The Docker host socket path.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--harnesses--docker--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--harnesses--docker--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--harnesses--docker--registries))
