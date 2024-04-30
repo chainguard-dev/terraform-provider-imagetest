@@ -64,7 +64,7 @@ func (d *RandomDataSource) Configure(_ context.Context, req datasource.Configure
 func (d *RandomDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	ctx = log.WithCtx(ctx, d.store.Logger())
 
-	log.Info(ctx, "Random.Read()")
+	log.Debug(ctx, "Random.Read()")
 
 	var data RandomDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -73,7 +73,7 @@ func (d *RandomDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 
 	id := petname.Generate(2, "-")
-	log.Info(ctx, fmt.Sprintf("Random.Read() | %s", id))
+	log.Debug(ctx, fmt.Sprintf("Random.Read() | %s", id))
 	data.Id = types.StringValue(id)
 
 	// Save data into Terraform state

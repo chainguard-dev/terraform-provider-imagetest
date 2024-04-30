@@ -247,7 +247,7 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if added {
-		log.Info(ctx, fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
+		log.Debug(ctx, fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
 	}
 }
 
@@ -289,7 +289,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		}
 
 		if len(remaining) == 0 {
-			log.Info(ctx, "no more features remain in inventory, removing harness")
+			log.Debug(ctx, "no more features remain in inventory, removing harness")
 			if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
 				resp.Diagnostics.AddError("failed to remove harness from inventory", err.Error())
 				return

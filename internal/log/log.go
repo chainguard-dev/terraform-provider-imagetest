@@ -35,6 +35,10 @@ func Info(ctx context.Context, msg string, args ...any) {
 	log(ctx, FromCtx(ctx), slog.LevelInfo, msg, args...)
 }
 
+func Debug(ctx context.Context, msg string, args ...any) {
+	log(ctx, FromCtx(ctx), slog.LevelDebug, msg, args...)
+}
+
 func log(ctx context.Context, l *slog.Logger, level slog.Level, msg string, args ...any) {
 	if !l.Enabled(ctx, level) {
 		return
