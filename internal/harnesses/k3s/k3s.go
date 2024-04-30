@@ -7,16 +7,14 @@ import (
 	"html/template"
 	"io"
 
-	"golang.org/x/sync/errgroup"
-	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/google/go-containerregistry/pkg/name"
-
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/google/go-containerregistry/pkg/name"
+	"golang.org/x/sync/errgroup"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
@@ -262,8 +260,24 @@ func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	}
 }
 
+func (h *k3s) DebugLogCommand() string {
+	return `PODLIST=$(kubectl get pods --all-namespaces --output=go-template='{{ range $pod := .items }}{{ range $status := .status.containerStatuses }}{{ if eq $status.state.waiting.reason "CrashLoopBackOff" }}{{ $pod.metadata.name }} {{ $pod.metadata.namespace }}{{ "\n" }}{{ end }}{{ end }}{{ end }}')
+
+if [ -z "$PODLIST" ]; then
+  exit 0
+fi
+
+IFS=
+for POD in ${PODLIST}; do
+  echo $POD | awk '{print "kubectl logs " $1 " --namespace " $2}' | xargs -I{} -t sh -c {}
+done
+
+exit 1
+`
+}
+
 func (h *k3s) genRegistries() (io.Reader, error) {
-	// who needs an an api when you have yaml and gotemplates!11!
+	// who needs an api when you have yaml and gotemplates!11!
 	cfgtmpl := `
 mirrors:
   {{- range $k, $v := .Mirrors }}

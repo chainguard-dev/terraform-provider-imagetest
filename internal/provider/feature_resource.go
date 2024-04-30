@@ -338,6 +338,15 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		builder = builder.WithStep(step)
 	}
 
+	if r.store.EnableDebugLogging() {
+		step, err := r.createLogStep(harness)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to create log step", err.Error())
+			return
+		}
+		builder = builder.WithStep(step)
+	}
+
 	log.Info(ctx, fmt.Sprintf("testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString()))
 
 	if err := r.test(ctx, builder.Build()); err != nil {
@@ -347,6 +356,15 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *FeatureResource) createLogStep(harness itypes.Harness) (itypes.Step, error) {
+	model := FeatureStepModel{
+		Name: types.StringValue("capture post-run debug logs"),
+		Cmd:  types.StringValue(harness.DebugLogCommand()),
+	}
+
+	return r.step(harness, itypes.After, model)
 }
 
 func (r *FeatureResource) step(harness itypes.Harness, level itypes.Level, model FeatureStepModel) (itypes.Step, error) {

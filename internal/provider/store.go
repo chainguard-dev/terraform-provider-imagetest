@@ -79,6 +79,27 @@ func (s *ProviderStore) SkipTeardown() bool {
 	return v != ""
 }
 
+func (s *ProviderStore) EnableDebugLogging() bool {
+	const EnvTrue = "true"
+
+	ghaRunnerDebug, found := os.LookupEnv("ACTIONS_RUNNER_DEBUG")
+	if found {
+		return EnvTrue == ghaRunnerDebug
+	}
+
+	ghaStepDebug, found := os.LookupEnv("ACTIONS_STEP_DEBUG")
+	if found {
+		return EnvTrue == ghaStepDebug
+	}
+
+	localDebug, found := os.LookupEnv("IMAGETEST_DEBUG_OUTPUT")
+	if found {
+		return EnvTrue == localDebug
+	}
+
+	return false
+}
+
 func newSmap[K comparable, V any]() *smap[K, V] {
 	return &smap[K, V]{
 		store: make(map[K]V),
