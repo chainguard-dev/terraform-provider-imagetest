@@ -111,6 +111,7 @@ Optional:
 
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--harnesses--k3s--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--harnesses--k3s--registries))
+- `sandbox` (Attributes) A map of configuration for the sandbox container. (see [below for nested schema](#nestedatt--harnesses--k3s--sandbox))
 
 <a id="nestedatt--harnesses--k3s--networks"></a>
 ### Nested Schema for `harnesses.k3s.networks`
@@ -156,6 +157,14 @@ Optional:
 - `cert_file` (String)
 - `key_file` (String)
 
+
+
+<a id="nestedatt--harnesses--k3s--sandbox"></a>
+### Nested Schema for `harnesses.k3s.sandbox`
+
+Optional:
+
+- `image` (String) The full image reference to use for the container.
 
 
 

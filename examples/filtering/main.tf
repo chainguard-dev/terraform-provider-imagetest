@@ -1,6 +1,6 @@
 terraform {
   required_providers {
-    imagetest = { source = "registry.terraform.io/chainguard-dev/imagetest" }
+    imagetest = { source = "chainguard-dev/imagetest" }
   }
   backend "inmem" {}
 }
@@ -19,6 +19,7 @@ data "imagetest_inventory" "this" {}
 resource "imagetest_harness_k3s" "foo" {
   name      = "foo"
   inventory = data.imagetest_inventory.this
+  image     = "gcr.io/wolf-chainguard/images/k3s-test"
 }
 
 resource "imagetest_feature" "foo" {
@@ -28,7 +29,7 @@ resource "imagetest_feature" "foo" {
   steps = [
     {
       name = "Sample"
-      cmd  = "kubectl get po -A"
+      cmd  = "sleep inf"
     }
   ]
 
