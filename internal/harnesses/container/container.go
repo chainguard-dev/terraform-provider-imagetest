@@ -82,7 +82,7 @@ type ConfigMount struct {
 	Destination string
 }
 
-func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, error) {
+func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
 	// TODO: Support more providers
 
 	mounts := make([]mount.Mount, 0, len(cfg.Mounts))
@@ -124,5 +124,5 @@ func New(name string, cli *provider.DockerClient, cfg Config) (types.Harness, er
 	return &container{
 		Base:     base.New(),
 		provider: p,
-	}, nil
+	}
 }
