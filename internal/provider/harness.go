@@ -54,6 +54,8 @@ type ContainerMemoryResources struct {
 }
 
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
+
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
@@ -61,6 +63,7 @@ func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureR
 
 	store, ok := req.ProviderData.(*ProviderStore)
 	if !ok {
+		log.Error(ctx, "failed to parse provider data in harness resource")
 		resp.Diagnostics.AddError("invalid provider data", "...")
 		return
 	}
@@ -83,11 +86,13 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 	inv := InventoryDataSourceModel{}
 	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
+		log.Error(ctx, "failed to retrieve 'inventory' attribute from harness resource")
 		return
 	}
 
 	var name string
 	if diags := req.Config.GetAttribute(ctx, path.Root("name"), &name); diags.HasError() {
+		log.Error(ctx, "failed to retrieve 'name' attribute from harness resource")
 		return
 	}
 
@@ -96,6 +101,7 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// harnesses will create.
 	invEnc, err := r.store.Encode(inv.Seed.ValueString())
 	if err != nil {
+		log.Error(ctx, "failed to create harness due to error encoding harness 'id' attribute")
 		resp.Diagnostics.AddError("failed to add harness", "encoding harness id")
 		return
 	}
@@ -103,11 +109,13 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	id := fmt.Sprintf("%s-%s", name, invEnc)
 
 	if diag := resp.Plan.SetAttribute(ctx, path.Root("id"), id); diag.HasError() {
+		log.Error(ctx, "failed to set attribute 'id' in harness resource")
 		return
 	}
 
 	added, err := r.store.Inventory(inv).AddHarness(ctx, inventory.Harness(id))
 	if err != nil {
+		log.Error(ctx, "failed to add harness resource to inventory", "error", err)
 		resp.Diagnostics.AddError("failed to add harness", err.Error())
 	}
 
@@ -121,16 +129,19 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 
 	inv := InventoryDataSourceModel{}
 	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
+		log.Error(ctx, "failed to retrieve 'inventory' attribute from harness resource")
 		return false
 	}
 
 	var id string
 	if diags := req.Plan.GetAttribute(ctx, path.Root("id"), &id); diags.HasError() {
+		log.Error(ctx, "failed to retrieve 'id' attribute from harness resource")
 		return false
 	}
 
 	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(id))
 	if err != nil {
+		log.Error(ctx, "failed to retrieve 'features' attribute from harness resource", "error", err)
 		resp.Diagnostics.AddError("failed to get features from harness", err.Error())
 		return false
 	}
@@ -153,6 +164,7 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 	}
 
 	if skip {
+		log.Warn(ctx, "skipping harness creation because provider runtime labels do not match feature labels", "harness_id", id)
 		resp.Diagnostics.AddWarning(
 			fmt.Sprintf("skipping harness [%s] creation", id),
 			"given provider runtime labels do not match feature labels")

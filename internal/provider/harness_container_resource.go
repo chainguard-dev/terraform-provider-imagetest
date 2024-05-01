@@ -81,25 +81,28 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	var data HarnessContainerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve for harness_container from Terraform plan")
 		return
 	}
 
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to check if harness_container should be skipped")
 		return
 	}
 	data.Skipped = types.BoolValue(skip)
 
 	if data.Skipped.ValueBool() {
+		log.Error(ctx, "failed to retrieve value for 'skipped' attribute from harness_container resource")
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
 
 	ref, err := name.ParseReference(data.Image.ValueString())
 	if err != nil {
+		log.Error(ctx, "failed to parse image reference for harness_container resource", "error", err)
 		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))
 		return
-
 	}
 
 	cfg := container.Config{
@@ -130,6 +133,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 			envs := make(map[string]string)
 			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+				log.Error(ctx, "failed to retrieve 'envs' attribute from harness_container resource")
 				return
 			}
 			cfg.Env = envs
@@ -139,6 +143,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	for _, m := range mounts {
 		src, err := filepath.Abs(m.Source.ValueString())
 		if err != nil {
+			log.Error(ctx, "failed to retrieve 'mounts' attribute from harness_container resource")
 			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))
 			return
 		}
@@ -166,6 +171,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 	envs := make(map[string]string)
 	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+		log.Error(ctx, "failed to retrieve 'envs' attribute from harness_container resource")
 		return
 	}
 	for k, v := range envs {
@@ -184,49 +190,65 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	// Finally, create the harness
 	// TODO: Change this signature
 	if _, err := harness.Setup()(ctx); err != nil {
+		log.Error(ctx, "failed to setup harness_container", "error", err)
 		resp.Diagnostics.AddError("failed to setup harness", err.Error())
 		return
 	}
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to update Terraform state for harness_container")
+		return
+	}
 }
 
 func (r *HarnessContainerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
 	var data HarnessContainerResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_container data from Terraform state")
 		return
 	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to save harness_container data in Terraform state")
+		return
+	}
 }
 
 func (r *HarnessContainerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
 	var data HarnessContainerResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_container data from Terraform state")
 		return
 	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to save harness_container data in Terraform state")
+		return
+	}
 }
 
 func (r *HarnessContainerResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
 	var data HarnessContainerResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_container data from Terraform state")
 		return
 	}
 }

@@ -88,22 +88,26 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_docker data from Terraform plan")
 		return
 	}
 
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to check if harness_docker should be skipped")
 		return
 	}
 	data.Skipped = types.BoolValue(skip)
 
 	if data.Skipped.ValueBool() {
+		log.Error(ctx, "failed to retrieve value for 'skipped' attribute in harness_docker resource")
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
 
 	ref, err := name.ParseReference(data.Image.ValueString())
 	if err != nil {
+		log.Error(ctx, "failed to parse reference for 'image' attribute in harness_docker resource")
 		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))
 		return
 	}
@@ -134,18 +138,21 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		var resources ContainerResources
 		resp.Diagnostics.Append(data.Resources.As(ctx, &resources, basetypes.ObjectAsOptions{})...)
 		if resp.Diagnostics.HasError() {
+			log.Error(ctx, "failed to parse reference for 'resources' attribute in harness_docker resource")
 			return
 		}
 
 		var memoryResources *ContainerMemoryResources
 		resp.Diagnostics.Append(resources.Memory.As(ctx, &memoryResources, basetypes.ObjectAsOptions{})...)
 		if resp.Diagnostics.HasError() {
+			log.Error(ctx, "failed to parse reference for 'memory' attribute in harness_docker resource")
 			return
 		}
 
 		if memoryResources != nil {
 			resourceRequests, err := parseMemoryResources(*memoryResources)
 			if err != nil {
+				log.Error(ctx, "failed to parse memory resource values in harness_docker resource")
 				resp.Diagnostics.AddError("failed to parse resources", err.Error())
 				return
 			}
@@ -167,6 +174,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 			envs := make(provider.Env)
 			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+				log.Error(ctx, "failed to read 'envs' attribute from 'docker' attribute in imagetest provider")
 				return
 			}
 			opts = append(opts, docker.WithEnvs(envs))
@@ -218,6 +226,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	envs := make(provider.Env)
 	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
+		log.Error(ctx, "failed to read 'envs' attribute from harness_docker resource")
 		return
 	}
 	opts = append(opts, docker.WithEnvs(envs))
@@ -290,40 +299,50 @@ func parseMemoryResources(memoryResources ContainerMemoryResources) (*provider.C
 }
 
 func (r *HarnessDockerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
 	var data HarnessDockerResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_docker data from Terraform state")
 		return
 	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to save harness_docker data to Terraform state")
+		return
+	}
 }
 
 func (r *HarnessDockerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
 	var data HarnessDockerResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_docker data from Terraform state")
 		return
 	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to save harness_docker data to Terraform state")
+	}
 }
 
 func (r *HarnessDockerResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	log = log.WithCtx(ctx, r.store.Logger())
 	var data HarnessDockerResourceModel
 
 	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve harness_docker data from Terraform state")
 		return
 	}
 }

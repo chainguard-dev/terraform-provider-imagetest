@@ -217,22 +217,26 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	var data FeatureResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to read object model for feature resource")
 		return
 	}
 
 	labels := make(map[string]string)
 	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
+		log.Error(ctx, "failed to read labels from feature resource")
 		return
 	}
 
 	// Create an ID that is a hash of the feature name
 	id, err := r.store.Encode(data.Name.ValueString())
 	if err != nil {
+		log.Error(ctx, "failed to encode 'name' attribute for feature resource", "error", err)
 		resp.Diagnostics.AddError("failed to encode feature name", err.Error())
 		return
 	}
 
 	if diag := resp.Plan.SetAttribute(ctx, path.Root("id"), id); diag.HasError() {
+		log.Error(ctx, "failed to retrieve 'id' attribute' for feature resource")
 		return
 	}
 
@@ -242,6 +246,7 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		Harness: inventory.Harness(data.Harness.Id.ValueString()),
 	})
 	if err != nil {
+		log.Error(ctx, "failed to add feature resource to provider inventory")
 		resp.Diagnostics.AddError("failed to add feature to inventory", err.Error())
 		return
 	}
@@ -257,6 +262,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 	var data FeatureResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve feature model from plan")
 		return
 	}
 
@@ -441,17 +447,22 @@ func (r *FeatureResource) Read(_ context.Context, _ resource.ReadRequest, _ *res
 }
 
 func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	ctx = log.WithCtx(ctx, r.store.Logger())
 	var data FeatureResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to retrieve feature model from plan")
 		return
 	}
 
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to update feature resource in Terraform state")
+		return
+	}
 }
 
 func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {

@@ -46,7 +46,8 @@ func (d *RandomDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 	}
 }
 
-func (d *RandomDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *RandomDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	ctx = log.WithCtx(ctx, d.store.Logger())
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
@@ -54,6 +55,7 @@ func (d *RandomDataSource) Configure(_ context.Context, req datasource.Configure
 
 	store, ok := req.ProviderData.(*ProviderStore)
 	if !ok {
+		log.Error(ctx, "failed to parse provider data in RandomDataSource")
 		resp.Diagnostics.AddError("invalid provider data", "...")
 		return
 	}
@@ -69,6 +71,7 @@ func (d *RandomDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	var data RandomDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to get configuration for RandomDataSource resource")
 		return
 	}
 
@@ -78,4 +81,8 @@ func (d *RandomDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		log.Error(ctx, "failed to save state in RandomDataSource")
+		return
+	}
 }
