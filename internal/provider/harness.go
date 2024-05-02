@@ -112,7 +112,7 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if added {
-		log.Debug(fmt.Sprintf("Harness.ModifyPlan() | harness [%s] added to inventory", id))
+		log.Debugf("Harness.ModifyPlan() | harness [%s] added to inventory", id)
 	}
 }
 

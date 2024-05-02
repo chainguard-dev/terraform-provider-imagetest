@@ -255,7 +255,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 	r.store.harnesses.Set(id, harness)
 
-	log.Debug(fmt.Sprintf("creating k3s harness [%s]", id))
+	log.Debugf(fmt.Sprintf("creating k3s harness [%s]", id))
 
 	// Finally, create the harness
 	// TODO: Change this signature

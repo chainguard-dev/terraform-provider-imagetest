@@ -247,7 +247,7 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if added {
-		log.Debug(fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
+		log.Debugf(fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
 	}
 }
 
@@ -289,7 +289,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		}
 
 		if len(remaining) == 0 {
-			log.Debug("no more features remain in inventory, removing harness")
+			log.Debugf("no more features remain in inventory, removing harness")
 			if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
 				resp.Diagnostics.AddError("failed to remove harness from inventory", err.Error())
 				return
@@ -347,7 +347,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		builder = builder.WithStep(step)
 	}
 
-	log.Info(fmt.Sprintf("testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString()))
+	log.Infof("testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString())
 
 	if err := r.test(ctx, builder.Build()); err != nil {
 		resp.Diagnostics.AddError("failed to test feature", err.Error())

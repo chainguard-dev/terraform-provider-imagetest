@@ -243,7 +243,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	}
 	r.store.harnesses.Set(id, harness)
 
-	log.Debug(fmt.Sprintf("creating container harness [%s]", id))
+	log.Debugf("creating docker harness [%s]", id)
 
 	// Finally, create the harness
 	// TODO: Change this signature

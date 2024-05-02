@@ -149,7 +149,7 @@ func (h *docker) Destroy(ctx context.Context) error {
 func (h *docker) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
 		log := clog.FromContext(ctx)
-		log.Info("stepping in docker container", "command", config.Command)
+		log.Infof("stepping in docker container with command %s", config.Command)
 		r, err := h.container.Exec(ctx, provider.ExecConfig{
 			Command:    config.Command,
 			WorkingDir: config.WorkingDir,
@@ -163,7 +163,7 @@ func (h *docker) StepFn(config types.StepConfig) types.StepFn {
 			return ctx, err
 		}
 
-		log.Info("finished stepping in docker container", "command", config.Command, "out", string(out))
+		log.Infof("finished stepping in docker container with command %s, out: %s", config.Command, string(out))
 
 		return ctx, nil
 	}

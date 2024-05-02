@@ -14,13 +14,6 @@ type TFHandler struct {
 
 const subsystem = "imagetest"
 
-func NewTFHandler() slog.Handler {
-	return &TFHandler{
-		attrs:  []slog.Attr{},
-		groups: []string{},
-	}
-}
-
 // Enabled implements slog.Handler.
 func (h *TFHandler) Enabled(_ context.Context, _ slog.Level) bool {
 	// Rely on the handler to filter this out, tflog doesn't provide a public API
@@ -30,7 +23,11 @@ func (h *TFHandler) Enabled(_ context.Context, _ slog.Level) bool {
 
 // Handle implements slog.Handler.
 func (h *TFHandler) Handle(ctx context.Context, record slog.Record) error {
-	ctx = tflog.NewSubsystem(ctx, subsystem, tflog.WithAdditionalLocationOffset(3))
+	ctx = tflog.NewSubsystem(
+		ctx,
+		subsystem,
+		tflog.WithAdditionalLocationOffset(3),
+		tflog.WithLevelFromEnv("TF_LOG_PROVIDER", subsystem))
 
 	attrs := make(map[string]any)
 	for _, attr := range h.attrs {

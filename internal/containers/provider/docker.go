@@ -136,7 +136,7 @@ func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, e
 		return "", fmt.Errorf("listing networks: %w", err)
 	}
 
-	log.Info(fmt.Sprintf("networks existing: %v", existing))
+	log.Infof("networks existing: %v", existing)
 
 	if len(existing) == 0 {
 		return "", ErrNetworkNotFound

@@ -203,7 +203,7 @@ KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --se
 			return nil
 		})
 
-		log.Info("Waiting for k3s service to be ready")
+		log.Infof("Waiting for k3s service to be ready")
 		if err := g.Wait(); err != nil {
 			return ctx, err
 		}
@@ -242,7 +242,7 @@ func (h *k3s) Destroy(ctx context.Context) error {
 func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
 		log := clog.FromContext(ctx)
-		log.Info("stepping in k3s sandbox container", "command", config.Command)
+		log.Infof("stepping in k3s sandbox container with command %s", config.Command)
 		r, err := h.sandbox.Exec(ctx, provider.ExecConfig{
 			Command:    config.Command,
 			WorkingDir: config.WorkingDir,
@@ -256,7 +256,7 @@ func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 			return ctx, err
 		}
 
-		log.Info("finished stepping in k3s sandbox container", "command", config.Command, "out", string(out))
+		log.Infof("finished stepping in k3s sandbox container with command %s, out: %s", config.Command, string(out))
 
 		return ctx, nil
 	}
