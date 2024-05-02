@@ -6,7 +6,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/go-logr/logr"
+	"github.com/chainguard-dev/clog"
+	slogmulti "github.com/samber/slog-multi"
 )
 
 // WithCtx returns a context decorated with the non nil *slog.Logger.
@@ -14,32 +15,33 @@ func WithCtx(parent context.Context, logger *slog.Logger) context.Context {
 	if parent == nil {
 		panic("parent context is nil")
 	}
-	return logr.NewContextWithSlogLogger(parent, logger)
-}
 
-// FromCtx returns a slog.Logger from the context, or the default slog.Logger.
-// This is heavily adapted from slog-context.
-func FromCtx(ctx context.Context) *slog.Logger {
-	if ctx == nil {
-		return slog.Default()
-	}
-
-	l := logr.FromContextAsSlogLogger(ctx)
-	if l == nil {
-		return slog.Default()
-	}
-	return l
+	clogLogger := clog.New(
+		slogmulti.Fanout(
+			// TODO(mauren): add fanout to file
+			clog.NewHandler(logger.Handler()),
+		),
+	)
+	return clog.WithLogger(parent, clogLogger)
 }
 
 func Info(ctx context.Context, msg string, args ...any) {
-	log(ctx, FromCtx(ctx), slog.LevelInfo, msg, args...)
+	log(ctx, clog.FromContext(ctx), slog.LevelInfo, msg, args...)
 }
 
 func Debug(ctx context.Context, msg string, args ...any) {
-	log(ctx, FromCtx(ctx), slog.LevelDebug, msg, args...)
+	log(ctx, clog.FromContext(ctx), slog.LevelDebug, msg, args...)
 }
 
-func log(ctx context.Context, l *slog.Logger, level slog.Level, msg string, args ...any) {
+func Warn(ctx context.Context, msg string, args ...any) {
+	log(ctx, clog.FromContext(ctx), slog.LevelWarn, msg, args...)
+}
+
+func Error(ctx context.Context, msg string, args ...any) {
+	log(ctx, clog.FromContext(ctx), slog.LevelError, msg, args...)
+}
+
+func log(ctx context.Context, l *clog.Logger, level slog.Level, msg string, args ...any) {
 	if !l.Enabled(ctx, level) {
 		return
 	}
