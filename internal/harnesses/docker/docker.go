@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/chainguard-dev/clog"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/docker/docker/api/types/mount"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 )
 
@@ -148,7 +148,8 @@ func (h *docker) Destroy(ctx context.Context) error {
 
 func (h *docker) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in docker container", "command", config.Command)
+		log := clog.FromContext(ctx)
+		log.Info("stepping in docker container", "command", config.Command)
 		r, err := h.container.Exec(ctx, provider.ExecConfig{
 			Command:    config.Command,
 			WorkingDir: config.WorkingDir,
@@ -162,7 +163,7 @@ func (h *docker) StepFn(config types.StepConfig) types.StepFn {
 			return ctx, err
 		}
 
-		log.Info(ctx, "finished stepping in docker container", "command", config.Command, "out", string(out))
+		log.Info("finished stepping in docker container", "command", config.Command, "out", string(out))
 
 		return ctx, nil
 	}

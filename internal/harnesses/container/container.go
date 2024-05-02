@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -47,7 +47,8 @@ func (h *container) Destroy(ctx context.Context) error {
 // StepFn implements types.Harness.
 func (h *container) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in container", "command", config.Command)
+		log := clog.FromContext(ctx)
+		log.Info("stepping in container", "command", config.Command)
 		r, err := h.provider.Exec(ctx, provider.ExecConfig{
 			Command:    config.Command,
 			WorkingDir: config.WorkingDir,
@@ -60,7 +61,7 @@ func (h *container) StepFn(config types.StepConfig) types.StepFn {
 		if err != nil {
 			return ctx, err
 		}
-		log.Info(ctx, "finished stepping in container", "command", config.Command, "out", string(out))
+		log.Info("finished stepping in container", "command", config.Command, "out", string(out))
 
 		return ctx, nil
 	}

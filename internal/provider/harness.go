@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -72,7 +72,7 @@ func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureR
 // phase. This uses the more verbose GetAttribute() instead of Get() because
 // terraform-plugin-framework does not support embedding models without nesting.
 func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	ctx = log.WithCtx(ctx, r.store.Logger())
+	log := clog.FromContext(ctx)
 
 	if !req.State.Raw.IsNull() {
 		// TODO: This currently exists to handle `terraform destroy` which occurs
@@ -112,13 +112,11 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if added {
-		log.Debug(ctx, fmt.Sprintf("Harness.ModifyPlan() | harness [%s] added to inventory", id))
+		log.Debug(fmt.Sprintf("Harness.ModifyPlan() | harness [%s] added to inventory", id))
 	}
 }
 
 func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) bool {
-	ctx = log.WithCtx(ctx, r.store.Logger())
-
 	inv := InventoryDataSourceModel{}
 	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
 		return false

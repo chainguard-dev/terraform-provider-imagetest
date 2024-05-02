@@ -7,33 +7,22 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-type TFOption struct {
-	// log level (default: info)
-	Level slog.Leveler
-}
-
-var _ slog.Handler = (*TFHandler)(nil)
-
 type TFHandler struct {
-	opt    TFOption
 	attrs  []slog.Attr
 	groups []string
 }
 
-func (o TFOption) NewTFHandler() slog.Handler {
-	if o.Level == nil {
-		o.Level = slog.LevelInfo
-	}
+const subsystem = "imagetest"
 
+func NewTFHandler() slog.Handler {
 	return &TFHandler{
-		opt:    o,
 		attrs:  []slog.Attr{},
 		groups: []string{},
 	}
 }
 
 // Enabled implements slog.Handler.
-func (h *TFHandler) Enabled(ctx context.Context, level slog.Level) bool {
+func (h *TFHandler) Enabled(_ context.Context, _ slog.Level) bool {
 	// Rely on the handler to filter this out, tflog doesn't provide a public API
 	// for determining the providers log level :|
 	return true
@@ -41,7 +30,9 @@ func (h *TFHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 // Handle implements slog.Handler.
 func (h *TFHandler) Handle(ctx context.Context, record slog.Record) error {
-	attrs := map[string]interface{}{}
+	ctx = tflog.NewSubsystem(ctx, subsystem, tflog.WithAdditionalLocationOffset(3))
+
+	attrs := make(map[string]any)
 	for _, attr := range h.attrs {
 		attrs[attr.Key] = attr.Value.Any()
 	}
@@ -55,14 +46,16 @@ func (h *TFHandler) Handle(ctx context.Context, record slog.Record) error {
 
 	switch record.Level {
 	case slog.LevelDebug:
-		tflog.Debug(ctx, record.Message, attrs)
-	case slog.LevelError:
-		tflog.Error(ctx, record.Message, attrs)
+		tflog.SubsystemDebug(ctx, subsystem, record.Message, attrs)
+	case slog.LevelInfo:
+		tflog.SubsystemInfo(ctx, subsystem, record.Message, attrs)
 	case slog.LevelWarn:
-		tflog.Warn(ctx, record.Message, attrs)
+		tflog.SubsystemWarn(ctx, subsystem, record.Message, attrs)
+	case slog.LevelError:
+		tflog.SubsystemError(ctx, subsystem, record.Message, attrs)
 	default:
 		// fallback to Info level
-		tflog.Info(ctx, record.Message, attrs)
+		tflog.SubsystemInfo(ctx, subsystem, record.Message, attrs)
 	}
 
 	return nil
@@ -70,16 +63,12 @@ func (h *TFHandler) Handle(ctx context.Context, record slog.Record) error {
 
 // WithAttrs implements slog.Handler.
 func (h *TFHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &TFHandler{
-		opt:   h.opt,
-		attrs: attrs,
-	}
+	return &TFHandler{attrs: append(h.attrs, attrs...)}
 }
 
 // WithGroup implements slog.Handler.
 func (h *TFHandler) WithGroup(name string) slog.Handler {
 	return &TFHandler{
-		opt:    h.opt,
 		attrs:  h.attrs,
 		groups: append(h.groups, name),
 	}

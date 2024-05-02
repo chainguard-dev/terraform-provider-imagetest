@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -83,8 +82,6 @@ func ContainerVolumeResourceAttributes() map[string]schema.Attribute {
 }
 
 func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	ctx = log.WithCtx(ctx, r.store.Logger())
-
 	var data ContainerVolumeResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {

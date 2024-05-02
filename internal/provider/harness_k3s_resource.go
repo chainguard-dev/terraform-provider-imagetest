@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
@@ -95,7 +95,7 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaReques
 }
 
 func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	ctx = log.WithCtx(ctx, r.store.Logger())
+	log := clog.FromContext(ctx)
 
 	var data HarnessK3sResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -255,7 +255,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 	r.store.harnesses.Set(id, harness)
 
-	log.Debug(ctx, fmt.Sprintf("creating k3s harness [%s]", id))
+	log.Debug(fmt.Sprintf("creating k3s harness [%s]", id))
 
 	// Finally, create the harness
 	// TODO: Change this signature

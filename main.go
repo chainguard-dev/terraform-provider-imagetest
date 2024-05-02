@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"log"
+	"log/slog"
 	"os/signal"
 	"syscall"
 
+	log2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
@@ -47,4 +49,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+}
+
+func init() {
+	slog.SetDefault(slog.New(log2.NewTFHandler()))
 }

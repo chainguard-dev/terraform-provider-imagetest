@@ -2,16 +2,13 @@ package provider
 
 import (
 	"crypto/sha256"
-	"log/slog"
 	"math/big"
 	"os"
 	"sync"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
-	slogmulti "github.com/samber/slog-multi"
 )
 
 // ProviderStore manages the global runtime state of the provider. The provider
@@ -36,18 +33,6 @@ func NewProviderStore() *ProviderStore {
 		labels:    make(map[string]string),
 		harnesses: newSmap[string, types.Harness](),
 	}
-}
-
-func (s *ProviderStore) Logger() *slog.Logger {
-	handlers := []slog.Handler{
-		log.TFOption{}.NewTFHandler(),
-	}
-
-	return slog.New(
-		slogmulti.Fanout(
-			handlers...,
-		),
-	)
 }
 
 func (s *ProviderStore) Encode(components ...string) (string, error) {

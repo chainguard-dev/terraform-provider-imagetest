@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -76,7 +76,7 @@ func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRe
 }
 
 func (r *HarnessContainerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	ctx = log.WithCtx(ctx, r.store.Logger())
+	log := clog.FromContext(ctx)
 
 	var data HarnessContainerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -179,7 +179,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	}
 	r.store.harnesses.Set(data.Id.ValueString(), harness)
 
-	log.Debug(ctx, fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
+	log.Debug(fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
 
 	// Finally, create the harness
 	// TODO: Change this signature
