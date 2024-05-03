@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -61,8 +60,6 @@ func (d *InventoryDataSource) Configure(_ context.Context, req datasource.Config
 }
 
 func (d *InventoryDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	ctx = log.WithCtx(ctx, d.store.Logger())
-
 	var data InventoryDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {

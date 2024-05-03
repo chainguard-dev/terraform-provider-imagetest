@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -128,6 +128,7 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, name string) (string
 }
 
 func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, error) {
+	log := clog.FromContext(ctx)
 	existing, err := p.cli.NetworkList(ctx, types.NetworkListOptions{
 		Filters: filters.NewArgs(filters.Arg("name", fmt.Sprintf("^/?%s$", name))),
 	})
@@ -135,7 +136,7 @@ func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, e
 		return "", fmt.Errorf("listing networks: %w", err)
 	}
 
-	log.Info(ctx, fmt.Sprintf("networks existing: %v", existing))
+	log.Infof("networks existing: %v", existing)
 
 	if len(existing) == 0 {
 		return "", ErrNetworkNotFound

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/docker"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
@@ -84,7 +84,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	var data HarnessDockerResourceModel
 	var opts []docker.Option
 
-	ctx = log.WithCtx(ctx, r.store.Logger())
+	log := clog.FromContext(ctx)
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -243,7 +243,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	}
 	r.store.harnesses.Set(id, harness)
 
-	log.Debug(ctx, fmt.Sprintf("creating container harness [%s]", id))
+	log.Debugf("creating docker harness [%s]", id)
 
 	// Finally, create the harness
 	// TODO: Change this signature
