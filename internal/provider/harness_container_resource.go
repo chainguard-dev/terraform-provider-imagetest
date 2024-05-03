@@ -172,11 +172,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		cfg.Env[k] = v
 	}
 
-	harness, err := container.New(data.Id.ValueString(), r.store.cli, cfg)
-	if err != nil {
-		resp.Diagnostics.AddError("invalid provider data", "...")
-		return
-	}
+	harness := container.New(data.Id.ValueString(), r.store.cli, cfg)
 	r.store.harnesses.Set(data.Id.ValueString(), harness)
 
 	log.Debugf(fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
