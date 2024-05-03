@@ -48,7 +48,7 @@ func (h *container) Destroy(ctx context.Context) error {
 func (h *container) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
 		log := clog.FromContext(ctx)
-		log.Infof("stepping in container with command %s", config.Command)
+		log.InfoContext(ctx, "stepping in container", "command", config.Command)
 		r, err := h.provider.Exec(ctx, provider.ExecConfig{
 			Command:    config.Command,
 			WorkingDir: config.WorkingDir,
@@ -61,7 +61,7 @@ func (h *container) StepFn(config types.StepConfig) types.StepFn {
 		if err != nil {
 			return ctx, err
 		}
-		log.Infof("finished stepping in container with command %s, out: %s", config.Command, string(out))
+		log.InfoContext(ctx, "finished stepping in container", "command", config.Command, "out", string(out))
 
 		return ctx, nil
 	}
