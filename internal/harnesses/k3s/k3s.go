@@ -7,9 +7,9 @@ import (
 	"html/template"
 	"io"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -154,6 +154,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 // Setup implements types.Harness.
 func (h *k3s) Setup() types.StepFn {
 	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
+		log := clog.FromContext(ctx)
 		g, ctx := errgroup.WithContext(ctx)
 
 		// start the k3s service first since the sandbox depends on the network
@@ -202,7 +203,7 @@ KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --se
 			return nil
 		})
 
-		log.Info(ctx, "Waiting for k3s service to be ready")
+		log.Infof("Waiting for k3s service to be ready")
 		if err := g.Wait(); err != nil {
 			return ctx, err
 		}
@@ -240,7 +241,8 @@ func (h *k3s) Destroy(ctx context.Context) error {
 // StepFn implements types.Harness.
 func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in k3s sandbox container", "command", config.Command)
+		log := clog.FromContext(ctx)
+		log.InfoContext(ctx, "stepping in k3s sandbox container", "command", config.Command)
 		r, err := h.sandbox.Exec(ctx, provider.ExecConfig{
 			Command:    config.Command,
 			WorkingDir: config.WorkingDir,
@@ -254,7 +256,7 @@ func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
 			return ctx, err
 		}
 
-		log.Info(ctx, "finished stepping in k3s sandbox container", "command", config.Command, "out", string(out))
+		log.InfoContext(ctx, "finished stepping in k3s sandbox container", "command", config.Command, "out", string(out))
 
 		return ctx, nil
 	}
