@@ -5,13 +5,15 @@ import (
 )
 
 type Inventory interface {
-	Create(ctx context.Context) error
-	Open(ctx context.Context) error
-	AddHarness(ctx context.Context, id Harness) (bool, error)
-	AddFeature(ctx context.Context, f Feature) (bool, error)
-	GetFeatures(ctx context.Context, id Harness) ([]Feature, error)
-	RemoveHarness(ctx context.Context, h Harness) error
-	RemoveFeature(ctx context.Context, f Feature) ([]Feature, error)
+	GetId() string
+	Create(context.Context) error
+	Open(context.Context) error
+	AddHarness(context.Context, Harness) (bool, error)
+	AddFeature(context.Context, Feature) (bool, error)
+	GetFeatures(context.Context, Harness) ([]Feature, error)
+	RemoveHarness(context.Context, Harness) error
+	RemoveFeature(context.Context, Feature) ([]Feature, error)
+	Logger(context.Context) (context.Context, error)
 }
 
 type Harness string
@@ -22,4 +24,9 @@ type Feature struct {
 	Harness Harness           `json:"harness"`
 }
 
-type InventoryModel map[Harness][]Feature
+type HarnessFeatureMapping map[Harness][]Feature
+
+type InventoryModel struct {
+	Id              string
+	HarnessFeatures HarnessFeatureMapping
+}

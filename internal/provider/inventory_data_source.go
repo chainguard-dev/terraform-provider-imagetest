@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -25,6 +26,7 @@ type InventoryDataSource struct {
 
 // InventoryDataSourceModel describes the data source data model.
 type InventoryDataSourceModel struct {
+	Id   types.String `tfsdk:"id"`
 	Seed types.String `tfsdk:"seed"`
 }
 
@@ -37,6 +39,9 @@ func (d *InventoryDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Inventory data source. Keeps track of harness resources.",
 		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed: true,
+			},
 			"seed": schema.StringAttribute{
 				Computed: true,
 			},
@@ -66,12 +71,24 @@ func (d *InventoryDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
+	newUUID, err := uuid.NewUUID()
+	if err != nil {
+		resp.Diagnostics.AddError("failed to generate unique ID for inventory", err.Error())
+		return
+	}
+	data.Id = types.StringValue(newUUID.String()[:8])
+
 	f, err := os.CreateTemp("", "imagetest-")
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create temp file", err.Error())
 		return
 	}
-	defer f.Close()
+	defer func() {
+		closeErr := f.Close()
+		if closeErr != nil {
+			panic(closeErr)
+		}
+	}()
 
 	data.Seed = types.StringValue(f.Name())
 

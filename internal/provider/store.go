@@ -54,7 +54,7 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 // Inventory returns an instance of the inventory per inventory data source.
 func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
 	// TODO: More backends?
-	return inventory.NewFile(data.Seed.ValueString())
+	return inventory.NewFile(data.Seed.ValueString(), data.Id.ValueString())
 }
 
 // SkipTeardown returns true if the IMAGETEST_SKIP_TEARDOWN environment

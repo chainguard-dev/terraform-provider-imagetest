@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -76,13 +76,13 @@ func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRe
 }
 
 func (r *HarnessContainerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	log := clog.FromContext(ctx)
-
 	var data HarnessContainerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	ctx, err := r.store.Inventory(data.Inventory).Logger(ctx)
 
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
@@ -175,7 +175,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	harness := container.New(data.Id.ValueString(), r.store.cli, cfg)
 	r.store.harnesses.Set(data.Id.ValueString(), harness)
 
-	log.Debugf(fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
+	log.Debug(ctx, fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
 
 	// Finally, create the harness
 	// TODO: Change this signature
@@ -299,6 +299,9 @@ func extraContainerResourceSchemaAttributes() map[string]schema.Attribute {
 							"inventory": schema.SingleNestedAttribute{
 								Required: true,
 								Attributes: map[string]schema.Attribute{
+									"id": schema.StringAttribute{
+										Required: true,
+									},
 									"seed": schema.StringAttribute{
 										Required: true,
 									},

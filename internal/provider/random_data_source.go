@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -61,9 +61,7 @@ func (d *RandomDataSource) Configure(_ context.Context, req datasource.Configure
 }
 
 func (d *RandomDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	log := clog.FromContext(ctx)
-
-	log.Debugf("Random.Read()")
+	log.Debug(ctx, "Random.Read()")
 
 	var data RandomDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
@@ -72,7 +70,7 @@ func (d *RandomDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 
 	id := petname.Generate(2, "-")
-	log.Debugf("Random.Read() | %s", id)
+	log.Debug(ctx, "Random.Read() | %s", id)
 	data.Id = types.StringValue(id)
 
 	// Save data into Terraform state

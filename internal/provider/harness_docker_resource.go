@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
@@ -84,12 +84,12 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	var data HarnessDockerResourceModel
 	var opts []docker.Option
 
-	log := clog.FromContext(ctx)
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	ctx, err := r.store.Inventory(data.Inventory).Logger(ctx)
 
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
@@ -243,7 +243,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	}
 	r.store.harnesses.Set(id, harness)
 
-	log.Debugf("creating docker harness [%s]", id)
+	log.Debug(ctx, "creating docker harness [%s]", id)
 
 	// Finally, create the harness
 	// TODO: Change this signature
@@ -447,6 +447,9 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 							"inventory": schema.SingleNestedAttribute{
 								Required: true,
 								Attributes: map[string]schema.Attribute{
+									"id": schema.StringAttribute{
+										Required: true,
+									},
 									"seed": schema.StringAttribute{
 										Required: true,
 									},
