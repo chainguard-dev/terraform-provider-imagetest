@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/google/uuid"
@@ -86,7 +87,7 @@ func (d *InventoryDataSource) Read(ctx context.Context, req datasource.ReadReque
 	defer func() {
 		closeErr := f.Close()
 		if closeErr != nil {
-			panic(closeErr)
+			panic(fmt.Errorf("failed to close temporary file: %w", closeErr))
 		}
 	}()
 

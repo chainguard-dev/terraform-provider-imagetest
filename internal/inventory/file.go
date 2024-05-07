@@ -205,7 +205,7 @@ func (i *file) Logger(ctx context.Context) (context.Context, error) {
 	var err error
 
 	id := i.GetId()
-	i.logFile, err = os.OpenFile(fmt.Sprintf("tf-imagetest-%s.log", id), os.O_CREATE|os.O_WRONLY, 0644)
+	i.logFile, err = os.OpenFile(fmt.Sprintf("tf-imagetest-%s.log", id), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return ctx, fmt.Errorf("failed to create logfile: %w", err)
 	}

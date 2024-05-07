@@ -90,6 +90,9 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	}
 
 	ctx, err := r.store.Inventory(data.Inventory).Logger(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
+	}
 
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
