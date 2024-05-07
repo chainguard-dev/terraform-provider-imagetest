@@ -39,6 +39,7 @@ A harness that runs steps in a sandbox container.
 
 Required:
 
+- `id` (String)
 - `seed` (String)
 
 
@@ -81,4 +82,5 @@ Required:
 
 Required:
 
+- `id` (String)
 - `seed` (String)
