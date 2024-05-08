@@ -41,7 +41,6 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 
 Required:
 
-- `id` (String)
 - `seed` (String)
 
 
@@ -130,5 +129,4 @@ Required:
 
 Required:
 
-- `id` (String)
 - `seed` (String)

@@ -29,5 +29,4 @@ A volume in the container engine that can be referenced by containers.
 
 Required:
 
-- `id` (String)
 - `seed` (String)

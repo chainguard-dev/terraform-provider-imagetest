@@ -41,7 +41,6 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 
 Required:
 
-- `id` (String)
 - `seed` (String)
 
 
