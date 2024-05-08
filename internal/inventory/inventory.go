@@ -22,9 +22,4 @@ type Feature struct {
 	Harness Harness           `json:"harness"`
 }
 
-type HarnessFeatureMapping map[Harness][]Feature
-
-type InventoryModel struct {
-	Id              string
-	HarnessFeatures HarnessFeatureMapping
-}
+type InventoryModel map[Harness][]Feature
