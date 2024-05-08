@@ -173,9 +173,6 @@ func addHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 			Description: "The inventory this harness belongs to. This is received as a direct input from a data.imagetest_inventory data source.",
 			Required:    true,
 			Attributes: map[string]schema.Attribute{
-				"id": schema.StringAttribute{
-					Required: true,
-				},
 				"seed": schema.StringAttribute{
 					Required: true,
 				},
@@ -205,9 +202,6 @@ func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute
 				"inventory": schema.SingleNestedAttribute{
 					Required: true,
 					Attributes: map[string]schema.Attribute{
-						"id": schema.StringAttribute{
-							Required: true,
-						},
 						"seed": schema.StringAttribute{
 							Required: true,
 						},

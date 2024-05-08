@@ -101,7 +101,12 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	ctx, err := r.store.Inventory(data.Inventory).Logger(ctx)
+	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
+	}
+
+	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
 	}

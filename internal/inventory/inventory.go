@@ -5,7 +5,6 @@ import (
 )
 
 type Inventory interface {
-	GetId() string
 	Create(context.Context) error
 	Open(context.Context) error
 	AddHarness(context.Context, Harness) (bool, error)
@@ -13,7 +12,6 @@ type Inventory interface {
 	GetFeatures(context.Context, Harness) ([]Feature, error)
 	RemoveHarness(context.Context, Harness) error
 	RemoveFeature(context.Context, Feature) ([]Feature, error)
-	Logger(context.Context) (context.Context, error)
 }
 
 type Harness string

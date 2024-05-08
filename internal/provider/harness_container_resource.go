@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
@@ -82,7 +83,12 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	ctx, err := r.store.Inventory(data.Inventory).Logger(ctx)
+	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
+	}
+
+	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
 	}
@@ -302,9 +308,6 @@ func extraContainerResourceSchemaAttributes() map[string]schema.Attribute {
 							"inventory": schema.SingleNestedAttribute{
 								Required: true,
 								Attributes: map[string]schema.Attribute{
-									"id": schema.StringAttribute{
-										Required: true,
-									},
 									"seed": schema.StringAttribute{
 										Required: true,
 									},

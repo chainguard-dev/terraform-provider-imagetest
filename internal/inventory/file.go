@@ -4,26 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"sync"
-
-	"github.com/chainguard-dev/clog"
-	log2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	slogmulti "github.com/samber/slog-multi"
 )
 
 var _ Inventory = &file{}
 
 type file struct {
-	id      string
-	mu      sync.Mutex
-	path    string
-	logFile *os.File
+	mu   sync.Mutex
+	path string
 }
 
-func NewFile(path string, id string) Inventory {
-	return &file{path: path, id: id}
+func NewFile(path string) Inventory {
+	return &file{path: path}
 }
 
 // Create implements Inventory.
@@ -39,10 +32,6 @@ func (i *file) Create(ctx context.Context) error {
 // Open implements I.
 func (*file) Open(_ context.Context) error {
 	panic("open")
-}
-
-func (i *file) GetId() string {
-	return i.id
 }
 
 // AddFeature implements Inventory. it returns true if the feature was added,
@@ -199,22 +188,4 @@ func (i *file) write(_ context.Context, data *InventoryModel) error {
 	}
 
 	return nil
-}
-
-func (i *file) Logger(ctx context.Context) (context.Context, error) {
-	var err error
-
-	id := i.GetId()
-	i.logFile, err = os.OpenFile(fmt.Sprintf("tf-imagetest-%s.log", id), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return ctx, fmt.Errorf("failed to create logfile: %w", err)
-	}
-
-	logger := clog.New(slogmulti.Fanout(
-		&log2.TFHandler{},
-		slog.NewTextHandler(i.logFile, &slog.HandlerOptions{}),
-	))
-	ctx = clog.WithLogger(ctx, logger)
-
-	return ctx, nil
 }
