@@ -123,6 +123,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 				},
 			},
 			Resources: harnessOptions.Resources,
+			Labels:    provider.MainHarnessLabel(),
 		},
 		ManagedVolumes: []mount.Mount{
 			{

@@ -43,6 +43,7 @@ type ContainerRequest struct {
 	Files      []File
 	// An abstraction over common memory/cpu/disk resources requests and limits
 	Resources ContainerResourcesRequest
+	Labels    map[string]string
 }
 
 type ContainerResourcesRequest struct {
@@ -123,4 +124,12 @@ func InventoryLogger(ctx context.Context, inventoryID string) (context.Context, 
 	ctx = clog.WithLogger(ctx, logger)
 
 	return ctx, nil
+}
+
+func DefaultLabels() map[string]string {
+	return map[string]string{"dev.chainguard.imagetest": "true"}
+}
+
+func MainHarnessLabel() map[string]string {
+	return map[string]string{"dev.chainguard.imagetest.main_harness": "true"}
 }
