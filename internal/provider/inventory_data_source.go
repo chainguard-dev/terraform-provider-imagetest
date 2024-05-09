@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -71,7 +72,12 @@ func (d *InventoryDataSource) Read(ctx context.Context, req datasource.ReadReque
 		resp.Diagnostics.AddError("failed to create temp file", err.Error())
 		return
 	}
-	defer f.Close()
+	defer func(ctx context.Context) {
+		closeErr := f.Close()
+		if closeErr != nil {
+			log.Warn(ctx, "failed to close temporary inventory file", "root cause", err)
+		}
+	}(ctx)
 
 	data.Seed = types.StringValue(f.Name())
 

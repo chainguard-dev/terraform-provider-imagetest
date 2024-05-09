@@ -5,13 +5,13 @@ import (
 )
 
 type Inventory interface {
-	Create(ctx context.Context) error
-	Open(ctx context.Context) error
-	AddHarness(ctx context.Context, id Harness) (bool, error)
-	AddFeature(ctx context.Context, f Feature) (bool, error)
-	GetFeatures(ctx context.Context, id Harness) ([]Feature, error)
-	RemoveHarness(ctx context.Context, h Harness) error
-	RemoveFeature(ctx context.Context, f Feature) ([]Feature, error)
+	Create(context.Context) error
+	Open(context.Context) error
+	AddHarness(context.Context, Harness) (bool, error)
+	AddFeature(context.Context, Feature) (bool, error)
+	GetFeatures(context.Context, Harness) ([]Feature, error)
+	RemoveHarness(context.Context, Harness) error
+	RemoveFeature(context.Context, Feature) ([]Feature, error)
 }
 
 type Harness string

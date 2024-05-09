@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"sync"
+
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 )
 
 var _ Inventory = &file{}
@@ -26,7 +28,7 @@ func (i *file) Create(ctx context.Context) error {
 }
 
 // Open implements I.
-func (*file) Open(ctx context.Context) error {
+func (*file) Open(_ context.Context) error {
 	panic("open")
 }
 
@@ -141,7 +143,7 @@ func (i *file) RemoveHarness(ctx context.Context, h Harness) error {
 	return i.write(ctx, data)
 }
 
-func (i *file) read(_ context.Context) (InventoryModel, error) {
+func (i *file) read(ctx context.Context) (InventoryModel, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -149,7 +151,12 @@ func (i *file) read(_ context.Context) (InventoryModel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inventory open error")
 	}
-	defer f.Close()
+	defer func(ctx context.Context) {
+		err := f.Close()
+		if err != nil {
+			log.Warn(ctx, "failed to open inventory file", "error", err)
+		}
+	}(ctx)
 
 	var inv InventoryModel
 	if err := json.NewDecoder(f).Decode(&inv); err != nil {
@@ -159,7 +166,7 @@ func (i *file) read(_ context.Context) (InventoryModel, error) {
 	return inv, nil
 }
 
-func (i *file) write(_ context.Context, data InventoryModel) error {
+func (i *file) write(ctx context.Context, data InventoryModel) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -167,7 +174,12 @@ func (i *file) write(_ context.Context, data InventoryModel) error {
 	if err != nil {
 		return fmt.Errorf("inventory open error")
 	}
-	defer f.Close()
+	defer func(ctx context.Context) {
+		err := f.Close()
+		if err != nil {
+			log.Warn(ctx, "failed to close inventory file", "error", err)
+		}
+	}(ctx)
 
 	if err := json.NewEncoder(f).Encode(data); err != nil {
 		return fmt.Errorf("inventory encode error")

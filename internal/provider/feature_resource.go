@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/features"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -205,8 +205,6 @@ func (r *FeatureResource) Configure(_ context.Context, req resource.ConfigureReq
 
 // ModifyPlan implements resource.ResourceWithModifyPlan.
 func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	log := clog.FromContext(ctx)
-
 	if !req.State.Raw.IsNull() {
 		// TODO: This currently exists to handle `terraform destroy` which occurs
 		// during acceptance testing. In the future, we should properly handle any
@@ -247,13 +245,11 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	if added {
-		log.Debugf(fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
+		log.Debug(ctx, fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
 	}
 }
 
 func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	log := clog.FromContext(ctx)
-
 	var data FeatureResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -289,7 +285,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		}
 
 		if len(remaining) == 0 {
-			log.Debugf("no more features remain in inventory, removing harness")
+			log.Debug(ctx, "no more features remain in inventory, removing harness")
 			if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
 				resp.Diagnostics.AddError("failed to remove harness from inventory", err.Error())
 				return
@@ -347,7 +343,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		builder = builder.WithStep(step)
 	}
 
-	log.Infof("testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString())
+	log.Info(ctx, "testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString())
 
 	if err := r.test(ctx, builder.Build()); err != nil {
 		resp.Diagnostics.AddError("failed to test feature", err.Error())

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
@@ -95,12 +95,20 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaReques
 }
 
 func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	log := clog.FromContext(ctx)
-
 	var data HarnessK3sResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
+	}
+
+	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
 	}
 
 	skipped := r.ShouldSkip(ctx, req, resp)
@@ -237,7 +245,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	id := data.Id.ValueString()
 	configVolumeName := id + "-config"
 
-	_, err := r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
+	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
 		Labels: provider.DefaultLabels,
 		Name:   configVolumeName,
 	})
@@ -255,7 +263,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 	r.store.harnesses.Set(id, harness)
 
-	log.Debugf(fmt.Sprintf("creating k3s harness [%s]", id))
+	log.Debug(ctx, fmt.Sprintf("creating k3s harness [%s]", id))
 
 	// Finally, create the harness
 	// TODO: Change this signature

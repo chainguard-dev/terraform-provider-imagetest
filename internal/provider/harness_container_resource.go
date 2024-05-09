@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -76,12 +77,20 @@ func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRe
 }
 
 func (r *HarnessContainerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	log := clog.FromContext(ctx)
-
 	var data HarnessContainerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
+	}
+
+	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
 	}
 
 	skip := r.ShouldSkip(ctx, req, resp)
@@ -175,7 +184,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	harness := container.New(data.Id.ValueString(), r.store.cli, cfg)
 	r.store.harnesses.Set(data.Id.ValueString(), harness)
 
-	log.Debugf(fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
+	log.Debug(ctx, fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
 
 	// Finally, create the harness
 	// TODO: Change this signature
