@@ -245,7 +245,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	id := data.Id.ValueString()
 	configVolumeName := id + "-config"
 
-	_, err := r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
+	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
 		Labels: provider.DefaultLabels(),
 		Name:   configVolumeName,
 	})
