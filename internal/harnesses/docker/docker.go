@@ -63,6 +63,9 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 			Type:   mount.TypeVolume,
 			Source: vol.Source,
 			Target: vol.Destination,
+			VolumeOptions: &mount.VolumeOptions{
+				Labels: provider.DefaultLabels(),
+			},
 		})
 	}
 
@@ -70,6 +73,9 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		Type:   mount.TypeVolume,
 		Target: "/root/.docker",
 		Source: options.ConfigVolumeName,
+		VolumeOptions: &mount.VolumeOptions{
+			Labels: provider.DefaultLabels(),
+		},
 	})
 
 	var mounts []mount.Mount

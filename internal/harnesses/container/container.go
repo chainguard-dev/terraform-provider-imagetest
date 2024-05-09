@@ -100,6 +100,9 @@ func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
 			Type:   m.Type,
 			Source: m.Source,
 			Target: m.Destination,
+			VolumeOptions: &mount.VolumeOptions{
+				Labels: provider.DefaultLabels(),
+			},
 		})
 	}
 

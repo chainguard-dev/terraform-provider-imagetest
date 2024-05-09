@@ -12,7 +12,7 @@ import (
 )
 
 // ProviderStore manages the global runtime state of the provider. The provider
-// uses this to lookup the defined relationships between resources, and manage
+// uses this to look up the defined relationships between resources, and manage
 // shared external state.
 type ProviderStore struct {
 	// harnesses stores a map of the available harnesses, keyed by their ID.
