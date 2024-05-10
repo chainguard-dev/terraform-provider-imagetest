@@ -234,7 +234,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 	configVolumeName := id + "-config"
 
 	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Labels: provider.DefaultLabels,
+		Labels: provider.DefaultLabels(),
 		Name:   configVolumeName,
 	})
 	if err != nil {

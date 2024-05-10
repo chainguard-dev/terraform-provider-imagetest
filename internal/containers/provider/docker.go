@@ -14,6 +14,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -33,9 +34,6 @@ const (
 
 var (
 	ErrNetworkNotFound = errors.New("network not found")
-	DefaultLabels      = map[string]string{
-		"dev.chainguard.imagetest": "true",
-	}
 )
 
 type DockerProvider struct {
@@ -87,11 +85,16 @@ func NewDockerClient() (*DockerClient, error) {
 
 // NewDocker creates a new DockerProvider with the given client.
 func NewDocker(name string, cli *DockerClient, req DockerRequest) *DockerProvider {
+	labels := DefaultLabels()
+	if len(req.Labels) > 0 {
+		labels = util.MergeLabelMaps(labels, req.Labels)
+	}
+
 	return &DockerProvider{
 		name:   name,
 		req:    req,
 		cli:    cli,
-		labels: DefaultLabels,
+		labels: labels,
 	}
 }
 
