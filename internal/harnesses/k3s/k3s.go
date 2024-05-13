@@ -37,7 +37,6 @@ type k3s struct {
 }
 
 func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
-
 	harnessOptions := &Opt{
 		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
