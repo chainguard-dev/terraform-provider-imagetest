@@ -59,6 +59,7 @@ type HarnessK3sResourceModel struct {
 	Networks             map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Sandbox              types.Object                             `tfsdk:"sandbox"`
 	Timeouts             timeouts.Value                           `tfsdk:"timeouts"`
+	Resources            types.Object                             `tfsdk:"resources"`
 }
 
 type RegistryResourceModel struct {
@@ -237,6 +238,29 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	kopts = append(kopts, k3s.WithNetworks(networks...))
+
+	if !data.Resources.IsNull() {
+		var resources ContainerResources
+		resp.Diagnostics.Append(data.Resources.As(ctx, &resources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		var memoryResources *ContainerMemoryResources
+		resp.Diagnostics.Append(resources.Memory.As(ctx, &memoryResources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		if memoryResources != nil {
+			resourceRequests, err := ParseMemoryResources(*memoryResources)
+			if err != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err.Error())
+				return
+			}
+			kopts = append(kopts, k3s.WithResources(*resourceRequests))
+		}
+	}
 
 	id := data.Id.ValueString()
 	configVolumeName := id + "-config"
@@ -425,6 +449,24 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 			Description: "A map of configuration for the sandbox container.",
 			Optional:    true,
 			Attributes:  sandboxAttributes,
+		},
+		"resources": schema.SingleNestedAttribute{
+			Optional: true,
+			Attributes: map[string]schema.Attribute{
+				"memory": schema.SingleNestedAttribute{
+					Optional: true,
+					Attributes: map[string]schema.Attribute{
+						"request": schema.StringAttribute{
+							Optional:    true,
+							Description: "Amount of memory requested for the harness container",
+						},
+						"limit": schema.StringAttribute{
+							Optional:    true,
+							Description: "Limit of memory the harness container can consume",
+						},
+					},
+				},
+			},
 		},
 	}
 }

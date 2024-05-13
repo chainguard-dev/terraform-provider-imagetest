@@ -21,7 +21,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-	resource2 "k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
@@ -156,12 +155,12 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		}
 
 		if memoryResources != nil {
-			resourceRequests, err := parseMemoryResources(*memoryResources)
-			if err != nil {
-				resp.Diagnostics.AddError("failed to parse resources", err.Error())
+			resourceRequests, err2 := ParseMemoryResources(*memoryResources)
+			if err2 != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
 				return
 			}
-			opts = append(opts, docker.WithContainerResources(resourceRequests))
+			opts = append(opts, docker.WithContainerResources(*resourceRequests))
 		}
 	}
 
@@ -269,37 +268,6 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 }
 
 // Parses the resource requests and returns an error when syntax is incorrect.
-func parseMemoryResources(memoryResources ContainerMemoryResources) (*provider.ContainerResourcesRequest, error) {
-	var memoryRequest, memoryLimit string
-	var resourceRequests provider.ContainerResourcesRequest
-	if !memoryResources.Request.IsNull() {
-		memoryRequest = memoryResources.Request.ValueString()
-
-		parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse memory request: %w", err)
-		}
-		resourceRequests.MemoryRequest = parsedMemoryRequest
-	}
-
-	if memoryResources.Limit.IsNull() {
-		if memoryRequest != "" {
-			memoryLimit = memoryRequest
-		}
-	} else {
-		memoryLimit = memoryResources.Limit.ValueString()
-	}
-
-	if memoryLimit != "" {
-		parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse memory limit: %w", err)
-		}
-		resourceRequests.MemoryLimit = parsedMemoryLimit
-	}
-
-	return &resourceRequests, nil
-}
 
 func (r *HarnessDockerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data HarnessDockerResourceModel

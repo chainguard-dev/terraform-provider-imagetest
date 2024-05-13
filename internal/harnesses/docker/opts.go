@@ -19,7 +19,7 @@ type HarnessDockerOptions struct {
 	Envs               provider.Env
 	Registries         map[string]*RegistryOpt
 	ConfigVolumeName   string
-	ContainerResources *provider.ContainerResourcesRequest
+	ContainerResources provider.ContainerResourcesRequest
 }
 
 type RegistryOpt struct {
@@ -148,7 +148,7 @@ func WithConfigVolumeName(configVolumeName string) Option {
 	}
 }
 
-func WithContainerResources(request *provider.ContainerResourcesRequest) Option {
+func WithContainerResources(request provider.ContainerResourcesRequest) Option {
 	return func(opt *HarnessDockerOptions) error {
 		opt.ContainerResources = request
 		return nil

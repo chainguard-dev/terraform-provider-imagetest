@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -11,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	resource2 "k8s.io/apimachinery/pkg/api/resource"
 )
 
 // HarnessResource provides common methods for all HarnessResource
@@ -156,6 +158,40 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 	}
 
 	return skip
+}
+
+// ParseMemoryResources parses memory resources for harnesses, returning a ContainerResourcesRequest object if parsing
+// is successful or an error if values are not parseable.
+func ParseMemoryResources(memoryResources ContainerMemoryResources) (*provider.ContainerResourcesRequest, error) {
+	var memoryRequest, memoryLimit string
+	var resourceRequests provider.ContainerResourcesRequest
+	if !memoryResources.Request.IsNull() {
+		memoryRequest = memoryResources.Request.ValueString()
+
+		parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse memory request: %w", err)
+		}
+		resourceRequests.MemoryRequest = parsedMemoryRequest
+	}
+
+	if memoryResources.Limit.IsNull() {
+		if memoryRequest != "" {
+			memoryLimit = memoryRequest
+		}
+	} else {
+		memoryLimit = memoryResources.Limit.ValueString()
+	}
+
+	if memoryLimit != "" {
+		parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse memory limit: %w", err)
+		}
+		resourceRequests.MemoryLimit = parsedMemoryLimit
+	}
+
+	return &resourceRequests, nil
 }
 
 // AddHarnessSchemaAttributes adds common attributes to the given map. values
