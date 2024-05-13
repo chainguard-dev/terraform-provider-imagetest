@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -101,7 +102,8 @@ func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.Creat
 
 	id := fmt.Sprintf("%s-%s", data.Name.ValueString(), invEnc)
 	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Name: id,
+		Name:   id,
+		Labels: provider.DefaultLabels(),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create volume", err.Error())

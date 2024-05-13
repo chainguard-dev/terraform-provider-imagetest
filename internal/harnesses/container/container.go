@@ -100,6 +100,9 @@ func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
 			Type:   m.Type,
 			Source: m.Source,
 			Target: m.Destination,
+			VolumeOptions: &mount.VolumeOptions{
+				Labels: provider.DefaultLabels(),
+			},
 		})
 	}
 
@@ -116,6 +119,7 @@ func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
 				MemoryRequest: resource.MustParse("250Mi"),
 			},
 			Privileged: cfg.Privileged,
+			Labels:     provider.MainHarnessLabel(),
 		},
 		Mounts:         mounts,
 		ManagedVolumes: managedVolumes,

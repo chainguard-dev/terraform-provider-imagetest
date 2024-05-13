@@ -72,6 +72,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 					MemoryRequest: resource.MustParse("250Mi"),
 					CpuRequest:    resource.MustParse("100m"),
 				},
+				Labels: provider.MainHarnessLabel(),
 			},
 		},
 	}
@@ -86,6 +87,9 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		Type:   mount.TypeVolume,
 		Source: harnessOptions.ContainerVolumeName,
 		Target: "/k3s-config",
+		VolumeOptions: &mount.VolumeOptions{
+			Labels: provider.DefaultLabels(),
+		},
 	})
 
 	k3s := &k3s{
@@ -129,6 +133,9 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 				Type:   mount.TypeVolume,
 				Source: harnessOptions.ContainerVolumeName,
 				Target: "/etc/rancher/k3s",
+				VolumeOptions: &mount.VolumeOptions{
+					Labels: provider.DefaultLabels(),
+				},
 			},
 		},
 		Mounts: []mount.Mount{
