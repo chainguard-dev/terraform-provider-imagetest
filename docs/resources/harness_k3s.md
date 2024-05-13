@@ -28,6 +28,7 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 - `image` (String) The full image reference to use for the k3s container.
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
+- `resources` (Attributes) (see [below for nested schema](#nestedatt--resources))
 - `sandbox` (Attributes) A map of configuration for the sandbox container. (see [below for nested schema](#nestedatt--sandbox))
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
@@ -87,6 +88,23 @@ Optional:
 - `ca_file` (String)
 - `cert_file` (String)
 - `key_file` (String)
+
+
+
+<a id="nestedatt--resources"></a>
+### Nested Schema for `resources`
+
+Optional:
+
+- `memory` (Attributes) (see [below for nested schema](#nestedatt--resources--memory))
+
+<a id="nestedatt--resources--memory"></a>
+### Nested Schema for `resources.memory`
+
+Optional:
+
+- `limit` (String) Limit of memory the harness container can consume
+- `request` (String) Amount of memory requested for the harness container
 
 
 
