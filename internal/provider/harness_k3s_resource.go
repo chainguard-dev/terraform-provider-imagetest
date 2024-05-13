@@ -252,14 +252,28 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 			return
 		}
 
+		var cpuResources *ContainerCpuResources
+		resp.Diagnostics.Append(resources.Cpu.As(ctx, &cpuResources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		var resourceRequests provider.ContainerResourcesRequest
 		if memoryResources != nil {
-			resourceRequests, err := ParseMemoryResources(*memoryResources)
-			if err != nil {
-				resp.Diagnostics.AddError("failed to parse resources", err.Error())
+			if err2 := ParseMemoryResources(*memoryResources, &resourceRequests); err2 != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
 				return
 			}
-			kopts = append(kopts, k3s.WithResources(*resourceRequests))
 		}
+
+		if cpuResources != nil {
+			if err2 := ParseCpuResources(*cpuResources, &resourceRequests); err2 != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
+				return
+			}
+		}
+
+		kopts = append(kopts, k3s.WithResources(resourceRequests))
 	}
 
 	id := data.Id.ValueString()
@@ -463,6 +477,15 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 						"limit": schema.StringAttribute{
 							Optional:    true,
 							Description: "Limit of memory the harness container can consume",
+						},
+					},
+				},
+				"cpu": schema.SingleNestedAttribute{
+					Optional: true,
+					Attributes: map[string]schema.Attribute{
+						"request": schema.StringAttribute{
+							Optional:    true,
+							Description: "Quantity of CPUs requested for the harness container",
 						},
 					},
 				},

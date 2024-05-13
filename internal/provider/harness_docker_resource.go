@@ -154,14 +154,28 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 			return
 		}
 
+		var cpuResources *ContainerCpuResources
+		resp.Diagnostics.Append(resources.Cpu.As(ctx, &cpuResources, basetypes.ObjectAsOptions{})...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		var resourceRequests provider.ContainerResourcesRequest
 		if memoryResources != nil {
-			resourceRequests, err2 := ParseMemoryResources(*memoryResources)
-			if err2 != nil {
+			if err2 := ParseMemoryResources(*memoryResources, &resourceRequests); err2 != nil {
 				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
 				return
 			}
-			opts = append(opts, docker.WithContainerResources(*resourceRequests))
 		}
+
+		if cpuResources != nil {
+			if err2 := ParseCpuResources(*cpuResources, &resourceRequests); err2 != nil {
+				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
+				return
+			}
+		}
+
+		opts = append(opts, docker.WithContainerResources(resourceRequests))
 	}
 
 	if r.store.providerResourceData.Harnesses != nil {
@@ -408,6 +422,15 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 						"limit": schema.StringAttribute{
 							Optional:    true,
 							Description: "Limit of memory the harness container can consume",
+						},
+					},
+				},
+				"cpu": schema.SingleNestedAttribute{
+					Optional: true,
+					Attributes: map[string]schema.Attribute{
+						"request": schema.StringAttribute{
+							Optional:    true,
+							Description: "Quantity of CPUs requested for the harness container",
 						},
 					},
 				},
