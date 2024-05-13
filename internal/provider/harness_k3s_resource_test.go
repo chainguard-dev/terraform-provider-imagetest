@@ -138,6 +138,44 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
+		"with memory configuration": {
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  sandbox = {
+    envs = {
+      "test": "value",
+    }
+  }
+
+  resources = {
+    memory = {
+      request = "256Mi"
+      limit = "1Gi"
+    }
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple k3s based test"
+  description = "Test that we can spin up a k3s cluster and run some steps"
+  harness = imagetest_harness_k3s.test
+  steps = [
+    {
+      name = "Access cluster"
+      cmd = "kubectl get po -A"
+    },
+  ]
+}
+          `,
+			},
+		},
 	}
 
 	for name, tc := range testCases {

@@ -9,9 +9,8 @@ import (
 	"io"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"k8s.io/apimachinery/pkg/api/resource"
-
 	"github.com/docker/docker/api/types/mount"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
@@ -45,7 +44,13 @@ type dockerConfig struct {
 }
 
 func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
-	options := &HarnessDockerOptions{}
+	options := &HarnessDockerOptions{
+		ContainerResources: provider.ContainerResourcesRequest{
+			MemoryRequest: resource.MustParse("1Gi"),
+			MemoryLimit:   resource.MustParse("2Gi"),
+		},
+	}
+
 	for _, opt := range opts {
 		if err := opt(options); err != nil {
 			return nil, err
@@ -98,14 +103,6 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		return nil, err
 	}
 
-	resources := provider.ContainerResourcesRequest{
-		MemoryRequest: resource.MustParse("1Gi"),
-		MemoryLimit:   resource.MustParse("2Gi"),
-	}
-	if options.ContainerResources != nil {
-		resources = *options.ContainerResources
-	}
-
 	container := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        options.ImageRef,
@@ -121,7 +118,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 					Mode:     0644,
 				},
 			},
-			Resources: resources,
+			Resources: options.ContainerResources,
 			Labels:    provider.MainHarnessLabel(),
 		},
 		Mounts:         mounts,
