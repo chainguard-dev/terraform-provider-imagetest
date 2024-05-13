@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	resource2 "k8s.io/apimachinery/pkg/api/resource"
+	kresource "k8s.io/apimachinery/pkg/api/resource"
 )
 
 // HarnessResource provides common methods for all HarnessResource
@@ -168,7 +168,7 @@ func ParseMemoryResources(memoryResources ContainerMemoryResources) (*provider.C
 	if !memoryResources.Request.IsNull() {
 		memoryRequest = memoryResources.Request.ValueString()
 
-		parsedMemoryRequest, err := resource2.ParseQuantity(memoryRequest)
+		parsedMemoryRequest, err := kresource.ParseQuantity(memoryRequest)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse memory request: %w", err)
 		}
@@ -184,7 +184,7 @@ func ParseMemoryResources(memoryResources ContainerMemoryResources) (*provider.C
 	}
 
 	if memoryLimit != "" {
-		parsedMemoryLimit, err := resource2.ParseQuantity(memoryLimit)
+		parsedMemoryLimit, err := kresource.ParseQuantity(memoryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse memory limit: %w", err)
 		}
