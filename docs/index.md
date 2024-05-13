@@ -174,7 +174,12 @@ Optional:
 
 Optional:
 
-- `tf` (Attributes) Output feature logs to logs written to stdout by TF_LOG=$LEVEL. (see [below for nested schema](#nestedatt--log--tf))
+- `file` (Attributes) Output logs to a file. (see [below for nested schema](#nestedatt--log--file))
 
-<a id="nestedatt--log--tf"></a>
-### Nested Schema for `log.tf`
+<a id="nestedatt--log--file"></a>
+### Nested Schema for `log.file`
+
+Optional:
+
+- `directory` (String) The directory to write the log file to.
+- `format` (String) The format of the log entries (text|json).

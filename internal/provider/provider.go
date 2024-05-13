@@ -61,10 +61,13 @@ type ProviderHarnessDockerModel struct {
 }
 
 type ProviderLoggerModel struct {
-	Tf *ProviderLoggerTfModel `tfsdk:"tf"`
+	File *ProviderLoggerFileModel `tfsdk:"file"`
 }
 
-type ProviderLoggerTfModel struct{}
+type ProviderLoggerFileModel struct {
+	Directory types.String `tfsdk:"directory"`
+	Format    types.String `tfsdk:"format"`
+}
 
 func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "imagetest"
@@ -81,9 +84,19 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 			"log": schema.SingleNestedAttribute{
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
-					"tf": schema.SingleNestedAttribute{
-						Description: "Output feature logs to logs written to stdout by TF_LOG=$LEVEL.",
+					"file": schema.SingleNestedAttribute{
+						Description: "Output logs to a file.",
 						Optional:    true,
+						Attributes: map[string]schema.Attribute{
+							"format": schema.StringAttribute{
+								Description: "The format of the log entries (text|json).",
+								Optional:    true,
+							},
+							"directory": schema.StringAttribute{
+								Description: "The directory to write the log file to.",
+								Optional:    true,
+							},
+						},
 					},
 				},
 			},
@@ -315,7 +328,6 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 func (p *ImageTestProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewInventoryDataSource,
-		NewRandomDataSource,
 	}
 }
 

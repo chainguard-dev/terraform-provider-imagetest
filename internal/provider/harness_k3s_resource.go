@@ -85,8 +85,8 @@ func (r *HarnessK3sResource) Metadata(_ context.Context, req resource.MetadataRe
 
 func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	schemaAttributes := util.MergeSchemaMaps(
-		addHarnessResourceSchemaAttributes(),
-		defaultK3sHarnessResourceSchemaAttributes(ctx))
+		addHarnessResourceSchemaAttributes(ctx),
+		defaultK3sHarnessResourceSchemaAttributes())
 
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container networked to a running k3s cluster.`,
@@ -99,16 +99,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
-	}
-
-	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
 	}
 
 	skipped := r.ShouldSkip(ctx, req, resp)
@@ -127,6 +117,12 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to initialize logger(s)", err.Error())
+		return
+	}
 
 	kopts := []k3s.Option{
 		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
@@ -330,7 +326,7 @@ func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
 	return opts
 }
 
-func defaultK3sHarnessResourceSchemaAttributes(ctx context.Context) map[string]schema.Attribute {
+func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 	sandboxAttributes := map[string]schema.Attribute{
 		// Override the default image to use one with kubectl instead
 		"image": schema.StringAttribute{
@@ -425,10 +421,6 @@ func defaultK3sHarnessResourceSchemaAttributes(ctx context.Context) map[string]s
 				},
 			},
 		},
-		"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
-			Create:            true,
-			CreateDescription: "The maximum time to wait for the k3s harness to be created.",
-		}),
 		"sandbox": schema.SingleNestedAttribute{
 			Description: "A map of configuration for the sandbox container.",
 			Optional:    true,

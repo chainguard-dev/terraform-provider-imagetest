@@ -262,6 +262,12 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	ctx, err := r.store.Logger(ctx, data.Harness.Inventory, "feature_id", data.Id.ValueString(), "feature_name", data.Name.ValueString(), "harness_name", data.Harness.Id.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create logger", err.Error())
+		return
+	}
+
 	if data.Harness.Skipped.ValueBool() {
 		resp.Diagnostics.AddWarning(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -343,7 +349,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		builder = builder.WithStep(step)
 	}
 
-	log.Info(ctx, "testing feature [%s (%s)] against harness [%s]", data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString())
+	log.Info(ctx, "testing feature against harness")
 
 	if err := r.test(ctx, builder.Build()); err != nil {
 		resp.Diagnostics.AddError("failed to test feature", err.Error())
