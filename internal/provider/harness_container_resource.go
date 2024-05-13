@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -49,6 +49,7 @@ type HarnessContainerResourceModel struct {
 	Envs       types.Map                                `tfsdk:"envs"`
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Timeouts   timeouts.Value                           `tfsdk:"timeouts"`
 }
 
 type ContainerResourceMountModel struct {
@@ -64,9 +65,9 @@ func (r *HarnessContainerResource) Metadata(_ context.Context, req resource.Meta
 	resp.TypeName = req.ProviderTypeName + "_harness_container"
 }
 
-func (r *HarnessContainerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *HarnessContainerResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	schemaAttributes := util.MergeSchemaMaps(
-		addHarnessResourceSchemaAttributes(),
+		addHarnessResourceSchemaAttributes(ctx),
 		defaultContainerResourceSchemaAttributes(),
 		extraContainerResourceSchemaAttributes())
 
@@ -83,16 +84,6 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
-	}
-
-	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
-	}
-
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
 		return
@@ -101,6 +92,18 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 	if data.Skipped.ValueBool() {
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
+
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
+	resp.Diagnostics.Append(diags...)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to initialize logger(s)", err.Error())
 		return
 	}
 

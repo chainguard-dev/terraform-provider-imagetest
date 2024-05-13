@@ -1,14 +1,21 @@
 package provider
 
 import (
+	"context"
 	"crypto/sha256"
+	"fmt"
+	"log/slog"
 	"math/big"
 	"os"
+	"path"
 	"sync"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
+	ilog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	slogmulti "github.com/samber/slog-multi"
 )
 
 // ProviderStore manages the global runtime state of the provider. The provider
@@ -55,6 +62,53 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
 	// TODO: More backends?
 	return inventory.NewFile(data.Seed.ValueString())
+}
+
+// Logger initializes the context logger for the given inventory.
+func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel, withs ...any) (context.Context, error) {
+	if s.providerResourceData.Log == nil {
+		return ctx, nil
+	}
+
+	if lf := s.providerResourceData.Log.File; lf != nil {
+		ihash, err := s.Encode(inv.Seed.ValueString())
+		if err != nil {
+			return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
+		}
+		logpath := fmt.Sprintf("%s.log", ihash)
+
+		if dir := lf.Directory.ValueString(); dir != "" {
+			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+				return ctx, fmt.Errorf("failed to create log directory: %w", err)
+			}
+			logpath = path.Join(dir, logpath)
+		}
+
+		f, err := os.OpenFile(logpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return ctx, fmt.Errorf("failed to create logfile: %w", err)
+		}
+
+		var fhandler slog.Handler
+		switch lf.Format.ValueString() {
+		case "text":
+			fhandler = slog.NewTextHandler(f, &slog.HandlerOptions{})
+		default:
+			fhandler = slog.NewJSONHandler(f, &slog.HandlerOptions{})
+		}
+
+		logger := clog.New(slogmulti.Fanout(
+			&ilog.TFHandler{},
+			fhandler,
+		)).With("inventory", ihash)
+
+		ctx = clog.WithLogger(ctx, logger)
+	}
+
+	logger := clog.FromContext(ctx).With(withs...)
+	ctx = clog.WithLogger(ctx, logger)
+
+	return ctx, nil
 }
 
 // SkipTeardown returns true if the IMAGETEST_SKIP_TEARDOWN environment

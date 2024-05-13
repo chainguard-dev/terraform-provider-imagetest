@@ -6,6 +6,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -159,7 +160,7 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 
 // AddHarnessSchemaAttributes adds common attributes to the given map. values
 // provided in attrs will override any specified defaults.
-func addHarnessResourceSchemaAttributes() map[string]schema.Attribute {
+func addHarnessResourceSchemaAttributes(ctx context.Context) map[string]schema.Attribute {
 	return map[string]schema.Attribute{
 		"id": schema.StringAttribute{
 			Description: "The unique identifier for the harness. This is generated from the inventory seed and harness name.",
@@ -182,6 +183,10 @@ func addHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 			Description: "Whether or not to skip creating the harness based on runtime inputs and the dependent features within this inventory.",
 			Computed:    true,
 		},
+		"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+			Create:            true,
+			CreateDescription: "The maximum time to wait for the k3s harness to be created.",
+		}),
 	}
 }
 

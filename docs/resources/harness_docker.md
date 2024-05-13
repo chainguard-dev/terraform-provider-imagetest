@@ -29,6 +29,7 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 - `privileged` (Boolean)
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
 - `resources` (Attributes) (see [below for nested schema](#nestedatt--resources))
+- `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 - `volumes` (Attributes List) The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders. (see [below for nested schema](#nestedatt--volumes))
 
 ### Read-Only
@@ -105,6 +106,14 @@ Optional:
 - `limit` (String) Limit of memory the harness container can consume
 - `request` (String) Amount of memory requested for the harness container
 
+
+
+<a id="nestedatt--timeouts"></a>
+### Nested Schema for `timeouts`
+
+Optional:
+
+- `create` (String) The maximum time to wait for the k3s harness to be created.
 
 
 <a id="nestedatt--volumes"></a>

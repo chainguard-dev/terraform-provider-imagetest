@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -59,6 +60,7 @@ type HarnessDockerResourceModel struct {
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
 	Resources  types.Object                             `tfsdk:"resources"`
+	Timeouts   timeouts.Value                           `tfsdk:"timeouts"`
 }
 
 type DockerRegistryResourceModel struct {
@@ -69,9 +71,9 @@ func (r *HarnessDockerResource) Metadata(_ context.Context, req resource.Metadat
 	resp.TypeName = req.ProviderTypeName + "_harness_docker"
 }
 
-func (r *HarnessDockerResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	schemaAttributes := util.MergeSchemaMaps(
-		addHarnessResourceSchemaAttributes(),
+		addHarnessResourceSchemaAttributes(ctx),
 		addDockerResourceSchemaAttributes())
 
 	resp.Schema = schema.Schema{
@@ -89,16 +91,6 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	encodedInvSeed, err := r.store.Encode(data.Inventory.Seed.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("failed to encode inventory seed", err.Error())
-	}
-
-	ctx, err = provider.InventoryLogger(ctx, encodedInvSeed)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create logger to file", err.Error())
-	}
-
 	skip := r.ShouldSkip(ctx, req, resp)
 	if resp.Diagnostics.HasError() {
 		return
@@ -107,6 +99,18 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	if data.Skipped.ValueBool() {
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
+
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
+	resp.Diagnostics.Append(diags...)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to initialize logger(s)", err.Error())
 		return
 	}
 

@@ -27,6 +27,7 @@ A harness that runs steps in a sandbox container.
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `privileged` (Boolean)
+- `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 - `volumes` (Attributes List) The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders. (see [below for nested schema](#nestedatt--volumes))
 
 ### Read-Only
@@ -57,6 +58,14 @@ Required:
 Required:
 
 - `name` (String) The name of the existing network to attach the container to.
+
+
+<a id="nestedatt--timeouts"></a>
+### Nested Schema for `timeouts`
+
+Optional:
+
+- `create` (String) The maximum time to wait for the k3s harness to be created.
 
 
 <a id="nestedatt--volumes"></a>

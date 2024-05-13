@@ -32,9 +32,7 @@ const (
 	DockerDefaultNetworkName = "imagetest"
 )
 
-var (
-	ErrNetworkNotFound = errors.New("network not found")
-)
+var ErrNetworkNotFound = errors.New("network not found")
 
 type DockerProvider struct {
 	cli *DockerClient
@@ -138,7 +136,7 @@ func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, e
 		return "", fmt.Errorf("listing networks: %w", err)
 	}
 
-	log.Info(ctx, fmt.Sprintf("networks existing: %v", existing))
+	log.Debug(ctx, fmt.Sprintf("networks existing: %v", existing))
 
 	if len(existing) == 0 {
 		return "", ErrNetworkNotFound

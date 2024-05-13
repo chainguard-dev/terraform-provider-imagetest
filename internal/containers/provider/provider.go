@@ -5,16 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"fmt"
 	"io"
-	"log/slog"
-	"os"
 	"path/filepath"
 
-	"github.com/chainguard-dev/clog"
-	log2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/google/go-containerregistry/pkg/name"
-	slogmulti "github.com/samber/slog-multi"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -106,24 +100,6 @@ func (f File) tar() (io.Reader, error) {
 	}
 
 	return buf, nil
-}
-
-func InventoryLogger(ctx context.Context, inventoryID string) (context.Context, error) {
-	logFile, err := os.OpenFile(
-		fmt.Sprintf("tf-imagetest-%s.log", inventoryID),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		0644)
-	if err != nil {
-		return ctx, fmt.Errorf("failed to create logfile: %w", err)
-	}
-
-	logger := clog.New(slogmulti.Fanout(
-		&log2.TFHandler{},
-		slog.NewTextHandler(logFile, &slog.HandlerOptions{}),
-	))
-	ctx = clog.WithLogger(ctx, logger)
-
-	return ctx, nil
 }
 
 func DefaultLabels() map[string]string {
