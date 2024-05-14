@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
@@ -59,7 +60,7 @@ type HarnessK3sResourceModel struct {
 	Networks             map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Sandbox              types.Object                             `tfsdk:"sandbox"`
 	Timeouts             timeouts.Value                           `tfsdk:"timeouts"`
-	Resources            types.Object                             `tfsdk:"resources"`
+	Resources            *ContainerResources                      `tfsdk:"resources"`
 }
 
 type RegistryResourceModel struct {
@@ -239,41 +240,14 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 	kopts = append(kopts, k3s.WithNetworks(networks...))
 
-	if !data.Resources.IsNull() {
-		var resources ContainerResources
-		resp.Diagnostics.Append(data.Resources.As(ctx, &resources, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
+	if res := data.Resources; res != nil {
+		rreq, err := ParseResources(res)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to parse resources", err.Error())
 			return
 		}
-
-		var memoryResources *ContainerMemoryResources
-		resp.Diagnostics.Append(resources.Memory.As(ctx, &memoryResources, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		var cpuResources *ContainerCpuResources
-		resp.Diagnostics.Append(resources.Cpu.As(ctx, &cpuResources, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		var resourceRequests provider.ContainerResourcesRequest
-		if memoryResources != nil {
-			if err2 := ParseMemoryResources(*memoryResources, &resourceRequests); err2 != nil {
-				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
-				return
-			}
-		}
-
-		if cpuResources != nil {
-			if err2 := ParseCpuResources(*cpuResources, &resourceRequests); err2 != nil {
-				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
-				return
-			}
-		}
-
-		kopts = append(kopts, k3s.WithResources(resourceRequests))
+		log.Info(ctx, "Setting resources for k3s harness", "cpu_limit", rreq.CpuLimit.String(), "cpu_request", rreq.CpuRequest.String(), "memory_limit", rreq.MemoryLimit.String(), "memory_request", rreq.MemoryRequest.String())
+		kopts = append(kopts, k3s.WithResources(rreq))
 	}
 
 	id := data.Id.ValueString()
@@ -472,7 +446,9 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 					Attributes: map[string]schema.Attribute{
 						"request": schema.StringAttribute{
 							Optional:    true,
-							Description: "Amount of memory requested for the harness container",
+							Description: "Amount of memory requested for the harness container. The default is the bare minimum required by k3s. Anything lower should be used with caution.",
+							Default:     stringdefault.StaticString("2Gi"),
+							Computed:    true,
 						},
 						"limit": schema.StringAttribute{
 							Optional:    true,
@@ -485,7 +461,13 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 					Attributes: map[string]schema.Attribute{
 						"request": schema.StringAttribute{
 							Optional:    true,
-							Description: "Quantity of CPUs requested for the harness container",
+							Description: "Amount of memory requested for the harness container",
+							Default:     stringdefault.StaticString("1"),
+							Computed:    true,
+						},
+						"limit": schema.StringAttribute{
+							Optional:    true,
+							Description: "Limit of memory the harness container can consume",
 						},
 					},
 				},

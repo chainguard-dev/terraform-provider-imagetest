@@ -48,8 +48,8 @@ type RegistryResourceTlsModel struct {
 }
 
 type ContainerResources struct {
-	Memory types.Object `tfsdk:"memory"`
-	Cpu    types.Object `tfsdk:"cpu"`
+	Memory *ContainerMemoryResources `tfsdk:"memory"`
+	Cpu    *ContainerCpuResources    `tfsdk:"cpu"`
 }
 
 type ContainerMemoryResources struct {
@@ -59,6 +59,7 @@ type ContainerMemoryResources struct {
 
 type ContainerCpuResources struct {
 	Request types.String `tfsdk:"request"`
+	Limit   types.String `tfsdk:"limit"`
 }
 
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -165,54 +166,51 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 	return skip
 }
 
-// ParseMemoryResources parses memory resources for harnesses, returning a ContainerResourcesRequest object if parsing
-// is successful or an error if values are not parseable.
-func ParseMemoryResources(memoryResources ContainerMemoryResources, resourceRequests *provider.ContainerResourcesRequest) error {
-	var memoryRequest, memoryLimit string
-	if !memoryResources.Request.IsNull() {
-		memoryRequest = memoryResources.Request.ValueString()
+// ParseResources parses the ContainerResources object into a provider.ContainerResourcesRequest object.
+func ParseResources(resources *ContainerResources) (provider.ContainerResourcesRequest, error) {
+	req := provider.ContainerResourcesRequest{}
 
-		parsedMemoryRequest, err := kresource.ParseQuantity(memoryRequest)
-		if err != nil {
-			return fmt.Errorf("failed to parse memory request: %w", err)
-		}
-		resourceRequests.MemoryRequest = parsedMemoryRequest
+	if resources == nil {
+		return req, nil
 	}
 
-	if memoryResources.Limit.IsNull() {
-		if memoryRequest != "" {
-			memoryLimit = memoryRequest
+	if resources.Memory != nil {
+		if resources.Memory.Request.ValueString() != "" {
+			q, err := kresource.ParseQuantity(resources.Memory.Request.ValueString())
+			if err != nil {
+				return req, fmt.Errorf("failed to parse memory request: %w", err)
+			}
+			req.MemoryRequest = q
 		}
-	} else {
-		memoryLimit = memoryResources.Limit.ValueString()
+
+		if resources.Memory.Limit.ValueString() != "" {
+			q, err := kresource.ParseQuantity(resources.Memory.Limit.ValueString())
+			if err != nil {
+				return req, fmt.Errorf("failed to parse memory limit: %w", err)
+			}
+			req.MemoryLimit = q
+		}
 	}
 
-	if memoryLimit != "" {
-		parsedMemoryLimit, err := kresource.ParseQuantity(memoryLimit)
-		if err != nil {
-			return fmt.Errorf("failed to parse memory limit: %w", err)
+	if resources.Cpu != nil {
+		if resources.Cpu.Request.ValueString() != "" {
+			q, err := kresource.ParseQuantity(resources.Cpu.Request.ValueString())
+			if err != nil {
+				return req, fmt.Errorf("failed to parse cpu request: %w", err)
+			}
+			req.CpuRequest = q
 		}
-		resourceRequests.MemoryLimit = parsedMemoryLimit
+
+		if resources.Cpu.Limit.ValueString() != "" {
+			q, err := kresource.ParseQuantity(resources.Cpu.Limit.ValueString())
+			if err != nil {
+				return req, fmt.Errorf("failed to parse cpu limit: %w", err)
+			}
+			req.CpuLimit = q
+		}
 	}
 
-	return nil
-}
-
-// ParseCpuResources parses memory resources for harnesses, returning a ContainerResourcesRequest object if parsing
-// is successful or an error if values are not parseable.
-func ParseCpuResources(cpuResources ContainerCpuResources, resourceRequests *provider.ContainerResourcesRequest) error {
-	var cpuRequest string
-	if !cpuResources.Request.IsNull() {
-		cpuRequest = cpuResources.Request.ValueString()
-
-		parsedCpuRequest, err := kresource.ParseQuantity(cpuRequest)
-		if err != nil {
-			return fmt.Errorf("failed to parse cpu request: %w", err)
-		}
-		resourceRequests.CpuRequest = parsedCpuRequest
-	}
-
-	return nil
+	return req, nil
 }
 
 // AddHarnessSchemaAttributes adds common attributes to the given map. values

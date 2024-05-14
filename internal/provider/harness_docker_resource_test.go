@@ -220,7 +220,19 @@ resource "imagetest_harness_docker" "test" {
   inventory = data.imagetest_inventory.this
 
   resources = {
-    memory = { request = "2Gi" }
+    cpu = {
+      request = "1"
+    }
+    memory = {
+      request = "524288000" # 500Mi
+    }
+  }
+
+  provisioner "local-exec" {
+    command = <<EOF
+docker inspect ${self.id} | jq '.[0].HostConfig.NanoCpus' | grep 1
+docker inspect ${self.id} | jq '.[0].HostConfig.MemoryReservation' | grep 524288000
+      EOF
   }
 }
 

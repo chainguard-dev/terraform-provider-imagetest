@@ -104,7 +104,8 @@ Optional:
 
 Optional:
 
-- `request` (String) Quantity of CPUs requested for the harness container
+- `limit` (String) Limit of memory the harness container can consume
+- `request` (String) Amount of memory requested for the harness container
 
 
 <a id="nestedatt--resources--memory"></a>
@@ -113,7 +114,7 @@ Optional:
 Optional:
 
 - `limit` (String) Limit of memory the harness container can consume
-- `request` (String) Amount of memory requested for the harness container
+- `request` (String) Amount of memory requested for the harness container. The default is the bare minimum required by k3s. Anything lower should be used with caution.
 
 
 
