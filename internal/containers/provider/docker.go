@@ -179,6 +179,9 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		Resources: container.Resources{
 			MemoryReservation: p.req.Resources.MemoryRequest.Value(),
 			Memory:            p.req.Resources.MemoryLimit.Value(),
+
+			// mirroring what's done in Docker CLI: https://github.com/docker/cli/blob/0ad1d55b02910f4b40462c0d01aac2934eb0f061/cli/command/container/update.go#L117
+			NanoCPUs: p.req.Resources.CpuRequest.Value(),
 		},
 	}
 

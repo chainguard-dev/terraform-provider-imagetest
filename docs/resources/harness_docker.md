@@ -96,7 +96,16 @@ Optional:
 
 Optional:
 
+- `cpu` (Attributes) (see [below for nested schema](#nestedatt--resources--cpu))
 - `memory` (Attributes) (see [below for nested schema](#nestedatt--resources--memory))
+
+<a id="nestedatt--resources--cpu"></a>
+### Nested Schema for `resources.cpu`
+
+Optional:
+
+- `request` (String) Quantity of CPUs requested for the harness container
+
 
 <a id="nestedatt--resources--memory"></a>
 ### Nested Schema for `resources.memory`
