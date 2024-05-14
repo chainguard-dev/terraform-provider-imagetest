@@ -104,6 +104,7 @@ Optional:
 
 Optional:
 
+- `limit` (String) Unused.
 - `request` (String) Quantity of CPUs requested for the harness container
 
 

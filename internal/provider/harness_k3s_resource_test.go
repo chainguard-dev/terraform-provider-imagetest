@@ -155,10 +155,21 @@ resource "imagetest_harness_k3s" "test" {
   }
 
   resources = {
-    memory = {
-      request = "256Mi"
-      limit = "1Gi"
+    cpu = {
+      request = "1"
     }
+    memory = {
+      request = "524288000" # 500Mi
+      limit   = "524288001"
+    }
+  }
+
+  provisioner "local-exec" {
+    command = <<EOF
+docker inspect ${self.id} | jq '.[0].HostConfig.NanoCpus' | grep 1
+docker inspect ${self.id} | jq '.[0].HostConfig.MemoryReservation' | grep 524288000
+docker inspect ${self.id} | jq '.[0].HostConfig.Memory' | grep 524288001
+      EOF
   }
 }
 

@@ -20,7 +20,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 const (
@@ -58,7 +57,7 @@ type HarnessDockerResourceModel struct {
 	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
 	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
 	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
-	Resources  types.Object                             `tfsdk:"resources"`
+	Resources  *ContainerResources                      `tfsdk:"resources"`
 	Timeouts   timeouts.Value                           `tfsdk:"timeouts"`
 }
 
@@ -141,41 +140,14 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		networks = data.Networks
 	}
 
-	if !data.Resources.IsNull() {
-		var resources ContainerResources
-		resp.Diagnostics.Append(data.Resources.As(ctx, &resources, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
+	if res := data.Resources; res != nil {
+		rreq, err := ParseResources(res)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to parse resources", err.Error())
 			return
 		}
-
-		var memoryResources *ContainerMemoryResources
-		resp.Diagnostics.Append(resources.Memory.As(ctx, &memoryResources, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		var cpuResources *ContainerCpuResources
-		resp.Diagnostics.Append(resources.Cpu.As(ctx, &cpuResources, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		var resourceRequests provider.ContainerResourcesRequest
-		if memoryResources != nil {
-			if err2 := ParseMemoryResources(*memoryResources, &resourceRequests); err2 != nil {
-				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
-				return
-			}
-		}
-
-		if cpuResources != nil {
-			if err2 := ParseCpuResources(*cpuResources, &resourceRequests); err2 != nil {
-				resp.Diagnostics.AddError("failed to parse resources", err2.Error())
-				return
-			}
-		}
-
-		opts = append(opts, docker.WithContainerResources(resourceRequests))
+		log.Info(ctx, "Setting resources for docker harness", "cpu_limit", rreq.CpuLimit.String(), "cpu_request", rreq.CpuRequest.String(), "memory_limit", rreq.MemoryLimit.String(), "memory_request", rreq.MemoryRequest.String())
+		opts = append(opts, docker.WithContainerResources(rreq))
 	}
 
 	if r.store.providerResourceData.Harnesses != nil {
@@ -431,6 +403,10 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 						"request": schema.StringAttribute{
 							Optional:    true,
 							Description: "Quantity of CPUs requested for the harness container",
+						},
+						"limit": schema.StringAttribute{
+							Optional:    true,
+							Description: "Unused.",
 						},
 					},
 				},
