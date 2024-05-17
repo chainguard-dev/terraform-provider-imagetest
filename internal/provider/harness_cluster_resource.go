@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -76,7 +77,10 @@ func (h *HarnessClusterResource) ModifyPlan(ctx context.Context, request resourc
 func (h *HarnessClusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that provisions a remote cluster in a cloud environment and runs steps as requested`,
-		Attributes:          addHarnessResourceSchemaAttributes(ctx),
+		Attributes: util.MergeSchemaMaps(
+			addHarnessResourceSchemaAttributes(ctx),
+			clusterHarnessSchemaAttributes(),
+		),
 	}
 }
 
