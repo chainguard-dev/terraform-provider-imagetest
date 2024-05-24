@@ -13,7 +13,7 @@ require (
 	github.com/hashicorp/terraform-plugin-go v0.23.0
 	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-testing v1.8.0
-	github.com/samber/slog-multi v1.0.2
+	github.com/samber/slog-multi v1.0.3
 	golang.org/x/sync v0.7.0
 	k8s.io/apimachinery v0.30.1
 )
