@@ -286,41 +286,17 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 
 func (r *HarnessK3sResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data HarnessK3sResourceModel
-
-	// Read Terraform prior state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Save updated data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	baseRead(ctx, &data, req, resp)
 }
 
 func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data HarnessK3sResourceModel
-
-	// Read Terraform plan data into the model
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Save updated data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+	baseUpdate(ctx, &data, req, resp)
 }
 
 func (r *HarnessK3sResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data HarnessK3sResourceModel
-
-	// Read Terraform prior state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	baseDelete(ctx, &data, req, resp)
 }
 
 func (r *HarnessK3sResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
