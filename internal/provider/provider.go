@@ -48,6 +48,23 @@ type ProviderHarnessK3sModel struct {
 	Sandbox    *ProviderHarnessContainerSandboxResourceModel `tfsdk:"sandbox"`
 }
 
+type ProviderHarnessClusterModel struct {
+	Credentials *ProviderHarnessClusterCredentialModel `tfsdk:"credentials"`
+}
+
+type ProviderHarnessClusterCredentialModel struct {
+	GKECredentialModel *GKECredentialModel `tfsdk:"gke"`
+}
+
+// GKECredentialModel models the information needed by GKE to create and delete clusters in a given project.
+type GKECredentialModel struct {
+	// ProjectID is the ID for the Google Cloud Platform project where resources should be created.
+	ProjectID string `tfsdk:"project_id"`
+
+	// Location is the place where resources should be created. This can be a region or a zone.
+	Location string `tfsdk:"location"`
+}
+
 type ProviderHarnessContainerSandboxResourceModel struct {
 	Image types.String `tfsdk:"image"`
 }
