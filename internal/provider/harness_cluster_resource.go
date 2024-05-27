@@ -50,19 +50,16 @@ func (h *HarnessClusterResource) Create(ctx context.Context, req resource.Create
 
 func (h *HarnessClusterResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data HarnessClusterResourceModel
-
 	baseRead(ctx, &data, req, resp)
 }
 
 func (h *HarnessClusterResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data HarnessClusterResourceModel
-
 	baseUpdate(ctx, &data, req, resp)
 }
 
 func (h *HarnessClusterResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data HarnessClusterResourceModel
-
 	baseDelete(ctx, &data, req, resp)
 }
 
