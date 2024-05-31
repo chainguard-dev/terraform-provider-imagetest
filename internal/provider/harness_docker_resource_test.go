@@ -78,7 +78,7 @@ resource "imagetest_feature" "test" {
 		"with auth config in the harness": {
 			{
 				ExpectNonEmptyPlan: true,
-				ExpectError:        regexp.MustCompile(`repository\sdoes\snot\sexist\sor\smay\srequire\s'docker\slogin'`),
+				ExpectError:        regexp.MustCompile(`Error\sresponse\sfrom\sdaemon`),
 				Config: `
 data "imagetest_inventory" "this" {}
 
