@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
@@ -13,6 +14,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	kresource "k8s.io/apimachinery/pkg/api/resource"
+)
+
+const (
+	defaultHarnessCreateTimeout = 5 * time.Minute
 )
 
 // HarnessResource provides common methods for all HarnessResource

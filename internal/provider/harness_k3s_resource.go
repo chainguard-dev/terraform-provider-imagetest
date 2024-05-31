@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
@@ -22,10 +21,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-)
-
-const (
-	defaultHarnessK3sCreateTimeout = 5 * time.Minute
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -114,7 +109,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
 	resp.Diagnostics.Append(diags...)
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)

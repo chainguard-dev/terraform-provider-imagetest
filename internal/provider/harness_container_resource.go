@@ -95,7 +95,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
 	resp.Diagnostics.Append(diags...)
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)

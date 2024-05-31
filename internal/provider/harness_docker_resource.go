@@ -100,7 +100,7 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessK3sCreateTimeout)
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
 	resp.Diagnostics.Append(diags...)
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -336,20 +336,6 @@ func addDockerResourceSchemaAttributes() map[string]schema.Attribute {
 								Sensitive: true,
 							},
 							"auth": schema.StringAttribute{
-								Optional: true,
-							},
-						},
-					},
-					"tls": schema.SingleNestedAttribute{
-						Optional: true,
-						Attributes: map[string]schema.Attribute{
-							"cert_file": schema.StringAttribute{
-								Optional: true,
-							},
-							"key_file": schema.StringAttribute{
-								Optional: true,
-							},
-							"ca_file": schema.StringAttribute{
 								Optional: true,
 							},
 						},
