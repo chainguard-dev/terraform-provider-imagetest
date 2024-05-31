@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -67,6 +68,46 @@ resource "imagetest_feature" "test" {
     {
       name = "Echo"
       cmd = "echo $foo $bar $baz | diff - <(echo foo bar baz) > /dev/null"
+    },
+  ]
+}
+        `,
+				Check: resource.ComposeAggregateTestCheckFunc(),
+			},
+		},
+		"with auth config in the harness": {
+			{
+				ExpectNonEmptyPlan: true,
+				ExpectError:        regexp.MustCompile(`Error\sresponse\sfrom\sdaemon`),
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  envs = {
+    bar = "bar"
+    baz = "baz"
+  }
+
+  registries = {
+    "registry.local": {
+      auth = {
+        username = "testuser"
+        password = "testpass"
+      }
+    }
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple Docker based test"
+  description = "Test that we can spin up a container and run some steps with environment variables"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "docker run"
+      cmd = "docker run --rm registry.local/test-image"
     },
   ]
 }
@@ -166,7 +207,7 @@ resource "imagetest_feature" "test" {
   harness = imagetest_harness_docker.test
   steps = [
     {
-      name = "Echo"
+      name = "docker run"
       cmd = "docker run --rm hello-world"
     },
   ]
@@ -200,7 +241,7 @@ resource "imagetest_feature" "test" {
   harness = imagetest_harness_docker.test
   steps = [
     {
-      name = "Echo"
+      name = "docker run"
       cmd = "docker run --rm hello-world"
     },
   ]
@@ -243,7 +284,7 @@ resource "imagetest_feature" "test" {
 
   steps = [
     {
-      name = "Echo"
+      name = "docker run"
       cmd = "docker run --rm hello-world"
     },
   ]
@@ -277,7 +318,7 @@ resource "imagetest_feature" "test" {
 
   steps = [
     {
-      name = "Echo"
+      name = "docker run"
       cmd = "docker run --rm hello-world"
     },
   ]
