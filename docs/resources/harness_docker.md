@@ -68,7 +68,6 @@ Required:
 Optional:
 
 - `auth` (Attributes) (see [below for nested schema](#nestedatt--registries--auth))
-- `tls` (Attributes) (see [below for nested schema](#nestedatt--registries--tls))
 
 <a id="nestedatt--registries--auth"></a>
 ### Nested Schema for `registries.auth`
@@ -78,16 +77,6 @@ Optional:
 - `auth` (String)
 - `password` (String, Sensitive)
 - `username` (String)
-
-
-<a id="nestedatt--registries--tls"></a>
-### Nested Schema for `registries.tls`
-
-Optional:
-
-- `ca_file` (String)
-- `cert_file` (String)
-- `key_file` (String)
 
 
 
