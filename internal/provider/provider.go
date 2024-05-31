@@ -34,6 +34,7 @@ type ImageTestProviderHarnessModel struct {
 	Container *ProviderHarnessContainerModel `tfsdk:"container"`
 	K3s       *ProviderHarnessK3sModel       `tfsdk:"k3s"`
 	Docker    *ProviderHarnessDockerModel    `tfsdk:"docker"`
+	Cluster   *ProviderHarnessClusterModel   `tfsdk:"cluster"`
 }
 
 type ProviderHarnessContainerModel struct {
@@ -46,6 +47,10 @@ type ProviderHarnessK3sModel struct {
 	Networks   map[string]ContainerResourceModelNetwork      `tfsdk:"networks"`
 	Registries map[string]RegistryResourceModel              `tfsdk:"registries"`
 	Sandbox    *ProviderHarnessContainerSandboxResourceModel `tfsdk:"sandbox"`
+}
+
+type ProviderHarnessClusterModel struct {
+	Kubeconfig *string `tfsdk:"kubeconfig"`
 }
 
 type ProviderHarnessContainerSandboxResourceModel struct {
@@ -280,6 +285,14 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 							},
 						},
 					},
+					"cluster": schema.SingleNestedAttribute{
+						Optional: true,
+						Attributes: map[string]schema.Attribute{
+							"kubeconfig": schema.StringAttribute{
+								Description: "The relative or absolute path on the host to the source directory to mount.",
+								Required:    true,
+							}},
+					},
 				},
 			},
 		},
@@ -320,6 +333,7 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 		NewContainerVolumeResource,
 		// Harnesses
 		NewHarnessK3sResource,
+		NewHarnessClusterResource,
 		NewHarnessContainerResource,
 		NewHarnessDockerResource,
 	}
