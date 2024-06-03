@@ -149,7 +149,7 @@ func (i *file) read(ctx context.Context) (InventoryModel, error) {
 
 	f, err := os.Open(i.path)
 	if err != nil {
-		return nil, fmt.Errorf("inventory open error")
+		return nil, fmt.Errorf("inventory open error: %w", err)
 	}
 	defer func(ctx context.Context) {
 		err := f.Close()
@@ -172,7 +172,7 @@ func (i *file) write(ctx context.Context, data InventoryModel) error {
 
 	f, err := os.OpenFile(i.path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
-		return fmt.Errorf("inventory open error")
+		return fmt.Errorf("inventory open error: %w", err)
 	}
 	defer func(ctx context.Context) {
 		err := f.Close()
