@@ -15,6 +15,7 @@ type Opt struct {
 	Traefik       bool
 	Cni           bool
 	MetricsServer bool
+	NetworkPolicy bool
 	Networks      []string
 	Resources     provider.ContainerResourcesRequest
 
@@ -196,6 +197,13 @@ func WithSandboxResources(req provider.ContainerResourcesRequest) Option {
 func WithCniDisabled(disabled bool) Option {
 	return func(opt *Opt) error {
 		opt.Cni = !disabled
+		return nil
+	}
+}
+
+func WithNetworkPolicyDisabled(disabled bool) Option {
+	return func(opt *Opt) error {
+		opt.NetworkPolicy = !disabled
 		return nil
 	}
 }
