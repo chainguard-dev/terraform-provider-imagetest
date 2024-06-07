@@ -49,6 +49,7 @@ type HarnessK3sResourceModel struct {
 
 	Image                types.String                             `tfsdk:"image"`
 	DisableCni           types.Bool                               `tfsdk:"disable_cni"`
+	DisableNetworkPolicy types.Bool                               `tfsdk:"disable_network_policy"`
 	DisableTraefik       types.Bool                               `tfsdk:"disable_traefik"`
 	DisableMetricsServer types.Bool                               `tfsdk:"disable_metrics_server"`
 	Registries           map[string]RegistryResourceModel         `tfsdk:"registries"`
@@ -125,6 +126,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
 		k3s.WithTraefikDisabled(data.DisableTraefik.ValueBool()),
 		k3s.WithMetricsServerDisabled(data.DisableMetricsServer.ValueBool()),
+		k3s.WithNetworkPolicyDisabled(data.DisableNetworkPolicy.ValueBool()),
 	}
 
 	kopts = append(kopts, r.workstationOpts()...)
@@ -341,6 +343,12 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 			Optional:    true,
 			Computed:    true,
 			Default:     booldefault.StaticBool(true),
+		},
+		"disable_network_policy": schema.BoolAttribute{
+			Description: "When true, the builtin network policy controller will be disabled.",
+			Optional:    true,
+			Computed:    true,
+			Default:     booldefault.StaticBool(false),
 		},
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the k3s container.",

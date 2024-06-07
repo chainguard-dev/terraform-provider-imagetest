@@ -335,6 +335,9 @@ disable:
 {{- if not .MetricsServer }}
   - metrics-server
 {{- end }}
+{{- if not .NetworkPolicy }}
+  - network-policy
+{{- end }}
 {{- if not .Cni }}
 flannel-backend: none
 {{- end }}
