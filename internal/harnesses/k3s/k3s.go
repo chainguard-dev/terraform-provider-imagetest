@@ -198,6 +198,16 @@ KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --se
 				return fmt.Errorf("creating kubeconfig: %w", err)
 			}
 
+			// Run the post start hooks
+			for _, hook := range h.opt.Hooks.PostStart {
+				log.Info(ctx, "K3S Running post start hook", "hook", hook)
+				if _, err := h.service.Exec(ctx, provider.ExecConfig{
+					Command: hook,
+				}); err != nil {
+					return fmt.Errorf("running post start hook: %w", err)
+				}
+			}
+
 			return nil
 		})
 

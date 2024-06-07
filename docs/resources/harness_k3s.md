@@ -26,6 +26,7 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 - `disable_metrics_server` (Boolean) When true, the builtin metrics server will be disabled.
 - `disable_network_policy` (Boolean) When true, the builtin network policy controller will be disabled.
 - `disable_traefik` (Boolean) When true, the builtin traefik ingress controller will be disabled.
+- `hooks` (Attributes) (see [below for nested schema](#nestedatt--hooks))
 - `image` (String) The full image reference to use for the k3s container.
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
@@ -44,6 +45,15 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 Required:
 
 - `seed` (String)
+
+
+<a id="nestedatt--hooks"></a>
+### Nested Schema for `hooks`
+
+Optional:
+
+- `post_start` (List of String) A list of commands to run after the k3s container successfully starts (the api server is available)
+- `pre_start` (List of String) Not supported for this harness.
 
 
 <a id="nestedatt--networks"></a>
