@@ -187,6 +187,44 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
+		"with posthook": {
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+
+  hooks = {
+    post_start = [
+      "echo 'post' > /tmp/hi",
+    ]
+  }
+
+  provisioner "local-exec" {
+    command = <<EOF
+docker exec ${self.id} sh -c "cat /tmp/hi"
+      EOF
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple k3s based test"
+  description = "Test that post hooks work"
+  harness = imagetest_harness_k3s.test
+  steps = [
+    {
+      name = "Access cluster"
+      cmd = "kubectl get po -A"
+    },
+  ]
+}
+          `,
+			},
+		},
 	}
 
 	for name, tc := range testCases {

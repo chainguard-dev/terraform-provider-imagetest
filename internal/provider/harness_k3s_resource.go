@@ -57,6 +57,7 @@ type HarnessK3sResourceModel struct {
 	Sandbox              types.Object                             `tfsdk:"sandbox"`
 	Timeouts             timeouts.Value                           `tfsdk:"timeouts"`
 	Resources            *ContainerResources                      `tfsdk:"resources"`
+	Hooks                *HarnessHooksModel                       `tfsdk:"hooks"`
 }
 
 type RegistryResourceModel struct {
@@ -245,6 +246,23 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		}
 		log.Info(ctx, "Setting resources for k3s harness", "cpu_limit", rreq.CpuLimit.String(), "cpu_request", rreq.CpuRequest.String(), "memory_limit", rreq.MemoryLimit.String(), "memory_request", rreq.MemoryRequest.String())
 		kopts = append(kopts, k3s.WithResources(rreq))
+	}
+
+	if data.Hooks != nil {
+		postStarts := []string{}
+		resp.Diagnostics.Append(data.Hooks.PostStart.ElementsAs(ctx, &postStarts, false)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		// Only support PostStarts
+		kopts = append(kopts, k3s.WithHooks(k3s.Hooks{
+			PostStart: postStarts,
+		}))
+
+		if !data.Hooks.PreStart.IsNull() {
+			log.Warn(ctx, "PreStart hooks are not supported for k3s harnesses, the configured hooks will not run", "pre_start hook", data.Hooks.PreStart.String())
+		}
 	}
 
 	id := data.Id.ValueString()
@@ -449,6 +467,21 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 							Description: "Limit of memory the harness container can consume",
 						},
 					},
+				},
+			},
+		},
+		"hooks": schema.SingleNestedAttribute{
+			Optional: true,
+			Attributes: map[string]schema.Attribute{
+				"pre_start": schema.ListAttribute{
+					Description: "Not supported for this harness.",
+					Optional:    true,
+					ElementType: basetypes.StringType{},
+				},
+				"post_start": schema.ListAttribute{
+					Description: "A list of commands to run after the k3s container successfully starts (the api server is available)",
+					Optional:    true,
+					ElementType: basetypes.StringType{},
 				},
 			},
 		},

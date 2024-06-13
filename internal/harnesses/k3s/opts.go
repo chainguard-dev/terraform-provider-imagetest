@@ -18,6 +18,7 @@ type Opt struct {
 	NetworkPolicy bool
 	Networks      []string
 	Resources     provider.ContainerResourcesRequest
+	Hooks         Hooks
 
 	Registries map[string]*RegistryOpt
 	Mirrors    map[string]*RegistryMirrorOpt
@@ -25,6 +26,13 @@ type Opt struct {
 	Sandbox             provider.DockerRequest
 	ContainerVolumeName string
 	Snapshotter         K3sContainerSnapshotter
+}
+
+// Hooks are the hooks that can be run at various stages of the k3s lifecycle.
+type Hooks struct {
+	// PreStart is a list of commands to run after the k3s container successfully
+	// starts (the api server is available).
+	PostStart []string
 }
 
 type RegistryOpt struct {
@@ -225,6 +233,13 @@ func WithMetricsServerDisabled(disabled bool) Option {
 func WithContainerVolumeName(volumeName string) Option {
 	return func(opt *Opt) error {
 		opt.ContainerVolumeName = volumeName
+		return nil
+	}
+}
+
+func WithHooks(hooks Hooks) Option {
+	return func(opt *Opt) error {
+		opt.Hooks = hooks
 		return nil
 	}
 }

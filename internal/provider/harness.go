@@ -67,6 +67,11 @@ type ContainerCpuResources struct {
 	Limit   types.String `tfsdk:"limit"`
 }
 
+type HarnessHooksModel struct {
+	PreStart  types.List `tfsdk:"pre_start"`
+	PostStart types.List `tfsdk:"post_start"`
+}
+
 func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
