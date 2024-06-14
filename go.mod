@@ -6,7 +6,7 @@ toolchain go1.22.2
 
 require (
 	github.com/chainguard-dev/clog v1.3.1
-	github.com/google/go-containerregistry v0.19.1
+	github.com/google/go-containerregistry v0.19.2
 	github.com/hashicorp/terraform-plugin-docs v0.19.4
 	github.com/hashicorp/terraform-plugin-framework v1.9.0
 	github.com/hashicorp/terraform-plugin-framework-timeouts v0.4.1
@@ -15,9 +15,9 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.8.0
 	github.com/samber/slog-multi v1.1.0
 	golang.org/x/sync v0.7.0
-	k8s.io/api v0.30.1
-	k8s.io/apimachinery v0.30.1
-	k8s.io/client-go v0.30.1
+	k8s.io/api v0.30.2
+	k8s.io/apimachinery v0.30.2
+	k8s.io/client-go v0.30.2
 )
 
 require (

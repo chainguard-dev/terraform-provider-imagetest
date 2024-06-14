@@ -4,21 +4,29 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
+	"slices"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 )
 
 const (
-	ImagetestNamespaceName  = "imagetest"
-	EntrypointContainerName = "wolfi-base"
+	ImagetestNamespaceNameFormat  = "imagetest-%s"
+	ImagetestSandboxPodNameFormat = "%s-sandbox"
+	EntrypointContainerName       = "wolfi-base"
+	RbacResourcesNameFormat       = "rbac-%s"
 )
 
 // Ensure type k8s conforms to types.Harness.
@@ -36,9 +44,6 @@ type k8s struct {
 
 	// Kubernetes Client instance.
 	Client kubernetes.Interface
-
-	// The name for the sandbox Pod.
-	SandboxPodName string
 }
 
 func New(id string, kubeconfig *string) (types.Harness, error) {
@@ -61,72 +66,226 @@ func New(id string, kubeconfig *string) (types.Harness, error) {
 	}
 
 	return &k8s{
-		Base:           base.New(),
-		Id:             id,
-		Config:         config,
-		Client:         clientset,
-		SandboxPodName: fmt.Sprintf("%s-sandbox", id),
+		Base:   base.New(),
+		Id:     id,
+		Config: config,
+		Client: clientset,
 	}, nil
 }
 
 func (h *k8s) Setup() types.StepFn {
 	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
-		commonAnnotations := map[string]string{
+		var rootUserID int64 = 0
+		commonLabels := map[string]string{
 			"dev.chainguard.imagetest":                    "true",
 			"dev.chainguard.imagetest/parent-harness-ref": h.Id,
 		}
 
-		namespace, err := h.Client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		namespaceName := fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)
+		sandboxPodName := fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)
+		rbacResourcesName := fmt.Sprintf(RbacResourcesNameFormat, h.Id)
+
+		_, err := h.Client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        ImagetestNamespaceName,
-				Annotations: commonAnnotations,
+				Name:   namespaceName,
+				Labels: commonLabels,
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
-			return ctx, fmt.Errorf("failed to create %q namespace in cluster: %w", ImagetestNamespaceName, err)
+			return ctx, fmt.Errorf("failed to create %q Namespace in cluster: %w", namespaceName, err)
 		}
 
-		_, err = h.Client.CoreV1().Pods(namespace.Name).Create(ctx, &corev1.Pod{
+		err = h.createRbacResources(ctx, namespaceName, commonLabels)
+		if err != nil {
+			return ctx, fmt.Errorf("failed to create RBAC resources for cluster: %w", err)
+		}
+
+		podClient := h.Client.CoreV1().Pods(namespaceName)
+
+		_, err = podClient.Create(ctx, &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:        h.SandboxPodName,
-				Namespace:   ImagetestNamespaceName,
-				Annotations: commonAnnotations,
+				Name:      sandboxPodName,
+				Namespace: namespaceName,
+				Labels:    commonLabels,
 			},
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
 					{
 						Name:    EntrypointContainerName,
-						Image:   "cgr.dev/chainguard/wolfi-base:latest",
-						Command: []string{"sh", "-c"},
-						Args:    []string{"tail", "-f", "/dev/null"},
+						Image:   "cgr.dev/chainguard/kubectl:latest-dev",
+						Command: []string{"tail", "-f", "/dev/null"},
 					},
+				},
+				ServiceAccountName: rbacResourcesName,
+				SecurityContext: &corev1.PodSecurityContext{
+					RunAsUser: &rootUserID,
 				},
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
-			return ctx, fmt.Errorf("failed to create Pod %q in namespace %q in cluster: %w", h.SandboxPodName, ImagetestNamespaceName, err)
+			return ctx, fmt.Errorf("failed to create Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
+		}
+
+		err = h.waitForPod(ctx, podClient, sandboxPodName)
+		if err != nil {
+			return ctx, fmt.Errorf("failed to get Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
 		}
 
 		return ctx, nil
 	})
 }
 
+func (h *k8s) waitForPod(ctx context.Context, podClient v1.PodInterface, sandboxPodName string) error {
+	isContainerReady := func() (bool, error) {
+		pod, err2 := podClient.Get(ctx, sandboxPodName, metav1.GetOptions{})
+		if err2 != nil {
+			return false, err2
+		}
+
+		if len(pod.Status.ContainerStatuses) == 0 {
+			return false, nil
+		}
+
+		index := slices.IndexFunc(pod.Status.ContainerStatuses, func(status corev1.ContainerStatus) bool {
+			return EntrypointContainerName == status.Name
+		})
+
+		if index == -1 {
+			return false, nil
+		}
+
+		return pod.Status.ContainerStatuses[index].Ready, nil
+	}
+
+	for {
+		ready, err := isContainerReady()
+		if err != nil {
+			return err
+		}
+
+		if ready {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (h *k8s) createRbacResources(ctx context.Context, namespaceName string, commonLabels map[string]string) error {
+	rbacResourcesName := fmt.Sprintf(RbacResourcesNameFormat, h.Id)
+
+	_, err := h.Client.RbacV1().ClusterRoles().Create(ctx, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   rbacResourcesName,
+			Labels: commonLabels,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				Verbs:     []string{"get", "create", "list", "delete", "watch"},
+				APIGroups: []string{""},
+				Resources: []string{"pods", "configmaps", "secrets", "serviceaccounts", "services", "namespaces"},
+			},
+			{
+				Verbs:     []string{"get", "create", "list", "delete", "watch"},
+				APIGroups: []string{"apps"},
+				Resources: []string{"deployments", "daemonsets", "replicasets", "statefulsets"},
+			},
+			{
+				Verbs:     []string{"get", "create", "list", "delete", "watch"},
+				APIGroups: []string{"batch"},
+				Resources: []string{"jobs", "cronjobs"},
+			},
+			{
+				Verbs:     []string{"get", "create", "list", "delete", "watch"},
+				APIGroups: []string{"storage"},
+				Resources: []string{"jobs", "cronjobs"},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	_, err = h.Client.CoreV1().ServiceAccounts(namespaceName).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rbacResourcesName,
+			Namespace: namespaceName,
+			Labels:    commonLabels,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	_, err = h.Client.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   rbacResourcesName,
+			Labels: commonLabels,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "ClusterRole",
+			Name:     rbacResourcesName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      rbacResourcesName,
+				Namespace: namespaceName,
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (h *k8s) Destroy(ctx context.Context) error {
-	sandboxPodName := fmt.Sprintf("%s-sandbox", h.Id)
+	sandboxPodName := fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)
+	namespaceName := fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)
+	rbacResourcesName := fmt.Sprintf(RbacResourcesNameFormat, h.Id)
+
 	var gracePeriodSeconds int64 = 0
-	err := h.Client.CoreV1().Pods(ImagetestNamespaceName).Delete(ctx, sandboxPodName, metav1.DeleteOptions{
+
+	err := h.Client.RbacV1().ClusterRoleBindings().Delete(ctx, rbacResourcesName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete Pod '%q': %w", sandboxPodName, err)
+		return fmt.Errorf("failed to delete RoleBinding %q: %w", rbacResourcesName, err)
 	}
 
 	gracePeriodSeconds = 0
-	err = h.Client.CoreV1().Namespaces().Delete(ctx, ImagetestNamespaceName, metav1.DeleteOptions{
+	err = h.Client.RbacV1().ClusterRoles().Delete(ctx, rbacResourcesName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete namespace '%q': %w", ImagetestNamespaceName, err)
+		return fmt.Errorf("failed to delete Role %q: %w", rbacResourcesName, err)
+	}
+
+	gracePeriodSeconds = 0
+	err = h.Client.CoreV1().ServiceAccounts(namespaceName).Delete(ctx, rbacResourcesName, metav1.DeleteOptions{
+		GracePeriodSeconds: &gracePeriodSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete ServiceAccount %q: %w", rbacResourcesName, err)
+	}
+
+	gracePeriodSeconds = 0
+	err = h.Client.CoreV1().Pods(namespaceName).Delete(ctx, sandboxPodName, metav1.DeleteOptions{
+		GracePeriodSeconds: &gracePeriodSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete Pod %q: %w", sandboxPodName, err)
+	}
+
+	gracePeriodSeconds = 0
+	err = h.Client.CoreV1().Namespaces().Delete(ctx, namespaceName, metav1.DeleteOptions{
+		GracePeriodSeconds: &gracePeriodSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete Namespace %q: %w", namespaceName, err)
 	}
 
 	// no-op
@@ -134,7 +293,15 @@ func (h *k8s) Destroy(ctx context.Context) error {
 }
 
 func (h *k8s) StepFn(config types.StepConfig) types.StepFn {
+	// This code was heavily based on the code for kubectl exec: https://github.com/kubernetes/kubernetes/blob/a147693deb2e7f040cf367aae4a7ae5d1cb3e7aa/staging/src/k8s.io/kubectl/pkg/cmd/exec/exec.go
 	return func(ctx context.Context) (context.Context, error) {
+		h.Config.GroupVersion = &schema.GroupVersion{
+			Group:   "",
+			Version: "v1",
+		}
+		h.Config.APIPath = "/api"
+		h.Config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+
 		restClient, err := rest.RESTClientFor(h.Config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create REST client: %w", err)
@@ -142,33 +309,60 @@ func (h *k8s) StepFn(config types.StepConfig) types.StepFn {
 
 		execRequest := restClient.Post().
 			Resource("pods").
-			Name(h.SandboxPodName).
-			Namespace(ImagetestNamespaceName).
+			Name(fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)).
+			Namespace(fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)).
 			SubResource("exec")
 		execRequest.VersionedParams(&corev1.PodExecOptions{
 			Container: EntrypointContainerName,
-			Command:   []string{config.Command},
+			Command:   []string{"sh", "-c", config.Command},
 			Stdout:    true,
 			Stderr:    true,
 		}, scheme.ParameterCodec)
 
-		executor, err := remotecommand.NewSPDYExecutor(h.Config, "POST", execRequest.URL())
+		execRequestURL := execRequest.URL()
+		executor, err := h.createExecutor(execRequestURL)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create remote executor: %w", err)
+			return ctx, err
 		}
 
-		out := &bytes.Buffer{}
+		errBuf := &bytes.Buffer{}
+		outBuf := &bytes.Buffer{}
 
 		err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
-			Stdout: out,
-			Stderr: out,
+			Tty:    false,
+			Stdout: outBuf,
+			Stderr: errBuf,
 		})
+
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute command: %w", err)
+			return nil, fmt.Errorf("failed to run command\n"+
+				"stdout output: \n\t%s\n\n"+
+				"stderr output: \n\t%s\n\n"+
+				"error message: %w", outBuf.String(), errBuf.String(), err)
 		}
 
 		return ctx, nil
 	}
+}
+
+// createExecutor creates a remote executor to run commands in the target cluster.
+// This code was heavily based on the code for kubectl exec: https://github.com/kubernetes/kubernetes/blob/a147693deb2e7f040cf367aae4a7ae5d1cb3e7aa/staging/src/k8s.io/kubectl/pkg/cmd/exec/exec.go
+func (h *k8s) createExecutor(execRequestURL *url.URL) (remotecommand.Executor, error) {
+	executor, err := remotecommand.NewSPDYExecutor(h.Config, "POST", execRequestURL)
+	if err != nil {
+		return nil, err
+	}
+
+	websocketExec, err := remotecommand.NewWebSocketExecutor(h.Config, "GET", execRequestURL.String())
+	if err != nil {
+		return nil, err
+	}
+	executor, err = remotecommand.NewFallbackExecutor(websocketExec, executor, httpstream.IsUpgradeFailure)
+	if err != nil {
+		return nil, err
+	}
+
+	return executor, nil
 }
 
 func (h *k8s) DebugLogCommand() string {
