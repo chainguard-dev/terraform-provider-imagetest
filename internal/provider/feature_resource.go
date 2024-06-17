@@ -304,7 +304,7 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 			}
 
 			if err := harness.Destroy(ctx); err != nil {
-				resp.Diagnostics.AddError("failed to destroy harness", err.Error())
+				resp.Diagnostics.AddWarning("failed to destroy harness", err.Error())
 				return
 			}
 		}
