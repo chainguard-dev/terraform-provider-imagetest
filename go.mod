@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.8.0
 	github.com/samber/slog-multi v1.1.0
 	golang.org/x/sync v0.7.0
-	k8s.io/apimachinery v0.30.1
+	k8s.io/apimachinery v0.30.2
 )
 
 require (
