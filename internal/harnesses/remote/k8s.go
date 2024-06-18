@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"slices"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -25,8 +25,10 @@ import (
 const (
 	ImagetestNamespaceNameFormat  = "imagetest-%s"
 	ImagetestSandboxPodNameFormat = "%s-sandbox"
-	EntrypointContainerName       = "wolfi-base"
+	EntrypointContainerName       = "sandbox"
 	RbacResourcesNameFormat       = "rbac-%s"
+	ParentHarnessRefLabel         = "dev.chainguard.imagetest/parent-harness-ref"
+	ImagetestLabel                = "dev.chainguard.imagetest"
 )
 
 // Ensure type k8s conforms to types.Harness.
@@ -77,8 +79,8 @@ func (h *k8s) Setup() types.StepFn {
 	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
 		var rootUserID int64 = 0
 		commonLabels := map[string]string{
-			"dev.chainguard.imagetest":                    "true",
-			"dev.chainguard.imagetest/parent-harness-ref": h.Id,
+			ImagetestLabel:        "true",
+			ParentHarnessRefLabel: h.Id,
 		}
 
 		namespaceName := fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)
@@ -126,7 +128,7 @@ func (h *k8s) Setup() types.StepFn {
 			return ctx, fmt.Errorf("failed to create Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
 		}
 
-		err = h.waitForPod(ctx, podClient, sandboxPodName)
+		err = h.waitForPod(ctx, podClient)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to get Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
 		}
@@ -135,40 +137,35 @@ func (h *k8s) Setup() types.StepFn {
 	})
 }
 
-func (h *k8s) waitForPod(ctx context.Context, podClient v1.PodInterface, sandboxPodName string) error {
-	isContainerReady := func() (bool, error) {
-		pod, err2 := podClient.Get(ctx, sandboxPodName, metav1.GetOptions{})
-		if err2 != nil {
-			return false, err2
-		}
-
-		if len(pod.Status.ContainerStatuses) == 0 {
-			return false, nil
-		}
-
-		index := slices.IndexFunc(pod.Status.ContainerStatuses, func(status corev1.ContainerStatus) bool {
-			return EntrypointContainerName == status.Name
-		})
-
-		if index == -1 {
-			return false, nil
-		}
-
-		return pod.Status.ContainerStatuses[index].Ready, nil
+func (h *k8s) waitForPod(ctx context.Context, podClient v1.PodInterface) error {
+	watcher, err := podClient.Watch(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", ParentHarnessRefLabel, h.Id),
+		Watch:         true,
+	})
+	if err != nil {
+		return err
 	}
+
+	defer watcher.Stop()
 
 	for {
-		ready, err := isContainerReady()
-		if err != nil {
-			return err
-		}
+		select {
+		case event := <-watcher.ResultChan():
+			watchedPod, ok := event.Object.(*corev1.Pod)
+			if !ok {
+				log.Info(ctx, "object was not Pod", watchedPod)
+				continue
+			}
 
-		if ready {
-			break
+			if watchedPod.Status.Phase == corev1.PodRunning {
+				return nil
+			}
+
+		case <-ctx.Done():
+			log.Info(ctx, "exiting because context is done")
+			return nil
 		}
 	}
-
-	return nil
 }
 
 func (h *k8s) createRbacResources(ctx context.Context, namespaceName string, commonLabels map[string]string) error {
@@ -256,7 +253,6 @@ func (h *k8s) Destroy(ctx context.Context) error {
 		return fmt.Errorf("failed to delete RoleBinding %q: %w", rbacResourcesName, err)
 	}
 
-	gracePeriodSeconds = 0
 	err = h.Client.RbacV1().ClusterRoles().Delete(ctx, rbacResourcesName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	})
@@ -264,7 +260,6 @@ func (h *k8s) Destroy(ctx context.Context) error {
 		return fmt.Errorf("failed to delete Role %q: %w", rbacResourcesName, err)
 	}
 
-	gracePeriodSeconds = 0
 	err = h.Client.CoreV1().ServiceAccounts(namespaceName).Delete(ctx, rbacResourcesName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	})
@@ -272,7 +267,6 @@ func (h *k8s) Destroy(ctx context.Context) error {
 		return fmt.Errorf("failed to delete ServiceAccount %q: %w", rbacResourcesName, err)
 	}
 
-	gracePeriodSeconds = 0
 	err = h.Client.CoreV1().Pods(namespaceName).Delete(ctx, sandboxPodName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	})
@@ -280,7 +274,6 @@ func (h *k8s) Destroy(ctx context.Context) error {
 		return fmt.Errorf("failed to delete Pod %q: %w", sandboxPodName, err)
 	}
 
-	gracePeriodSeconds = 0
 	err = h.Client.CoreV1().Namespaces().Delete(ctx, namespaceName, metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 	})
