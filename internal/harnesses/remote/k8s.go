@@ -11,6 +11,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/httpstream"
@@ -94,12 +95,20 @@ func (h *k8s) Setup() types.StepFn {
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
-			return ctx, fmt.Errorf("failed to create %q Namespace in cluster: %w", namespaceName, err)
+			if !errors.IsAlreadyExists(err) {
+				return ctx, fmt.Errorf("failed to create %q Namespace in cluster: %w", namespaceName, err)
+			}
+
+			log.Info(ctx, "namespace already exists")
 		}
 
 		err = h.createRbacResources(ctx, namespaceName, commonLabels)
 		if err != nil {
-			return ctx, fmt.Errorf("failed to create RBAC resources for cluster: %w", err)
+			if !errors.IsAlreadyExists(err) {
+				return ctx, fmt.Errorf("failed to create RBAC resources for cluster: %w", err)
+			}
+
+			log.Info(ctx, "rbac resources already exist")
 		}
 
 		podClient := h.Client.CoreV1().Pods(namespaceName)
