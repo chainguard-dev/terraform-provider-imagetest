@@ -26,9 +26,18 @@ description: |-
 
 Optional:
 
+- `cluster` (Attributes) (see [below for nested schema](#nestedatt--harnesses--cluster))
 - `container` (Attributes) (see [below for nested schema](#nestedatt--harnesses--container))
 - `docker` (Attributes) (see [below for nested schema](#nestedatt--harnesses--docker))
 - `k3s` (Attributes) (see [below for nested schema](#nestedatt--harnesses--k3s))
+
+<a id="nestedatt--harnesses--cluster"></a>
+### Nested Schema for `harnesses.cluster`
+
+Required:
+
+- `kubeconfig` (String) The relative or absolute path on the host to the source directory to mount.
+
 
 <a id="nestedatt--harnesses--container"></a>
 ### Nested Schema for `harnesses.container`
