@@ -288,14 +288,15 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 
 	resp, err := p.cli.ContainerExecCreate(ctx, p.id, execConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating exec: %w", err)
 	}
 
 	check := container.ExecStartOptions{}
 	attach, err := p.cli.ContainerExecAttach(ctx, resp.ID, check)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("attaching to exec: %w", err)
 	}
+	defer attach.Close()
 
 	doneChan := make(chan struct{})
 	defer close(doneChan)
@@ -311,15 +312,15 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 	}()
 
 	if err := p.cli.ContainerExecStart(ctx, resp.ID, check); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("starting exec: %w", err)
 	}
 
 	out := &bytes.Buffer{}
-	if _, err := stdcopy.StdCopy(out, out, attach.Conn); err != nil {
+	if _, err := stdcopy.StdCopy(out, out, attach.Reader); err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("timed out waiting for command to finish: %w", ctx.Err())
 		}
-		return nil, err
+		return nil, fmt.Errorf("copying output from exec: %w", err)
 	}
 	doneChan <- struct{}{}
 
@@ -332,7 +333,7 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 	for range ticker.C {
 		exec, err := p.cli.ContainerExecInspect(ctx, resp.ID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("inspecting exec: %w", err)
 		}
 
 		if !exec.Running {
