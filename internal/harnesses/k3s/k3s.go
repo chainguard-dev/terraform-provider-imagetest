@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -173,20 +175,19 @@ func (h *k3s) Setup() types.StepFn {
 		g.Go(func() error {
 			// Block until k3s is ready. It is up to the caller to ensure the context
 			// is cancelled to stop waiting.
-			// TODO: Replace this with a better wait.Conditions, this will be ~50%
-			// faster if we just scan the startup logs looking for containerd's ready
-			// message
-			if _, err := h.service.Exec(ctx, provider.ExecConfig{
-				Command: `
-while true; do
-  if k3s kubectl cluster-info; then
-    break
-  fi
-  sleep 0.5
-done
-      `,
+			// Assume every error is retryable
+			if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 15*time.Minute, true, func(ctx context.Context) (bool, error) {
+				_, err := h.service.Exec(ctx, provider.ExecConfig{
+					Command: "k3s kubectl cluster-info",
+				})
+				if err != nil {
+					log.Info(ctx, "Waiting for k3s service to be ready...", "error", err)
+					return false, nil
+				}
+
+				return true, nil
 			}); err != nil {
-				return fmt.Errorf("waiting for k3s cluster: %w", err)
+				return fmt.Errorf("waiting for k3s service: %w", err)
 			}
 
 			// Move the kubeconfig into place, and give it the appropriate endpoint
