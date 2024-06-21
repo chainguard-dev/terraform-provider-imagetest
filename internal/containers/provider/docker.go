@@ -15,7 +15,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -55,7 +54,7 @@ type DockerRequest struct {
 }
 
 type DockerNetworkRequest struct {
-	types.NetworkCreate
+	network.CreateOptions
 	Name string
 }
 
@@ -110,11 +109,10 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, name string) (string
 		return existingID, nil
 	}
 
-	mode, err := p.cli.NetworkCreate(ctx, name, types.NetworkCreate{
-		Attachable:     true,
-		Driver:         "bridge",
-		Labels:         p.labels,
-		CheckDuplicate: true,
+	mode, err := p.cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Attachable: true,
+		Driver:     "bridge",
+		Labels:     p.labels,
 		Options: map[string]string{
 			// These are defaults on most daemons, but explicitly set these to ensure
 			// consistency
@@ -129,7 +127,7 @@ func (p *DockerProvider) CreateNetwork(ctx context.Context, name string) (string
 }
 
 func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, error) {
-	existing, err := p.cli.NetworkList(ctx, types.NetworkListOptions{
+	existing, err := p.cli.NetworkList(ctx, network.ListOptions{
 		Filters: filters.NewArgs(filters.Arg("name", fmt.Sprintf("^/?%s$", name))),
 	})
 	if err != nil {
@@ -142,7 +140,7 @@ func (p *DockerProvider) GetNetwork(ctx context.Context, name string) (string, e
 		return "", ErrNetworkNotFound
 	}
 
-	targetNetwork, err := p.cli.NetworkInspect(ctx, existing[0].ID, types.NetworkInspectOptions{})
+	targetNetwork, err := p.cli.NetworkInspect(ctx, existing[0].ID, network.InspectOptions{})
 	if err != nil {
 		return "", fmt.Errorf("inspecting network %s: %w", name, err)
 	}
@@ -201,13 +199,13 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		}
 
 		dir := filepath.Dir(file.Target)
-		if err := p.cli.CopyToContainer(ctx, p.id, dir, tarfile, types.CopyToContainerOptions{}); err != nil {
+		if err := p.cli.CopyToContainer(ctx, p.id, dir, tarfile, container.CopyToContainerOptions{}); err != nil {
 			return fmt.Errorf("copying file to container: %w", err)
 		}
 	}
 
 	for _, id := range p.req.Networks {
-		networkResource, err := p.cli.NetworkInspect(ctx, id, types.NetworkInspectOptions{})
+		networkResource, err := p.cli.NetworkInspect(ctx, id, network.InspectOptions{})
 		if err != nil {
 			return fmt.Errorf("unknown network %s: %w", id, err)
 		}
@@ -242,7 +240,7 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("removing container %s: %w", p.id, err))
 	}
 
-	networkResource, err := p.cli.NetworkInspect(ctx, p.name, types.NetworkInspectOptions{})
+	networkResource, err := p.cli.NetworkInspect(ctx, p.name, network.InspectOptions{})
 	if err == nil {
 		if err := p.cli.NetworkRemove(ctx, networkResource.ID); err != nil {
 			errs = append(errs, fmt.Errorf("removing network: %w", err))
@@ -281,7 +279,7 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 
 // Exec implements Provider.
 func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader, error) {
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		Cmd:          append(base.DefaultEntrypoint(), config.Command),
 		WorkingDir:   config.WorkingDir,
 		AttachStderr: true,
@@ -293,7 +291,7 @@ func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader
 		return nil, err
 	}
 
-	check := types.ExecStartCheck{}
+	check := container.ExecStartOptions{}
 	attach, err := p.cli.ContainerExecAttach(ctx, resp.ID, check)
 	if err != nil {
 		return nil, err
