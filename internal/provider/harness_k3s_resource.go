@@ -278,6 +278,7 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	kopts = append(kopts, k3s.WithContainerVolumeName(configVolumeName))
+	kopts = append(kopts, k3s.WithPortMappings(r.store.PortForwards()))
 
 	harness, err := k3s.New(id, r.store.cli, kopts...)
 	if err != nil {

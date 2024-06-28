@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path"
+	"strings"
 	"sync"
 
 	"github.com/chainguard-dev/clog"
@@ -116,6 +117,12 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 func (s *ProviderStore) SkipTeardown() bool {
 	v := os.Getenv("IMAGETEST_SKIP_TEARDOWN")
 	return v != ""
+}
+
+// PortForwards returns the IMAGETEST_PORT_FORWARDS environment variable.
+func (s *ProviderStore) PortForwards() []string {
+	v := os.Getenv("IMAGETEST_PORT_FORWARDS")
+	return strings.Split(v, ",")
 }
 
 func (s *ProviderStore) EnableDebugLogging() bool {
