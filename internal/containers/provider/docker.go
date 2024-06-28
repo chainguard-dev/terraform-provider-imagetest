@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/authn"
 )
 
@@ -51,6 +52,10 @@ type DockerRequest struct {
 	// ManagedVolumes is the list of volumes that should be torn down when the
 	// provider finishes execution
 	ManagedVolumes []mount.Mount
+	// PortBindings is the list of port bindings to apply to the container
+	// when it is created. The key is the port to bind to on the host, and the
+	// value is the port to bind to on the container.
+	PortBindings map[nat.Port][]nat.PortBinding
 }
 
 type DockerNetworkRequest struct {
@@ -180,6 +185,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 			// mirroring what's done in Docker CLI: https://github.com/docker/cli/blob/0ad1d55b02910f4b40462c0d01aac2934eb0f061/cli/command/container/update.go#L117
 			NanoCPUs: p.req.Resources.CpuRequest.Value(),
 		},
+		PortBindings: p.req.PortBindings,
 	}
 
 	if err := p.pull(ctx); err != nil {

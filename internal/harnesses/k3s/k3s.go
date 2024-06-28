@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
@@ -13,6 +14,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -93,6 +95,28 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 			Labels: provider.DefaultLabels(),
 		},
 	})
+
+	portBindings := nat.PortMap{}
+	for _, mapping := range harnessOptions.PortMappings {
+		// If no `:` provided, assume the target port will be same as the local port
+		if !strings.Contains(mapping, ":") {
+			mapping = mapping + ":" + mapping
+		}
+		ports := strings.Split(mapping, ":")
+		if len(ports) != 2 {
+			return nil, fmt.Errorf("invalid port mapping: %s", mapping)
+		}
+		localPort := ports[0]
+		targetPort := nat.Port(ports[1] + "/tcp")
+		portBindings[targetPort] = []nat.PortBinding{
+			{
+				HostIP:   "0.0.0.0",
+				HostPort: localPort,
+			},
+		}
+	}
+
+	harnessOptions.Sandbox.PortBindings = portBindings
 
 	k3s := &k3s{
 		Base: base.New(),

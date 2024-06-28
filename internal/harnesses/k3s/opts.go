@@ -26,6 +26,8 @@ type Opt struct {
 	Sandbox             provider.DockerRequest
 	ContainerVolumeName string
 	Snapshotter         K3sContainerSnapshotter
+
+	PortMappings []string
 }
 
 // Hooks are the hooks that can be run at various stages of the k3s lifecycle.
@@ -240,6 +242,13 @@ func WithContainerVolumeName(volumeName string) Option {
 func WithHooks(hooks Hooks) Option {
 	return func(opt *Opt) error {
 		opt.Hooks = hooks
+		return nil
+	}
+}
+
+func WithPortMappings(mappings []string) Option {
+	return func(opt *Opt) error {
+		opt.PortMappings = append(opt.PortMappings, mappings...)
 		return nil
 	}
 }
