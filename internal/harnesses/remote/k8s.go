@@ -189,7 +189,7 @@ func (h *k8s) createRbacResources(ctx context.Context, namespaceName string, com
 			{
 				Verbs:     []string{"get", "create", "list", "delete", "watch"},
 				APIGroups: []string{""},
-				Resources: []string{"pods", "configmaps", "secrets", "serviceaccounts", "services", "namespaces"},
+				Resources: []string{"pods", "configmaps", "secrets", "serviceaccounts", "services", "namespaces", "persistentvolumeclaims", "events"},
 			},
 			{
 				Verbs:     []string{"get", "create", "list", "delete", "watch"},
@@ -205,6 +205,10 @@ func (h *k8s) createRbacResources(ctx context.Context, namespaceName string, com
 				Verbs:     []string{"get", "create", "list", "delete", "watch"},
 				APIGroups: []string{"storage"},
 				Resources: []string{"jobs", "cronjobs"},
+			}, {
+				Verbs:     []string{"get", "create", "list", "delete", "watch"},
+				APIGroups: []string{"networking.k8s.io"},
+				Resources: []string{"ingresses"},
 			},
 		},
 	}, metav1.CreateOptions{})
