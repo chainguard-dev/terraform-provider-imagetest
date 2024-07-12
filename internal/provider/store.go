@@ -123,7 +123,7 @@ func (s *ProviderStore) SkipTeardown() bool {
 func (s *ProviderStore) PortForwards() []string {
 	v, ok := os.LookupEnv("IMAGETEST_PORT_FORWARDS")
 	if !ok || "" == v {
-	    return nil
+		return nil
 	}
 	return strings.Split(v, ",")
 }
