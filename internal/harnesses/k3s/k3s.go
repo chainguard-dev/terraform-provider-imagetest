@@ -96,28 +96,26 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		},
 	})
 
-	portBindings := nat.PortMap{}
-	for _, mapping := range harnessOptions.PortMappings {
-		// If no `:` provided, assume the target port will be same as the local port
-		if !strings.Contains(mapping, ":") {
-			mapping = mapping + ":" + mapping
-		}
-		ports := strings.Split(mapping, ":")
-		if len(ports) != 2 {
-			return nil, fmt.Errorf("invalid port mapping: %s", mapping)
-		}
-		localPort := ports[0]
-		targetPort := nat.Port(ports[1] + "/tcp")
-		portBindings[targetPort] = []nat.PortBinding{
-			{
-				HostIP:   "0.0.0.0",
-				HostPort: localPort,
-			},
-		}
+    if len(harnessOptions.PortMappings) > 0 {
+            portMappings := make([]string, 0)
+	    for _, mapping := range harnessOptions.PortMappings {
+		    // If no `:` provided, assume the target port will be same as the local port
+		    if !strings.Contains(mapping, ":") {
+			    mapping = mapping + ":" + mapping
+		    }
+		
+		    portMappings = append(portMappings, mapping)
+	    }
+	
+	    exposedPorts, portBindings, err := nat.ParsePortSpecs(portMappings)
+	    if err != nil {
+	        // error handling here
+	    }
+
+	    harnessOptions.Sandbox.PortBindings = portBindings
+	    harnessOptions.Sandbox.ExposedPorts = exposedPorts
 	}
-
-	harnessOptions.Sandbox.PortBindings = portBindings
-
+    }
 	k3s := &k3s{
 		Base: base.New(),
 		id:   id,
