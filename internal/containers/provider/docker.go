@@ -53,9 +53,11 @@ type DockerRequest struct {
 	// provider finishes execution
 	ManagedVolumes []mount.Mount
 	// PortBindings is the list of port bindings to apply to the container
-	// when it is created. The key is the port to bind to on the host, and the
-	// value is the port to bind to on the container.
-	PortBindings map[nat.Port][]nat.PortBinding
+	// when it is created. It is a collection of PortBinding indexed by Port.
+	PortBindings nat.PortMap
+	// ExposedPorts is the list of ports that should be exposed by the container
+	// when it is created. It is a collection of structs indexed by Port.
+	ExposedPorts nat.PortSet
 }
 
 type DockerNetworkRequest struct {
@@ -169,6 +171,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		AttachStdout: true,
 		AttachStderr: true,
 		Labels:       p.labels,
+		ExposedPorts: p.req.ExposedPorts,
 	}
 
 	hostConfig := &container.HostConfig{

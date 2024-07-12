@@ -96,26 +96,26 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		},
 	})
 
-    if len(harnessOptions.PortMappings) > 0 {
-            portMappings := make([]string, 0)
-	    for _, mapping := range harnessOptions.PortMappings {
-		    // If no `:` provided, assume the target port will be same as the local port
-		    if !strings.Contains(mapping, ":") {
-			    mapping = mapping + ":" + mapping
-		    }
-		
-		    portMappings = append(portMappings, mapping)
-	    }
-	
-	    exposedPorts, portBindings, err := nat.ParsePortSpecs(portMappings)
-	    if err != nil {
-	        // error handling here
-	    }
+	if len(harnessOptions.PortMappings) > 0 {
+		portMappings := make([]string, 0)
+		for _, mapping := range harnessOptions.PortMappings {
+			// If no `:` provided, assume the target port will be same as the local port
+			if !strings.Contains(mapping, ":") {
+				mapping = mapping + ":" + mapping
+			}
 
-	    harnessOptions.Sandbox.PortBindings = portBindings
-	    harnessOptions.Sandbox.ExposedPorts = exposedPorts
+			portMappings = append(portMappings, mapping)
+		}
+
+		exposedPorts, portBindings, err := nat.ParsePortSpecs(portMappings)
+		if err != nil {
+			return nil, fmt.Errorf("parsing port specs: %w", err)
+		}
+
+		harnessOptions.Sandbox.PortBindings = portBindings
+		harnessOptions.Sandbox.ExposedPorts = exposedPorts
 	}
-    }
+
 	k3s := &k3s{
 		Base: base.New(),
 		id:   id,
