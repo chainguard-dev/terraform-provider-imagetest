@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/authn"
 )
 
@@ -155,6 +156,11 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		return fmt.Errorf("creating network: %w", err)
 	}
 
+	exposedPorts := make(nat.PortSet)
+	for port := range p.req.Ports {
+		exposedPorts[port] = struct{}{}
+	}
+
 	config := &container.Config{
 		Image:        p.req.Ref.Name(),
 		User:         p.req.User,
@@ -164,6 +170,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 		AttachStdout: true,
 		AttachStderr: true,
 		Labels:       p.labels,
+		ExposedPorts: exposedPorts,
 	}
 
 	hostConfig := &container.HostConfig{
@@ -180,6 +187,7 @@ func (p *DockerProvider) Start(ctx context.Context) error {
 			// mirroring what's done in Docker CLI: https://github.com/docker/cli/blob/0ad1d55b02910f4b40462c0d01aac2934eb0f061/cli/command/container/update.go#L117
 			NanoCPUs: p.req.Resources.CpuRequest.Value(),
 		},
+		PortBindings: p.req.Ports,
 	}
 
 	if err := p.pull(ctx); err != nil {

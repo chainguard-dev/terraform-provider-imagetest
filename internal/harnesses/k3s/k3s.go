@@ -13,10 +13,12 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 const (
@@ -110,6 +112,15 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		return nil, fmt.Errorf("creating k3s registries config: %w", err)
 	}
 
+	ports := nat.PortMap{}
+	if harnessOptions.HostPort > 0 {
+		ports = nat.PortMap{
+			"6443/tcp": []nat.PortBinding{
+				{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", harnessOptions.HostPort)},
+			},
+		}
+	}
+
 	service := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        harnessOptions.ImageRef,
@@ -129,6 +140,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 				},
 			},
 			Resources: harnessOptions.Resources,
+			Ports:     ports,
 		},
 		ManagedVolumes: []mount.Mount{
 			{
@@ -197,6 +209,36 @@ KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --se
         `, h.id),
 			}); err != nil {
 				return fmt.Errorf("creating kubeconfig: %w", err)
+			}
+
+			if h.opt.HostKubeconfigPath != "" {
+				log.Info(ctx, "Writing kubeconfig to host", "path", h.opt.HostKubeconfigPath)
+				kr, err := h.service.Exec(ctx, provider.ExecConfig{
+					Command: `KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config view --raw &2> /dev/null`,
+				})
+				if err != nil {
+					return fmt.Errorf("writing kubeconfig to host: %w", err)
+				}
+
+				data, err := io.ReadAll(kr)
+				if err != nil {
+					return fmt.Errorf("reading kubeconfig from host: %w", err)
+				}
+
+				cfg, err := clientcmd.Load(data)
+				if err != nil {
+					return fmt.Errorf("loading kubeconfig: %w", err)
+				}
+
+				_, ok := cfg.Clusters["default"]
+				if !ok {
+					return fmt.Errorf("no default context found in kubeconfig")
+				}
+				cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%d", h.opt.HostPort)
+
+				if err := clientcmd.WriteToFile(*cfg, h.opt.HostKubeconfigPath); err != nil {
+					return fmt.Errorf("writing kubeconfig to host: %w", err)
+				}
 			}
 
 			// Run the post start hooks

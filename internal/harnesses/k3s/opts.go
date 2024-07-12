@@ -20,6 +20,13 @@ type Opt struct {
 	Resources     provider.ContainerResourcesRequest
 	Hooks         Hooks
 
+	// HostPort exposes the clusters apiserver on a given port when set
+	HostPort int
+
+	// HostKubeconfigPath writes the clusters kubeconfig to a given path on the
+	// host, this is optional and does nothing if not set
+	HostKubeconfigPath string
+
 	Registries map[string]*RegistryOpt
 	Mirrors    map[string]*RegistryMirrorOpt
 
@@ -240,6 +247,21 @@ func WithContainerVolumeName(volumeName string) Option {
 func WithHooks(hooks Hooks) Option {
 	return func(opt *Opt) error {
 		opt.Hooks = hooks
+		return nil
+	}
+}
+
+// WithHostPort exposes the clusters apiserver on a given port.
+func WithHostPort(port int) Option {
+	return func(o *Opt) error {
+		o.HostPort = port
+		return nil
+	}
+}
+
+func WithHostKubeconfigPath(path string) Option {
+	return func(o *Opt) error {
+		o.HostKubeconfigPath = path
 		return nil
 	}
 }

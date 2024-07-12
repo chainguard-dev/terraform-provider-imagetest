@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -263,6 +265,31 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		if !data.Hooks.PreStart.IsNull() {
 			log.Warn(ctx, "PreStart hooks are not supported for k3s harnesses, the configured hooks will not run", "pre_start hook", data.Hooks.PreStart.String())
 		}
+	}
+
+	// if set, configure the harness to expose the k3s api server on some random,
+	// unused port, and copy the clusters kubeconfig to the host
+	if os.Getenv("IMAGETEST_K3S_KUBECONFIG") != "" {
+		kubeconfigPath := os.Getenv("IMAGETEST_K3S_KUBECONFIG")
+
+		// find an unused exposed port
+		// NOTE: This isn't concurrency safe, but if we're in this path we're
+		// already assumed to not support concurrency
+		var port int
+		for {
+			port = rand.Intn(65535-1024) + 1024
+			_, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			if err != nil {
+				break
+			}
+		}
+
+		resp.Diagnostics.AddWarning("Using k3s harness dev mode, a single (random) k3s harness is exposed to the host and accessible via the kubeconfig file. This works best if only a single k3s harness is created.",
+			fmt.Sprintf(`You have used IMAGETEST_K3S_KUBECONFIG to toggle the k3s harness dev mode.
+The k3s harness will expose the apiserver to the host on port "%d", and write the configured kubeconfig to "%s".
+You can access the cluster with something like: "KUBECONFIG=%s kubectl get po -A"`, port, kubeconfigPath, kubeconfigPath))
+
+		kopts = append(kopts, k3s.WithHostPort(port), k3s.WithHostKubeconfigPath(kubeconfigPath))
 	}
 
 	id := data.Id.ValueString()

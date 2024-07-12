@@ -8,6 +8,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -38,6 +39,7 @@ type ContainerRequest struct {
 	// An abstraction over common memory/cpu/disk resources requests and limits
 	Resources ContainerResourcesRequest
 	Labels    map[string]string
+	Ports     nat.PortMap
 }
 
 type ContainerResourcesRequest struct {
