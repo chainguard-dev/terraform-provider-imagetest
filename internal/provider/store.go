@@ -121,7 +121,10 @@ func (s *ProviderStore) SkipTeardown() bool {
 
 // PortForwards returns the IMAGETEST_PORT_FORWARDS environment variable.
 func (s *ProviderStore) PortForwards() []string {
-	v := os.Getenv("IMAGETEST_PORT_FORWARDS")
+	v, ok := os.LookupEnv("IMAGETEST_PORT_FORWARDS")
+	if !ok || "" == v {
+	    return nil
+	}
 	return strings.Split(v, ",")
 }
 
