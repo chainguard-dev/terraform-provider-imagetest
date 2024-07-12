@@ -230,7 +230,7 @@ KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --se
 					return fmt.Errorf("loading kubeconfig: %w", err)
 				}
 
-				_, ok := cfg.Contexts["default"]
+				_, ok := cfg.Clusters["default"]
 				if !ok {
 					return fmt.Errorf("no default context found in kubeconfig")
 				}
