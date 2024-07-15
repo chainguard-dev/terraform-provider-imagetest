@@ -33,6 +33,7 @@ type Opt struct {
 	Sandbox             provider.DockerRequest
 	ContainerVolumeName string
 	Snapshotter         K3sContainerSnapshotter
+	KubeletConfig       string
 }
 
 // Hooks are the hooks that can be run at various stages of the k3s lifecycle.
@@ -262,6 +263,13 @@ func WithHostPort(port int) Option {
 func WithHostKubeconfigPath(path string) Option {
 	return func(o *Opt) error {
 		o.HostKubeconfigPath = path
+		return nil
+	}
+}
+
+func WithKubeletConfig(kubeletConfig string) Option {
+	return func(opt *Opt) error {
+		opt.KubeletConfig = kubeletConfig
 		return nil
 	}
 }

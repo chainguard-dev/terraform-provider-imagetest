@@ -225,6 +225,38 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
+		"with kubelet config": {
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  kubelet_config = <<EOconfig
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+registryPullQPS: 10
+registryBurst: 20
+EOconfig
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple k3s based test"
+  description = "Test that one can apply a custom KubeletConfig"
+  harness = imagetest_harness_k3s.test
+  steps = [
+    {
+      name = "Access cluster"
+      cmd = "kubectl get po -A"
+    },
+  ]
+}
+          `,
+			},
+		},
 	}
 
 	for name, tc := range testCases {

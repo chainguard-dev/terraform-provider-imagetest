@@ -60,6 +60,7 @@ type HarnessK3sResourceModel struct {
 	Timeouts             timeouts.Value                           `tfsdk:"timeouts"`
 	Resources            *ContainerResources                      `tfsdk:"resources"`
 	Hooks                *HarnessHooksModel                       `tfsdk:"hooks"`
+	KubeletConfig        types.String                             `tfsdk:"kubelet_config"`
 }
 
 type RegistryResourceModel struct {
@@ -292,6 +293,10 @@ You can access the cluster with something like: "KUBECONFIG=%s kubectl get po -A
 		kopts = append(kopts, k3s.WithHostPort(port), k3s.WithHostKubeconfigPath(kubeconfigPath))
 	}
 
+	if !data.KubeletConfig.IsNull() {
+		kopts = append(kopts, k3s.WithKubeletConfig(data.KubeletConfig.ValueString()))
+	}
+
 	id := data.Id.ValueString()
 	configVolumeName := id + "-config"
 
@@ -397,6 +402,10 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 		},
 		"image": schema.StringAttribute{
 			Description: "The full image reference to use for the k3s container.",
+			Optional:    true,
+		},
+		"kubelet_config": schema.StringAttribute{
+			Description: "The KubeletConfiguration to be applied to the underlying k3s cluster.",
 			Optional:    true,
 		},
 		"registries": schema.MapNestedAttribute{
