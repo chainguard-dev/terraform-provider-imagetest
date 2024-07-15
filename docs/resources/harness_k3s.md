@@ -28,6 +28,7 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 - `disable_traefik` (Boolean) When true, the builtin traefik ingress controller will be disabled.
 - `hooks` (Attributes) (see [below for nested schema](#nestedatt--hooks))
 - `image` (String) The full image reference to use for the k3s container.
+- `kubelet_config` (String) The KubeletConfiguration to be applied to the underlying k3s cluster.
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
 - `resources` (Attributes) (see [below for nested schema](#nestedatt--resources))
