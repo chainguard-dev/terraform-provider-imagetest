@@ -23,6 +23,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -294,7 +297,14 @@ You can access the cluster with something like: "KUBECONFIG=%s kubectl get po -A
 	}
 
 	if !data.KubeletConfig.IsNull() {
-		kopts = append(kopts, k3s.WithKubeletConfig(data.KubeletConfig.ValueString()))
+		content := data.KubeletConfig.ValueString()
+		err := validateKubeletConfig(content)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to validate KubeletConfiguration", err.Error())
+			return
+		}
+
+		kopts = append(kopts, k3s.WithKubeletConfig(content))
 	}
 
 	id := data.Id.ValueString()
@@ -329,6 +339,23 @@ You can access the cluster with something like: "KUBECONFIG=%s kubectl get po -A
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func validateKubeletConfig(content string) error {
+	config := new(kubeletconfigv1beta1.KubeletConfiguration)
+	scheme := runtime.NewScheme()
+	err := kubeletconfigv1beta1.AddToScheme(scheme)
+	if err != nil {
+		return fmt.Errorf("failed to add k8s type to scheme: %w", err)
+	}
+
+	codec := serializer.NewCodecFactory(scheme)
+	_, _, err = codec.UniversalDeserializer().Decode([]byte(content), nil, config)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal configuration: %w", err)
+	}
+
+	return nil
 }
 
 func (r *HarnessK3sResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -405,7 +432,7 @@ func defaultK3sHarnessResourceSchemaAttributes() map[string]schema.Attribute {
 			Optional:    true,
 		},
 		"kubelet_config": schema.StringAttribute{
-			Description: "The KubeletConfiguration to be applied to the underlying k3s cluster.",
+			Description: "The KubeletConfiguration to be applied to the underlying k3s cluster in YAML format.",
 			Optional:    true,
 		},
 		"registries": schema.MapNestedAttribute{

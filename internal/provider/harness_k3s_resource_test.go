@@ -225,7 +225,7 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
-		"with kubelet config": {
+		"with kubelet config YAML": {
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
