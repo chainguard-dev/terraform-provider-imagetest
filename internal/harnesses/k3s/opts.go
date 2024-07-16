@@ -8,6 +8,9 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 )
 
 type Opt struct {
@@ -269,6 +272,19 @@ func WithHostKubeconfigPath(path string) Option {
 
 func WithKubeletConfig(kubeletConfig string) Option {
 	return func(opt *Opt) error {
+		config := new(kubeletconfigv1beta1.KubeletConfiguration)
+		scheme := runtime.NewScheme()
+		err := kubeletconfigv1beta1.AddToScheme(scheme)
+		if err != nil {
+			return fmt.Errorf("failed to add k8s type to scheme: %w", err)
+		}
+
+		codec := serializer.NewCodecFactory(scheme)
+		_, _, err = codec.UniversalDeserializer().Decode([]byte(kubeletConfig), nil, config)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal configuration: %w", err)
+		}
+
 		opt.KubeletConfig = kubeletConfig
 		return nil
 	}
