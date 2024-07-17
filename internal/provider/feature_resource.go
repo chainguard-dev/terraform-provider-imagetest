@@ -222,18 +222,16 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	added, err := r.store.Inventory(data.Harness.Inventory).AddFeature(ctx, inventory.Feature{
-		Id:      id,
-		Labels:  labels,
-		Harness: inventory.Harness(data.Harness.Id.ValueString()),
-	})
-	if err != nil {
+	if err := r.store.inv.AddFeature(ctx, inventory.Feature{
+		Id:     id,
+		Labels: labels,
+		Harness: inventory.Harness{
+			InventoryId: data.Harness.Inventory.Seed.ValueString(),
+			Id:          data.Harness.Id.ValueString(),
+		},
+	}); err != nil {
 		resp.Diagnostics.AddError("failed to add feature to inventory", err.Error())
 		return
-	}
-
-	if added {
-		log.Debug(ctx, fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
 	}
 }
 
@@ -273,9 +271,12 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 	}
 
 	defer func() {
-		remaining, err := r.store.Inventory(data.Harness.Inventory).RemoveFeature(ctx, inventory.Feature{
-			Id:      data.Id.ValueString(),
-			Harness: inventory.Harness(data.Harness.Id.ValueString()),
+		remaining, err := r.store.inv.RemoveFeature(ctx, inventory.Feature{
+			Id: data.Id.ValueString(),
+			Harness: inventory.Harness{
+				InventoryId: data.Harness.Inventory.Seed.ValueString(),
+				Id:          data.Harness.Id.ValueString(),
+			},
 		})
 		if err != nil {
 			diags = append(diags, diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error()))
@@ -284,8 +285,11 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 
 		if len(remaining) == 0 {
 			log.Debug(ctx, "no more features remain in inventory, removing harness")
-			if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
-				diags = append(diags, diag.NewErrorDiagnostic("failed to remove harness from inventory", err.Error()))
+			if err := r.store.inv.RemoveHarness(ctx, inventory.Harness{
+				InventoryId: data.Harness.Inventory.Seed.ValueString(),
+				Id:          data.Harness.Id.ValueString(),
+			}); err != nil {
+				resp.Diagnostics.AddError("failed to remove harness from inventory", err.Error())
 				return
 			}
 

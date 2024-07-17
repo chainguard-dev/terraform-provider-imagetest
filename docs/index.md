@@ -18,6 +18,7 @@ description: |-
 ### Optional
 
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
+- `inventory_path` (String) The relative path to the inventory database.
 - `labels` (Map of String)
 - `log` (Attributes) (see [below for nested schema](#nestedatt--log))
 
