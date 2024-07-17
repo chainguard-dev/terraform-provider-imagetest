@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	K3sImageTag     = "cgr.dev/chainguard/k3s:latest"
-	KubectlImageTag = "cgr.dev/chainguard/kubectl:latest-dev"
+	K3sImageTag       = "cgr.dev/chainguard/k3s:latest"
+	KubectlImageTag   = "cgr.dev/chainguard/kubectl:latest-dev"
+	KubeletConfigPath = "/etc/rancher/k3s/kubelet.yaml"
 )
 
 type k3s struct {
@@ -121,13 +122,25 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		}
 	}
 
+	extraFiles := make([]provider.File, 0)
+	if "" != k3s.opt.KubeletConfig {
+		kubeletConfigBuf := &bytes.Buffer{}
+		kubeletConfigBuf.WriteString(k3s.opt.KubeletConfig)
+
+		extraFiles = append(extraFiles, provider.File{
+			Contents: kubeletConfigBuf,
+			Target:   KubeletConfigPath,
+			Mode:     0644,
+		})
+	}
+
 	service := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        harnessOptions.ImageRef,
 			Cmd:        []string{"server"},
 			Privileged: true,
 			Networks:   harnessOptions.Networks,
-			Files: []provider.File{
+			Files: append([]provider.File{
 				{
 					Contents: kcfg,
 					Target:   "/etc/rancher/k3s/config.yaml",
@@ -138,7 +151,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 					Target:   "/etc/rancher/k3s/registries.yaml",
 					Mode:     0644,
 				},
-			},
+			}, extraFiles...),
 			Resources: harnessOptions.Resources,
 			Ports:     ports,
 		},
@@ -395,7 +408,11 @@ disable:
 flannel-backend: none
 {{- end }}
 snapshotter: "%[2]s"
-`, h.id, h.opt.Snapshotter)
+{{- if not (eq .KubeletConfig "") }}
+kubelet-arg:
+  - config=%[3]s
+{{- end }}
+`, h.id, h.opt.Snapshotter, KubeletConfigPath)
 
 	tmpl, err := template.New("config").Parse(cfgtmpl)
 	if err != nil {
