@@ -7,7 +7,7 @@ toolchain go1.22.2
 require (
 	github.com/chainguard-dev/clog v1.4.0
 	github.com/docker/go-connections v0.5.0
-	github.com/google/go-containerregistry v0.20.0
+	github.com/google/go-containerregistry v0.20.1
 	github.com/hashicorp/terraform-plugin-docs v0.19.4
 	github.com/hashicorp/terraform-plugin-framework v1.10.0
 	github.com/hashicorp/terraform-plugin-framework-timeouts v0.4.1
