@@ -33,6 +33,8 @@ type ProviderStore struct {
 	// cli is the Docker client. it is initialized once during the providers
 	// Configure() stage and reused for any resource that requires it.
 	cli *provider.DockerClient
+
+	inv inventory.Inventory
 }
 
 func NewProviderStore() *ProviderStore {
@@ -56,12 +58,6 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 	// truncate it to some reasonable length, knowing these will mostly be used
 	// as suffixes and prefixes and conflict is unlikely
 	return hashint.Text(36)[:5], nil
-}
-
-// Inventory returns an instance of the inventory per inventory data source.
-func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
-	// TODO: More backends?
-	return inventory.NewFile(data.Seed.ValueString())
 }
 
 // Logger initializes the context logger for the given inventory.

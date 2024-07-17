@@ -7,7 +7,6 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -123,13 +122,12 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	added, err := r.store.Inventory(inv).AddHarness(ctx, inventory.Harness(id))
-	if err != nil {
-		resp.Diagnostics.AddError("failed to add harness", err.Error())
-	}
-
-	if added {
-		log.Debug(ctx, fmt.Sprintf("Harness.ModifyPlan() | harness [%s] added to inventory", id))
+	if err := r.store.inv.AddHarness(ctx, inventory.Harness{
+		InventoryId: inv.Seed.ValueString(),
+		Id:          id,
+	}); err != nil {
+		resp.Diagnostics.AddError("failed to add harness to inventory", err.Error())
+		return
 	}
 }
 
@@ -144,7 +142,10 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 		return false
 	}
 
-	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(id))
+	feats, err := r.store.inv.ListFeatures(ctx, inventory.Harness{
+		InventoryId: inv.Seed.ValueString(),
+		Id:          id,
+	})
 	if err != nil {
 		resp.Diagnostics.AddError("failed to get features from harness", err.Error())
 		return false

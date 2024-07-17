@@ -15,6 +15,8 @@ require (
 	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-testing v1.9.0
 	github.com/samber/slog-multi v1.2.0
+	github.com/stretchr/testify v1.8.4
+	go.etcd.io/bbolt v1.3.10
 	golang.org/x/sync v0.7.0
 	k8s.io/api v0.30.2
 	k8s.io/apimachinery v0.30.2
