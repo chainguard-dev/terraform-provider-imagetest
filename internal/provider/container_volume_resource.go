@@ -13,16 +13,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
-var (
-	_ resource.Resource                = &ContainerVolumeResource{}
-	_ resource.ResourceWithConfigure   = &ContainerVolumeResource{}
-	_ resource.ResourceWithImportState = &ContainerVolumeResource{}
-)
+var _ resource.ResourceWithModifyPlan = &ContainerVolumeResource{}
 
 const metadataSuffix = "_container_volume"
 
 type ContainerVolumeResource struct {
-	store *ProviderStore
+	BaseHarnessResource
 }
 
 type ContainerVolumeResourceModel struct {
@@ -35,51 +31,8 @@ func NewContainerVolumeResource() resource.Resource {
 	return &ContainerVolumeResource{}
 }
 
-func (r *ContainerVolumeResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	store, ok := req.ProviderData.(*ProviderStore)
-	if !ok {
-		resp.Diagnostics.AddError("invalid provider data", "unable to convert provider data to the correct type")
-		return
-	}
-
-	r.store = store
-}
-
 func (r *ContainerVolumeResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + metadataSuffix
-}
-
-func (r *ContainerVolumeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{
-		MarkdownDescription: `A volume in the container engine that can be referenced by containers.`,
-		Attributes:          ContainerVolumeResourceAttributes(),
-	}
-}
-
-func ContainerVolumeResourceAttributes() map[string]schema.Attribute {
-	return map[string]schema.Attribute{
-		"name": schema.StringAttribute{
-			Description: "A name for this volume resource.",
-			Required:    true,
-		},
-		"inventory": schema.SingleNestedAttribute{
-			Description: "The inventory this volume belongs to. This is received as a direct input from a data.imagetest_inventory data source.",
-			Required:    true,
-			Attributes: map[string]schema.Attribute{
-				"seed": schema.StringAttribute{
-					Required: true,
-				},
-			},
-		},
-		"id": schema.StringAttribute{
-			Description: "The unique identifier for this volume. This is generated from the volume name and inventory seed.",
-			Computed:    true,
-		},
-	}
 }
 
 func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -115,21 +68,30 @@ func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.Creat
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *ContainerVolumeResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data ContainerVolumeResourceModel
-	baseRead(ctx, &data, req, resp)
-}
-
 func (r *ContainerVolumeResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data ContainerVolumeResourceModel
-	baseUpdate(ctx, &data, req, resp)
 }
 
-func (r *ContainerVolumeResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data ContainerVolumeResourceModel
-	baseDelete(ctx, &data, req, resp)
-}
-
-func (r *ContainerVolumeResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+func (r *ContainerVolumeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: `A volume in the container engine that can be referenced by containers.`,
+		Attributes: map[string]schema.Attribute{
+			"name": schema.StringAttribute{
+				Description: "A name for this volume resource.",
+				Required:    true,
+			},
+			"inventory": schema.SingleNestedAttribute{
+				Description: "The inventory this volume belongs to. This is received as a direct input from a data.imagetest_inventory data source.",
+				Required:    true,
+				Attributes: map[string]schema.Attribute{
+					"seed": schema.StringAttribute{
+						Required: true,
+					},
+				},
+			},
+			"id": schema.StringAttribute{
+				Description: "The unique identifier for this volume. This is generated from the volume name and inventory seed.",
+				Computed:    true,
+			},
+		},
+	}
 }

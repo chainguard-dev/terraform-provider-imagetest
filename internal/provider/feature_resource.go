@@ -26,13 +26,7 @@ const (
 	defaultFeatureCreateTimeout = 15 * time.Minute
 )
 
-// Ensure provider defined types fully satisfy framework interfaces.
-var (
-	_ resource.Resource                = &FeatureResource{}
-	_ resource.ResourceWithConfigure   = &FeatureResource{}
-	_ resource.ResourceWithImportState = &FeatureResource{}
-	_ resource.ResourceWithModifyPlan  = &FeatureResource{}
-)
+var _ resource.ResourceWithModifyPlan = &FeatureResource{}
 
 func NewFeatureResource() resource.Resource {
 	return &FeatureResource{}
@@ -268,15 +262,9 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	if data.Harness.Skipped.ValueBool() {
-		resp.Diagnostics.AddWarning(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")
-		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-		return
-	}
-
 	harness, ok := r.store.harnesses.Get(data.Harness.Id.ValueString())
 	if !ok {
-		resp.Diagnostics.AddError("invalid harness id", "how did you get here?")
+		resp.Diagnostics.AddWarning(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")
 		return
 	}
 
@@ -443,15 +431,9 @@ func (r *FeatureResource) Read(_ context.Context, _ resource.ReadRequest, _ *res
 }
 
 func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data FeatureResourceModel
-	baseUpdate(ctx, &data, req, resp)
 }
 
 func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
-}
-
-func (r *FeatureResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
 func (s *FeatureStepModel) StepConfig() itypes.StepConfig {

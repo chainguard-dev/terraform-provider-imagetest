@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
+	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
-	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -19,13 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure provider defined types fully satisfy framework interfaces.
-var (
-	_ resource.Resource                = &HarnessContainerResource{}
-	_ resource.ResourceWithConfigure   = &HarnessContainerResource{}
-	_ resource.ResourceWithImportState = &HarnessContainerResource{}
-	_ resource.ResourceWithModifyPlan  = &HarnessContainerResource{}
-)
+var _ resource.ResourceWithModifyPlan = &HarnessContainerResource{}
 
 func NewHarnessContainerResource() resource.Resource {
 	return &HarnessContainerResource{}
@@ -33,7 +26,7 @@ func NewHarnessContainerResource() resource.Resource {
 
 // HarnessContainerResource defines the resource implementation.
 type HarnessContainerResource struct {
-	HarnessResource
+	BaseHarnessResource
 }
 
 // HarnessContainerResourceModel describes the resource data model.
@@ -41,7 +34,6 @@ type HarnessContainerResourceModel struct {
 	Id        types.String                     `tfsdk:"id"`
 	Name      types.String                     `tfsdk:"name"`
 	Inventory InventoryDataSourceModel         `tfsdk:"inventory"`
-	Skipped   types.Bool                       `tfsdk:"skipped"`
 	Volumes   []FeatureHarnessVolumeMountModel `tfsdk:"volumes"`
 
 	Image      types.String                             `tfsdk:"image"`
@@ -65,18 +57,6 @@ func (r *HarnessContainerResource) Metadata(_ context.Context, req resource.Meta
 	resp.TypeName = req.ProviderTypeName + "_harness_container"
 }
 
-func (r *HarnessContainerResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	schemaAttributes := util.MergeSchemaMaps(
-		addHarnessResourceSchemaAttributes(ctx),
-		defaultContainerResourceSchemaAttributes(),
-		extraContainerResourceSchemaAttributes())
-
-	resp.Schema = schema.Schema{
-		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
-		Attributes:          schemaAttributes,
-	}
-}
-
 func (r *HarnessContainerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data HarnessContainerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -84,34 +64,47 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	skip := r.ShouldSkip(ctx, req, resp)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	harness, diags := r.harness(ctx, &data)
+	resp.Diagnostics.Append(diags...)
+	if diags.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(r.create(ctx, req, harness)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	data.Skipped = types.BoolValue(skip)
+}
 
-	if data.Skipped.ValueBool() {
-		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+func (r *HarnessContainerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data HarnessContainerResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	harness, diags := r.harness(ctx, &data)
 	resp.Diagnostics.Append(diags...)
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("failed to initialize logger(s)", err.Error())
+	if diags.HasError() {
 		return
 	}
+
+	resp.Diagnostics.Append(r.update(ctx, req, harness)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+}
+
+func (r *HarnessContainerResource) harness(ctx context.Context, data *HarnessContainerResourceModel) (itypes.Harness, diag.Diagnostics) {
+	diags := make(diag.Diagnostics, 0)
 
 	ref, err := name.ParseReference(data.Image.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))
-		return
-
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
 	}
 
 	cfg := container.Config{
@@ -142,7 +135,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 			envs := make(map[string]string)
 			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-				return
+				return nil, diags
 			}
 			cfg.Env = envs
 		}
@@ -151,8 +144,7 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 	for _, m := range mounts {
 		src, err := filepath.Abs(m.Source.ValueString())
 		if err != nil {
-			resp.Diagnostics.AddError("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))
-			return
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))}
 		}
 
 		cfg.Mounts = append(cfg.Mounts, container.ConfigMount{
@@ -178,45 +170,56 @@ func (r *HarnessContainerResource) Create(ctx context.Context, req resource.Crea
 
 	envs := make(map[string]string)
 	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-		return
+		return nil, diags
 	}
 	for k, v := range envs {
 		cfg.Env[k] = v
 	}
 
 	harness := container.New(data.Id.ValueString(), r.store.cli, cfg)
-	r.store.harnesses.Set(data.Id.ValueString(), harness)
+	return harness, diags
+}
 
-	log.Debug(ctx, fmt.Sprintf("creating container harness [%s]", data.Id.ValueString()))
-
-	// Finally, create the harness
-	// TODO: Change this signature
-	if _, err := harness.Setup()(ctx); err != nil {
-		resp.Diagnostics.AddError("failed to setup harness", err.Error())
-		return
+func (r *HarnessContainerResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: `A harness that runs steps in a sandbox container.`,
+		Attributes: mergeResourceSchemas(
+			r.schemaAttributes(ctx),
+			defaultContainerResourceSchemaAttributes(),
+			map[string]schema.Attribute{
+				"volumes": schema.ListNestedAttribute{
+					NestedObject: schema.NestedAttributeObject{
+						Attributes: map[string]schema.Attribute{
+							"source": schema.SingleNestedAttribute{
+								Attributes: map[string]schema.Attribute{
+									"id": schema.StringAttribute{
+										Required: true,
+									},
+									"name": schema.StringAttribute{
+										Required: true,
+									},
+									"inventory": schema.SingleNestedAttribute{
+										Required: true,
+										Attributes: map[string]schema.Attribute{
+											"seed": schema.StringAttribute{
+												Required: true,
+											},
+										},
+									},
+								},
+								Required: true,
+							},
+							"destination": schema.StringAttribute{
+								Required: true,
+							},
+						},
+					},
+					Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
+					Optional:    true,
+				},
+			},
+		),
 	}
-
-	// Save data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-}
-
-func (r *HarnessContainerResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data HarnessContainerResourceModel
-	baseRead(ctx, &data, req, resp)
-}
-
-func (r *HarnessContainerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data HarnessContainerResourceModel
-	baseUpdate(ctx, &data, req, resp)
-}
-
-func (r *HarnessContainerResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data HarnessContainerResourceModel
-	baseDelete(ctx, &data, req, resp)
-}
-
-func (r *HarnessContainerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
 // defaultContainerResourceSchemaAttributes adds common container resource
@@ -267,41 +270,6 @@ func defaultContainerResourceSchemaAttributes() map[string]schema.Attribute {
 					},
 				},
 			},
-		},
-	}
-}
-
-func extraContainerResourceSchemaAttributes() map[string]schema.Attribute {
-	return map[string]schema.Attribute{
-		"volumes": schema.ListNestedAttribute{
-			NestedObject: schema.NestedAttributeObject{
-				Attributes: map[string]schema.Attribute{
-					"source": schema.SingleNestedAttribute{
-						Attributes: map[string]schema.Attribute{
-							"id": schema.StringAttribute{
-								Required: true,
-							},
-							"name": schema.StringAttribute{
-								Required: true,
-							},
-							"inventory": schema.SingleNestedAttribute{
-								Required: true,
-								Attributes: map[string]schema.Attribute{
-									"seed": schema.StringAttribute{
-										Required: true,
-									},
-								},
-							},
-						},
-						Required: true,
-					},
-					"destination": schema.StringAttribute{
-						Required: true,
-					},
-				},
-			},
-			Description: "The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders.",
-			Optional:    true,
 		},
 	}
 }
