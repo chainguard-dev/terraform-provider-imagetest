@@ -26,6 +26,7 @@ import (
 )
 
 var _ resource.ResourceWithModifyPlan = &HarnessK3sResource{}
+var _ resource.ResourceWithModifyPlan = &HarnessK3sResource{}
 
 func NewHarnessK3sResource() resource.Resource {
 	return &HarnessK3sResource{}
@@ -33,6 +34,7 @@ func NewHarnessK3sResource() resource.Resource {
 
 // HarnessK3sResource defines the resource implementation.
 type HarnessK3sResource struct {
+	BaseHarnessResource
 	BaseHarnessResource
 }
 

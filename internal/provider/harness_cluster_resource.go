@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/remote"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -83,6 +82,7 @@ func (r *HarnessClusterResource) Delete(ctx context.Context, req resource.Delete
 func (r *HarnessClusterResource) harness(_ context.Context, data *HarnessClusterResourceModel) (itypes.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
+func (r *HarnessClusterResource) harness(_ context.Context, data *HarnessClusterResourceModel) (itypes.Harness, diag.Diagnostics) {
 	var kubeconfig *string
 	if r.store.providerResourceData.Harnesses != nil {
 		if pc := r.store.providerResourceData.Harnesses.Cluster; pc != nil {
