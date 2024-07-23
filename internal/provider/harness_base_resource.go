@@ -99,10 +99,8 @@ func (r *BaseHarnessResource) Configure(ctx context.Context, req resource.Config
 // phase. This uses the more verbose GetAttribute() instead of Get() because
 // terraform-plugin-framework does not support embedding models without nesting.
 func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if !req.State.Raw.IsNull() {
-		// TODO: This currently exists to handle `terraform destroy` which occurs
-		// during acceptance testing. In the future, we should properly handle any
-		// pre-existing state
+	// If we have state, and the plan for id is null, we're in a destroy so do nothing
+	if !req.State.Raw.IsNull() && req.Plan.Raw.IsNull() {
 		return
 	}
 
@@ -127,7 +125,10 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 
 	id := fmt.Sprintf("%s-%s", name, invEnc)
 
-	if diag := resp.Plan.SetAttribute(ctx, path.Root("id"), id); diag.HasError() {
+	// Set the "constants" we know during plan
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), id)...)
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("inventory"), inv)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
