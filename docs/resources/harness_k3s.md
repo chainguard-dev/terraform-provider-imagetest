@@ -38,7 +38,6 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 ### Read-Only
 
 - `id` (String) The unique identifier for the harness. This is generated from the inventory seed and harness name.
-- `skipped` (Boolean) Whether or not to skip creating the harness based on runtime inputs and the dependent features within this inventory.
 
 <a id="nestedatt--inventory"></a>
 ### Nested Schema for `inventory`

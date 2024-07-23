@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	rschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
@@ -20,7 +21,6 @@ type ImageTestProvider struct {
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
-	store   *ProviderStore
 }
 
 // ImageTestProviderModel describes the provider data model.
@@ -291,7 +291,8 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 							"kubeconfig": schema.StringAttribute{
 								Description: "The relative or absolute path on the host to the source directory to mount.",
 								Required:    true,
-							}},
+							},
+						},
 					},
 				},
 			},
@@ -306,25 +307,27 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
+	store := NewProviderStore()
+
 	labels := make(map[string]string)
 	if diag := data.Labels.ElementsAs(ctx, &labels, false); diag.HasError() {
 		return
 	}
-	p.store.labels = labels
+	store.labels = labels
 
+	// TODO: Remove the need for a provider scoped docker cli
 	cli, err := cprovider.NewDockerClient()
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create docker client", err.Error())
 		return
-
 	}
-	p.store.cli = cli
+	store.cli = cli
 
 	// Store any "global" provider configuration in the store
-	p.store.providerResourceData = data
+	store.providerResourceData = data
 
-	resp.DataSourceData = p.store
-	resp.ResourceData = p.store
+	resp.DataSourceData = store
+	resp.ResourceData = store
 }
 
 func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resource {
@@ -349,7 +352,20 @@ func New(version string) func() provider.Provider {
 	return func() provider.Provider {
 		return &ImageTestProvider{
 			version: version,
-			store:   NewProviderStore(),
 		}
 	}
+}
+
+// mergeResourceSchemas merges the given schemas into a single map. priority is last to
+// first.
+func mergeResourceSchemas(schemas ...map[string]rschema.Attribute) map[string]rschema.Attribute {
+	result := make(map[string]rschema.Attribute)
+
+	for _, s := range schemas {
+		for k, v := range s {
+			result[k] = v
+		}
+	}
+
+	return result
 }

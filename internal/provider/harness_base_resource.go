@@ -8,7 +8,9 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -20,10 +22,17 @@ const (
 	defaultHarnessCreateTimeout = 5 * time.Minute
 )
 
-// HarnessResource provides common methods for all HarnessResource
+// BaseHarnessResource provides common methods for all BaseHarnessResource
 // implementations.
-type HarnessResource struct {
+type BaseHarnessResource struct {
 	store *ProviderStore
+}
+
+type BaseHarnessResourceModel struct {
+	Id        types.String             `tfsdk:"id"`
+	Name      types.String             `tfsdk:"name"`
+	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
+	Timeouts  timeouts.Value           `tfsdk:"timeouts"`
 }
 
 // FeatureHarnessResourceModel is the common data model all harnesses output to
@@ -32,7 +41,6 @@ type FeatureHarnessResourceModel struct {
 	Id        types.String             `tfsdk:"id"`
 	Name      types.String             `tfsdk:"name"`
 	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
-	Skipped   types.Bool               `tfsdk:"skipped"`
 }
 
 type FeatureHarnessVolumeMountModel struct {
@@ -72,7 +80,7 @@ type HarnessHooksModel struct {
 	PostStart types.List `tfsdk:"post_start"`
 }
 
-func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *BaseHarnessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
@@ -90,7 +98,7 @@ func (r *HarnessResource) Configure(ctx context.Context, req resource.ConfigureR
 // ModifyPlan adds the harness to the inventory during both the plan and apply
 // phase. This uses the more verbose GetAttribute() instead of Get() because
 // terraform-plugin-framework does not support embedding models without nesting.
-func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if !req.State.Raw.IsNull() {
 		// TODO: This currently exists to handle `terraform destroy` which occurs
 		// during acceptance testing. In the future, we should properly handle any
@@ -133,20 +141,72 @@ func (r *HarnessResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 }
 
-func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) bool {
-	inv := InventoryDataSourceModel{}
-	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
-		return false
+// Read implements resource.Resource. This is intentionally a no-op.
+func (r *BaseHarnessResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {}
+
+func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateRequest, harness itypes.Harness) diag.Diagnostics {
+	// We unmarshal this explicitly because of the insanity of the framework not
+	// supporting embedded structs
+	var data BaseHarnessResourceModel
+	req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory)
+	req.Plan.GetAttribute(ctx, path.Root("name"), &data.Name)
+	req.Plan.GetAttribute(ctx, path.Root("id"), &data.Id)
+	req.Plan.GetAttribute(ctx, path.Root("timeouts"), &data.Timeouts)
+
+	return r.do(ctx, data, harness)
+}
+
+func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateRequest, harness itypes.Harness) diag.Diagnostics {
+	// We unmarshal this explicitly because of the insanity of the framework not
+	// supporting embedded structs
+	var data BaseHarnessResourceModel
+	req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory)
+	req.Plan.GetAttribute(ctx, path.Root("name"), &data.Name)
+	req.Plan.GetAttribute(ctx, path.Root("id"), &data.Id)
+	req.Plan.GetAttribute(ctx, path.Root("timeouts"), &data.Timeouts)
+
+	return r.do(ctx, data, harness)
+}
+
+func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceModel, harness itypes.Harness) diag.Diagnostics {
+	diags := make(diag.Diagnostics, 0)
+
+	if r.skip(ctx, data.Inventory, data.Id.ValueString()) {
+		return append(diags, diag.NewWarningDiagnostic(
+			"skipping harness",
+			fmt.Sprintf("id [%s] reason: feature labels do not match", data.Id.ValueString()),
+		))
 	}
 
-	var id string
-	if diags := req.Plan.GetAttribute(ctx, path.Root("id"), &id); diags.HasError() {
-		return false
+	// NOTE: This is technically different for create/update, but we reuse the
+	// create timeouts everywhere
+	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
+	if diags.HasError() {
+		log.Warn(ctx, fmt.Sprintf("failed to parse harness create timeout, using the default timeout of %s", defaultHarnessCreateTimeout), "error", diags)
+		diags = append(diags, diags...)
+		timeout = defaultHarnessCreateTimeout
 	}
 
-	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(id))
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	r.store.AddHarness(data.Id.ValueString(), harness)
+
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("failed to get features from harness", err.Error())
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
+	}
+
+	if _, err := harness.Setup()(ctx); err != nil {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to setup harness", err.Error())}
+	}
+
+	return diags
+}
+
+func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceModel, harnessId string) bool {
+	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(harnessId))
+	if err != nil {
 		return false
 	}
 
@@ -155,25 +215,21 @@ func (r *HarnessResource) ShouldSkip(ctx context.Context, req resource.CreateReq
 		return false
 	}
 
-	skip := false
 	for _, feat := range feats {
 		for pk, pv := range r.store.labels {
 			fv, ok := feat.Labels[pk]
 			if ok && (fv != pv) {
 				// if the feature label exists but the value doesn't match, skip
-				skip = true
-				break
+				return true
 			}
 		}
 	}
 
-	if skip {
-		resp.Diagnostics.AddWarning(
-			fmt.Sprintf("skipping harness [%s] creation", id),
-			"given provider runtime labels do not match feature labels")
-	}
+	return false
+}
 
-	return skip
+// Delete implements resource.Resource. This is intentionally a no-op.
+func (r *BaseHarnessResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {
 }
 
 // ParseResources parses the ContainerResources object into a provider.ContainerResourcesRequest object.
@@ -223,45 +279,7 @@ func ParseResources(resources *ContainerResources) (provider.ContainerResourcesR
 	return req, nil
 }
 
-// Base implementation for read.
-func baseRead(ctx context.Context, data interface{}, req resource.ReadRequest, resp *resource.ReadResponse) {
-	// Read Terraform prior state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Save updated data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
-}
-
-// Base implementation for update.
-func baseUpdate(ctx context.Context, data interface{}, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Read Terraform plan data into the model
-	resp.Diagnostics.Append(req.Plan.Get(ctx, data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Save updated data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
-}
-
-// Base implementation for delete.
-func baseDelete(ctx context.Context, data interface{}, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	// Read Terraform prior state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, data)...)
-
-	if resp.Diagnostics.HasError() {
-		return
-	}
-}
-
-// AddHarnessSchemaAttributes adds common attributes to the given map. values
-// provided in attrs will override any specified defaults.
-func addHarnessResourceSchemaAttributes(ctx context.Context) map[string]schema.Attribute {
+func (r *BaseHarnessResource) schemaAttributes(ctx context.Context) map[string]schema.Attribute {
 	return map[string]schema.Attribute{
 		"id": schema.StringAttribute{
 			Description: "The unique identifier for the harness. This is generated from the inventory seed and harness name.",
@@ -280,10 +298,6 @@ func addHarnessResourceSchemaAttributes(ctx context.Context) map[string]schema.A
 				},
 			},
 		},
-		"skipped": schema.BoolAttribute{
-			Description: "Whether or not to skip creating the harness based on runtime inputs and the dependent features within this inventory.",
-			Computed:    true,
-		},
 		"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
 			Create:            true,
 			CreateDescription: "The maximum time to wait for the k3s harness to be created.",
@@ -300,9 +314,6 @@ func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute
 					Required: true,
 				},
 				"name": schema.StringAttribute{
-					Required: true,
-				},
-				"skipped": schema.BoolAttribute{
 					Required: true,
 				},
 				"inventory": schema.SingleNestedAttribute{

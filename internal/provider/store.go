@@ -14,7 +14,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	ilog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	slogmulti "github.com/samber/slog-multi"
 )
 
@@ -23,7 +23,7 @@ import (
 // shared external state.
 type ProviderStore struct {
 	// harnesses stores a map of the available harnesses, keyed by their ID.
-	harnesses *smap[string, types.Harness]
+	harnesses *mmap[string, itypes.Harness]
 	labels    map[string]string
 	// providerResourceData stores the data for the provider resource.
 	// TODO: there's probably a way to do this without passing around the whole
@@ -37,9 +37,21 @@ type ProviderStore struct {
 
 func NewProviderStore() *ProviderStore {
 	return &ProviderStore{
-		labels:    make(map[string]string),
-		harnesses: newSmap[string, types.Harness](),
+		labels: make(map[string]string),
+		harnesses: &mmap[string, itypes.Harness]{
+			store: make(map[string]itypes.Harness),
+			mu:    sync.Mutex{},
+		},
 	}
+}
+
+func (s *ProviderStore) AddHarness(id string, harness itypes.Harness) {
+	s.harnesses.Set(id, harness)
+}
+
+func (s *ProviderStore) GetHarness(id string) (itypes.Harness, bool) {
+	h, ok := s.harnesses.Get(id)
+	return h, ok
 }
 
 func (s *ProviderStore) Encode(components ...string) (string, error) {
@@ -139,33 +151,26 @@ func (s *ProviderStore) EnableDebugLogging() bool {
 	return false
 }
 
-func newSmap[K comparable, V any]() *smap[K, V] {
-	return &smap[K, V]{
-		store: make(map[K]V),
-		mu:    sync.Mutex{},
-	}
-}
-
-// smap is a generic thread-safe map implementation.
-type smap[K comparable, V any] struct {
-	store map[K]V
+// mmap is a generic thread-safe map implementation.
+type mmap[K comparable, V any] struct {
 	mu    sync.Mutex
+	store map[K]V
 }
 
-func (m *smap[K, V]) Set(key K, value V) {
+func (m *mmap[K, V]) Set(key K, value V) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.store[key] = value
 }
 
-func (m *smap[K, V]) Get(key K) (V, bool) {
+func (m *mmap[K, V]) Get(key K) (V, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	v, ok := m.store[key]
 	return v, ok
 }
 
-func (m *smap[K, V]) Delete(key K) {
+func (m *mmap[K, V]) Delete(key K) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.store, key)

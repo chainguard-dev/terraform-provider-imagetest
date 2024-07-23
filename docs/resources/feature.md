@@ -41,7 +41,6 @@ Required:
 - `id` (String)
 - `inventory` (Attributes) (see [below for nested schema](#nestedatt--harness--inventory))
 - `name` (String)
-- `skipped` (Boolean)
 
 <a id="nestedatt--harness--inventory"></a>
 ### Nested Schema for `harness.inventory`
