@@ -9,9 +9,9 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -200,21 +200,14 @@ func (r *FeatureResource) Configure(_ context.Context, req resource.ConfigureReq
 
 // ModifyPlan implements resource.ResourceWithModifyPlan.
 func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if !req.State.Raw.IsNull() {
-		// TODO: This currently exists to handle `terraform destroy` which occurs
-		// during acceptance testing. In the future, we should properly handle any
-		// pre-existing state
+	// If we have state, and the plan for id is null, we're in a destroy so do nothing
+	if !req.State.Raw.IsNull() && req.Plan.Raw.IsNull() {
 		return
 	}
 
 	var data FeatureResourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	labels := make(map[string]string)
-	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
 		return
 	}
 
@@ -225,7 +218,15 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	if diag := resp.Plan.SetAttribute(ctx, path.Root("id"), id); diag.HasError() {
+	// Set the "constants" we know during plan
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), id)...)
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("harness"), data.Harness)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	labels := make(map[string]string)
+	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
 		return
 	}
 
@@ -251,22 +252,32 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
+	// TODO: Move this around if/when we start storing test output in the state
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	resp.Diagnostics.Append(r.do(ctx, data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+}
+
+func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) diag.Diagnostics {
 	timeout, diags := data.Timeouts.Create(ctx, defaultFeatureCreateTimeout)
-	resp.Diagnostics.Append(diags...)
+	if diags.HasError() {
+		return diags
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ctx, err := r.store.Logger(ctx, data.Harness.Inventory, "feature_id", data.Id.ValueString(), "feature_name", data.Name.ValueString(), "harness_name", data.Harness.Id.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("failed to create logger", err.Error())
-		return
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create logger", err.Error())}
 	}
 
 	harness, ok := r.store.harnesses.Get(data.Harness.Id.ValueString())
 	if !ok {
-		resp.Diagnostics.AddWarning(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")
-		return
+		return []diag.Diagnostic{diag.NewWarningDiagnostic(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")}
 	}
 
 	defer func() {
@@ -275,25 +286,25 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 			Harness: inventory.Harness(data.Harness.Id.ValueString()),
 		})
 		if err != nil {
-			resp.Diagnostics.AddError("failed to remove feature from inventory", err.Error())
+			diags = append(diags, diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error()))
 			return
 		}
 
 		if len(remaining) == 0 {
 			log.Debug(ctx, "no more features remain in inventory, removing harness")
 			if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
-				resp.Diagnostics.AddError("failed to remove harness from inventory", err.Error())
+				diags = append(diags, diag.NewErrorDiagnostic("failed to remove harness from inventory", err.Error()))
 				return
 			}
 
 			// Destroy the harness...
 			if r.store.SkipTeardown() {
-				resp.Diagnostics.AddWarning(fmt.Sprintf("skipping harness [%s] teardown because IMAGETEST_SKIP_TEARDOWN is set", data.Harness.Id.ValueString()), "harness must be removed manually")
+				diags = append(diags, diag.NewWarningDiagnostic(fmt.Sprintf("skipping harness [%s] teardown because IMAGETEST_SKIP_TEARDOWN is set", data.Harness.Id.ValueString()), "harness must be removed manually"))
 				return
 			}
 
 			if err := harness.Destroy(ctx); err != nil {
-				resp.Diagnostics.AddWarning("failed to destroy harness", err.Error())
+				diags = append(diags, diag.NewWarningDiagnostic("failed to destroy harness", err.Error()))
 				return
 			}
 		}
@@ -307,34 +318,51 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 
 	for _, before := range data.Before {
 		if err := r.step(feat, harness, before, features.Before); err != nil {
-			resp.Diagnostics.AddError("failed to create before step", err.Error())
-			return
+			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create before step", err.Error())}
 		}
 	}
 
 	for _, after := range data.After {
 		if err := r.step(feat, harness, after, features.After); err != nil {
-			resp.Diagnostics.AddError("failed to create after step", err.Error())
-			return
+			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create after step", err.Error())}
 		}
 	}
 
 	for _, assess := range data.Steps {
 		if err := r.step(feat, harness, assess, features.Assessment); err != nil {
-			resp.Diagnostics.AddError("failed to create assessment step", err.Error())
-			return
+			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create assessment step", err.Error())}
 		}
 	}
 
 	log.Info(ctx, "testing feature against harness")
 
 	if err := feat.Test(ctx); err != nil {
-		resp.Diagnostics.AddError("failed to test feature", err.Error())
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to test feature", err.Error())}
+	}
+
+	return diags
+}
+
+func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data FeatureResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Save data into Terraform state
+	// TODO: Move this around if/when we start storing test output in the state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	resp.Diagnostics.Append(r.do(ctx, data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+}
+
+func (r *FeatureResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {
+}
+
+func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 }
 
 func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data FeatureStepModel, level features.Level) error {
@@ -372,22 +400,6 @@ func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data F
 	}
 
 	return nil
-}
-
-func (r *FeatureResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {
-}
-
-func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-}
-
-func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
-}
-
-func (s *FeatureStepModel) StepConfig() itypes.StepConfig {
-	return itypes.StepConfig{
-		Command:    s.Cmd.ValueString(),
-		WorkingDir: s.Workdir.ValueString(),
-	}
 }
 
 func addFeatureStepBackoffSchemaAttributes() map[string]schema.Attribute {

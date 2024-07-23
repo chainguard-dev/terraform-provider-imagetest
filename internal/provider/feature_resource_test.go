@@ -116,3 +116,65 @@ resource "imagetest_feature" "test" {
 		},
 	})
 }
+
+// TestAccFeatureResourceUpdate tests that this provider works with Update()
+// requests as well. This also hits the base_harness path, where all the
+// harness update logic is located.
+func TestAccFeatureResourceUpdate(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Destroy:            false,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_container" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name = "update"
+  description = "Test whether creates work"
+  harness = imagetest_harness_container.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do something"
+    },
+  ]
+}
+`,
+			},
+			// Update testing
+			{
+				ExpectNonEmptyPlan: true,
+				Destroy:            false,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_container" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name = "update"
+  description = "Test whether updates work"
+  harness = imagetest_harness_container.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do another something"
+    },
+  ]
+}
+`,
+			},
+		},
+	})
+}
