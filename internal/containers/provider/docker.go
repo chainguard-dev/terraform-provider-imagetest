@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/docker/docker/api/types/container"
@@ -288,7 +288,7 @@ func (p *DockerProvider) Teardown(ctx context.Context) error {
 // Exec implements Provider.
 func (p *DockerProvider) Exec(ctx context.Context, config ExecConfig) (io.Reader, error) {
 	execConfig := container.ExecOptions{
-		Cmd:          append(base.DefaultEntrypoint(), config.Command),
+		Cmd:          append(harness.DefaultEntrypoint(), config.Command),
 		WorkingDir:   config.WorkingDir,
 		AttachStderr: true,
 		AttachStdout: true,

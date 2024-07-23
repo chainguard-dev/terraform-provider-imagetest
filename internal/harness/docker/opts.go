@@ -4,8 +4,7 @@ import (
 	"fmt"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/container"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
@@ -23,8 +22,20 @@ type HarnessDockerOptions struct {
 }
 
 type RegistryOpt struct {
-	Auth *base.RegistryAuthOpt
-	Tls  *base.RegistryTlsOpt
+	Auth *RegistryAuthOpt
+	Tls  *RegistryTlsOpt
+}
+
+type RegistryAuthOpt struct {
+	Username string
+	Password string
+	Auth     string
+}
+
+type RegistryTlsOpt struct {
+	CertFile string
+	KeyFile  string
+	CaFile   string
 }
 
 type Option func(*HarnessDockerOptions) error
@@ -70,7 +81,7 @@ func WithAuthFromStatic(registry, username, password, auth string) Option {
 			opt.Registries[registry] = &RegistryOpt{}
 		}
 
-		opt.Registries[registry].Auth = &base.RegistryAuthOpt{
+		opt.Registries[registry].Auth = &RegistryAuthOpt{
 			Username: username,
 			Password: password,
 			Auth:     auth,
@@ -104,7 +115,7 @@ func WithAuthFromKeychain(registry string) Option {
 			return fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
 		}
 
-		opt.Registries[registry].Auth = &base.RegistryAuthOpt{
+		opt.Registries[registry].Auth = &RegistryAuthOpt{
 			Username: acfg.Username,
 			Password: acfg.Password,
 			Auth:     acfg.Auth,

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -100,10 +99,9 @@ func (r *HarnessContainerResource) Update(ctx context.Context, req resource.Upda
 	}
 }
 
-func (r *HarnessContainerResource) harness(ctx context.Context, data *HarnessContainerResourceModel) (itypes.Harness, diag.Diagnostics) {
+func (r *HarnessContainerResource) harness(ctx context.Context, data *HarnessContainerResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
-func (r *HarnessContainerResource) harness(ctx context.Context, data *HarnessContainerResourceModel) (itypes.Harness, diag.Diagnostics) {
 	ref, err := name.ParseReference(data.Image.ValueString())
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}

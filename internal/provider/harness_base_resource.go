@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -144,7 +144,7 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 // Read implements resource.Resource. This is intentionally a no-op.
 func (r *BaseHarnessResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {}
 
-func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateRequest, harness itypes.Harness) diag.Diagnostics {
+func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateRequest, harness harness.Harness) diag.Diagnostics {
 	// We unmarshal this explicitly because of the insanity of the framework not
 	// supporting embedded structs
 	var data BaseHarnessResourceModel
@@ -156,7 +156,7 @@ func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateReq
 	return r.do(ctx, data, harness)
 }
 
-func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateRequest, harness itypes.Harness) diag.Diagnostics {
+func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateRequest, harness harness.Harness) diag.Diagnostics {
 	// We unmarshal this explicitly because of the insanity of the framework not
 	// supporting embedded structs
 	var data BaseHarnessResourceModel
@@ -168,7 +168,7 @@ func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateReq
 	return r.do(ctx, data, harness)
 }
 
-func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceModel, harness itypes.Harness) diag.Diagnostics {
+func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceModel, harness harness.Harness) diag.Diagnostics {
 	diags := make(diag.Diagnostics, 0)
 
 	if r.skip(ctx, data.Inventory, data.Id.ValueString()) {
@@ -197,8 +197,8 @@ func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceMo
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
 	}
 
-	if _, err := harness.Setup()(ctx); err != nil {
-		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to setup harness", err.Error())}
+	if err := harness.Create(ctx); err != nil {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create harness", err.Error())}
 	}
 
 	return diags

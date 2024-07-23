@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/features"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
@@ -298,48 +299,36 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		}
 	}()
 
-	builder := features.NewBuilder(data.Name.ValueString()).
-		WithDescription(data.Description.ValueString())
+	fopts := []features.Option{
+		features.WithDescription(data.Description.ValueString()),
+	}
+
+	feat := features.New(data.Name.ValueString(), fopts...)
 
 	for _, before := range data.Before {
-		step, err := r.step(harness, itypes.Before, before)
-		if err != nil {
+		if err := r.step(feat, harness, before, features.Before); err != nil {
 			resp.Diagnostics.AddError("failed to create before step", err.Error())
 			return
 		}
-		builder = builder.WithStep(step)
 	}
 
 	for _, after := range data.After {
-		step, err := r.step(harness, itypes.After, after)
-		if err != nil {
+		if err := r.step(feat, harness, after, features.After); err != nil {
 			resp.Diagnostics.AddError("failed to create after step", err.Error())
 			return
 		}
-		builder = builder.WithStep(step)
 	}
 
 	for _, assess := range data.Steps {
-		step, err := r.step(harness, itypes.Assessment, assess)
-		if err != nil {
+		if err := r.step(feat, harness, assess, features.Assessment); err != nil {
 			resp.Diagnostics.AddError("failed to create assessment step", err.Error())
 			return
 		}
-		builder = builder.WithStep(step)
-	}
-
-	if r.store.EnableDebugLogging() {
-		step, err := r.createLogStep(harness)
-		if err != nil {
-			resp.Diagnostics.AddError("failed to create log step", err.Error())
-			return
-		}
-		builder = builder.WithStep(step)
 	}
 
 	log.Info(ctx, "testing feature against harness")
 
-	if err := r.test(ctx, builder.Build()); err != nil {
+	if err := feat.Test(ctx); err != nil {
 		resp.Diagnostics.AddError("failed to test feature", err.Error())
 		return
 	}
@@ -348,80 +337,38 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *FeatureResource) createLogStep(harness itypes.Harness) (itypes.Step, error) {
-	model := FeatureStepModel{
-		Name: types.StringValue("capture post-run debug logs"),
-		Cmd:  types.StringValue(harness.DebugLogCommand()),
-	}
+func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data FeatureStepModel, level features.Level) error {
+	fn := features.StepFn(func(ctx context.Context) error {
+		return h.Run(ctx, harness.Command{
+			Args:       data.Cmd.ValueString(),
+			WorkingDir: data.Workdir.ValueString(),
+		})
+	})
 
-	return r.step(harness, itypes.After, model)
-}
+	sopts := []features.StepOpt{}
 
-func (r *FeatureResource) step(harness itypes.Harness, level itypes.Level, model FeatureStepModel) (itypes.Step, error) {
-	opts := make([]features.StepOpt, 0)
-
-	if model.Retry != nil {
-		duration, err := time.ParseDuration(model.Retry.Delay.ValueString())
+	if data.Retry != nil {
+		duration, err := time.ParseDuration(data.Retry.Delay.ValueString())
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("failed to parse step retry duration: %w", err)
 		}
-		opts = append(opts, features.WithStepBackoff(wait.Backoff{
+		sopts = append(sopts, features.StepWithRetry(wait.Backoff{
 			Duration: duration,
-			Steps:    int(model.Retry.Attempts.ValueInt64()),
-			Factor:   model.Retry.Factor.ValueFloat64(),
+			Steps:    int(data.Retry.Attempts.ValueInt64()),
+			Factor:   data.Retry.Factor.ValueFloat64(),
 			// Set a small default value just as a best practice, even though this
 			// isn't exposed, in reality it will never be noticed
 			Jitter: 0.05,
 		}))
 	}
 
-	return features.NewStep(
-		model.Name.ValueString(),
-		level,
-		harness.StepFn(model.StepConfig()),
-		opts...,
-	), nil
-}
-
-func (r *FeatureResource) test(ctx context.Context, feature itypes.Feature) (err error) {
-	actions := make(map[itypes.Level][]itypes.Step)
-
-	for _, s := range feature.Steps() {
-		actions[s.Level()] = append(actions[s.Level()], s)
-	}
-
-	wraperr := func(e error) error {
-		if err == nil {
-			return e
-		}
-		return fmt.Errorf("%v; %w", err, e)
-	}
-
-	afters := func() {
-		for _, after := range actions[itypes.After] {
-			c, e := after.Fn()(ctx)
-			if e != nil {
-				err = wraperr(fmt.Errorf("during after step: %v", e))
-			}
-			ctx = c
-		}
-	}
-	defer afters()
-
-	for _, before := range actions[itypes.Before] {
-		c, e := before.Fn()(ctx)
-		if e != nil {
-			return wraperr(fmt.Errorf("during before step: %v", e))
-		}
-		ctx = c
-	}
-
-	for _, assessment := range actions[itypes.Assessment] {
-		c, e := assessment.Fn()(ctx)
-		if e != nil {
-			return wraperr(fmt.Errorf("during assessment step: %v", e))
-		}
-		ctx = c
+	switch level {
+	case features.Before:
+		feat.WithBefore(data.Name.ValueString(), fn, sopts...)
+	case features.After:
+		feat.WithAfter(data.Name.ValueString(), fn, sopts...)
+	case features.Assessment:
+		feat.WithAssessment(data.Name.ValueString(), fn, sopts...)
 	}
 
 	return nil

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/k3s"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -26,7 +26,6 @@ import (
 )
 
 var _ resource.ResourceWithModifyPlan = &HarnessK3sResource{}
-var _ resource.ResourceWithModifyPlan = &HarnessK3sResource{}
 
 func NewHarnessK3sResource() resource.Resource {
 	return &HarnessK3sResource{}
@@ -34,7 +33,6 @@ func NewHarnessK3sResource() resource.Resource {
 
 // HarnessK3sResource defines the resource implementation.
 type HarnessK3sResource struct {
-	BaseHarnessResource
 	BaseHarnessResource
 }
 
@@ -122,7 +120,7 @@ func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 }
 
-func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResourceModel) (itypes.Harness, diag.Diagnostics) {
+func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
 	kopts := append([]k3s.Option{
