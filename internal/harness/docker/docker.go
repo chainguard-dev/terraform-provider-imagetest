@@ -8,42 +8,25 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 )
 
-var _ types.Harness = &docker{}
+var _ harness.Harness = &docker{}
 
 const DefaultDockerSocketPath = "/var/run/docker.sock"
 
 type docker struct {
-	*base.Base
 	id string
 
 	container provider.Provider
 }
 
-func (h *docker) DebugLogCommand() string {
-	// TODO implement something here
-	return ""
-}
-
-type dockerAuthEntry struct {
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	Auth     string `json:"auth,omitempty"`
-}
-
-type dockerConfig struct {
-	Auths map[string]dockerAuthEntry `json:"auths,omitempty"`
-}
-
-func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
+func New(id string, cli *provider.DockerClient, opts ...Option) (harness.Harness, error) {
 	options := &HarnessDockerOptions{
 		ContainerResources: provider.ContainerResourcesRequest{
 			MemoryRequest: resource.MustParse("1Gi"),
@@ -106,8 +89,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	container := provider.NewDocker(id, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        options.ImageRef,
-			Entrypoint: base.DefaultEntrypoint(),
-			Cmd:        base.DefaultCmd(),
+			Entrypoint: harness.DefaultEntrypoint(),
+			Cmd:        harness.DefaultCmd(),
 			Networks:   options.Networks,
 			Env:        options.Envs,
 			User:       "0:0", // required to be able to change path permissions, access the socket, other tasks
@@ -126,50 +109,54 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	})
 
 	return &docker{
-		Base:      base.New(),
 		id:        id,
 		container: container,
 	}, nil
 }
 
-func (h *docker) Setup() types.StepFn {
-	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
-		if err := h.container.Start(ctx); err != nil {
-			return ctx, fmt.Errorf("failed starting docker service: %w", err)
-		}
-
-		return ctx, nil
-	})
+// Create implements harness.Harness.
+func (h *docker) Create(ctx context.Context) error {
+	return h.container.Start(ctx)
 }
 
-func (h *docker) Destroy(ctx context.Context) error {
-	if err := h.container.Teardown(ctx); err != nil {
-		return fmt.Errorf("tearing down sandbox: %w", err)
+// Run implements harness.Harness.
+func (h *docker) Run(ctx context.Context, cmd harness.Command) error {
+	log.Info(ctx, "stepping in docker container with command", "command", cmd.Args)
+	r, err := h.container.Exec(ctx, provider.ExecConfig{
+		Command:    cmd.Args,
+		WorkingDir: cmd.WorkingDir,
+	})
+	if err != nil {
+		return err
 	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	log.Info(ctx, "finished stepping in docker container", "command", cmd.Args, "out", string(out))
 
 	return nil
 }
 
-func (h *docker) StepFn(config types.StepConfig) types.StepFn {
-	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in docker container with command", "command", config.Command)
-		r, err := h.container.Exec(ctx, provider.ExecConfig{
-			Command:    config.Command,
-			WorkingDir: config.WorkingDir,
-		})
-		if err != nil {
-			return ctx, err
-		}
+func (h *docker) DebugLogCommand() string {
+	// TODO implement something here
+	return ""
+}
 
-		out, err := io.ReadAll(r)
-		if err != nil {
-			return ctx, err
-		}
+func (h *docker) Destroy(ctx context.Context) error {
+	return h.container.Teardown(ctx)
+}
 
-		log.Info(ctx, "finished stepping in docker container", "command", config.Command, "out", string(out))
+type dockerAuthEntry struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	Auth     string `json:"auth,omitempty"`
+}
 
-		return ctx, nil
-	}
+type dockerConfig struct {
+	Auths map[string]dockerAuthEntry `json:"auths,omitempty"`
 }
 
 // createDockerConfigJSON creates a Docker config.json file used by the harness for auth.

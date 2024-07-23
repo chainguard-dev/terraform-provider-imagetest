@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -27,8 +26,9 @@ const (
 	KubeletConfigPath = "/etc/rancher/k3s/kubelet.yaml"
 )
 
+var _ harness.Harness = &k3s{}
+
 type k3s struct {
-	*base.Base
 	// opt are the options for the k3s harness
 	opt *Opt
 	// id is an identifier used to prepend to containers created by this harness
@@ -41,7 +41,7 @@ type k3s struct {
 	sandbox provider.Provider
 }
 
-func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, error) {
+func New(id string, cli *provider.DockerClient, opts ...Option) (harness.Harness, error) {
 	harnessOptions := &Opt{
 		ImageRef:      name.MustParseReference(K3sImageTag),
 		Cni:           true,
@@ -57,8 +57,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 		Sandbox: provider.DockerRequest{
 			ContainerRequest: provider.ContainerRequest{
 				Ref:        name.MustParseReference(KubectlImageTag),
-				Entrypoint: base.DefaultEntrypoint(),
-				Cmd:        base.DefaultCmd(),
+				Entrypoint: harness.DefaultEntrypoint(),
+				Cmd:        harness.DefaultCmd(),
 				Env: map[string]string{
 					"KUBECONFIG": "/k3s-config/k3s.yaml",
 					"ENV":        "/root/.ashrc",
@@ -98,9 +98,8 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	})
 
 	k3s := &k3s{
-		Base: base.New(),
-		id:   id,
-		opt:  harnessOptions,
+		id:  id,
+		opt: harnessOptions,
 	}
 
 	kcfg, err := k3s.genConfig()
@@ -123,7 +122,7 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	}
 
 	extraFiles := make([]provider.File, 0)
-	if "" != k3s.opt.KubeletConfig {
+	if k3s.opt.KubeletConfig != "" {
 		kubeletConfigBuf := &bytes.Buffer{}
 		kubeletConfigBuf.WriteString(k3s.opt.KubeletConfig)
 
@@ -185,103 +184,122 @@ func New(id string, cli *provider.DockerClient, opts ...Option) (types.Harness, 
 	return k3s, nil
 }
 
-// Setup implements types.Harness.
-func (h *k3s) Setup() types.StepFn {
-	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
-		g, ctx := errgroup.WithContext(ctx)
+// Create implements harness.Harness.
+func (h *k3s) Create(ctx context.Context) error {
+	g, ctx := errgroup.WithContext(ctx)
 
-		// start the k3s service first since the sandbox depends on the network
-		// being created
-		if err := h.service.Start(ctx); err != nil {
-			return ctx, fmt.Errorf("starting k3s service: %w", err)
-		}
+	// start the k3s service first since the sandbox depends on the network
+	// being created
+	if err := h.service.Start(ctx); err != nil {
+		return fmt.Errorf("starting k3s service: %w", err)
+	}
 
-		// Wait for the k3s service
-		g.Go(func() error {
-			// Block until k3s is ready. It is up to the caller to ensure the context
-			// is cancelled to stop waiting.
-			// Assume every error is retryable
-			if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 15*time.Minute, true, func(ctx context.Context) (bool, error) {
-				_, err := h.service.Exec(ctx, provider.ExecConfig{
-					Command: "k3s kubectl cluster-info",
-				})
-				if err != nil {
-					log.Info(ctx, "Waiting for k3s service to be ready...", "error", err)
-					return false, nil
-				}
-
-				return true, nil
-			}); err != nil {
-				return fmt.Errorf("waiting for k3s service: %w", err)
+	// Wait for the k3s service
+	g.Go(func() error {
+		// Block until k3s is ready. It is up to the caller to ensure the context
+		// is cancelled to stop waiting.
+		// Assume every error is retryable
+		if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 15*time.Minute, true, func(ctx context.Context) (bool, error) {
+			_, err := h.service.Exec(ctx, provider.ExecConfig{
+				Command: "k3s kubectl cluster-info",
+			})
+			if err != nil {
+				log.Info(ctx, "Waiting for k3s service to be ready...", "error", err)
+				return false, nil
 			}
 
-			// Move the kubeconfig into place, and give it the appropriate endpoint
-			if _, err := h.service.Exec(ctx, provider.ExecConfig{
-				Command: fmt.Sprintf(`
+			return true, nil
+		}); err != nil {
+			return fmt.Errorf("waiting for k3s service: %w", err)
+		}
+
+		// Move the kubeconfig into place, and give it the appropriate endpoint
+		if _, err := h.service.Exec(ctx, provider.ExecConfig{
+			Command: fmt.Sprintf(`
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --server "https://%[1]s:6443" > /dev/null
         `, h.id),
-			}); err != nil {
-				return fmt.Errorf("creating kubeconfig: %w", err)
-			}
-
-			if h.opt.HostKubeconfigPath != "" {
-				log.Info(ctx, "Writing kubeconfig to host", "path", h.opt.HostKubeconfigPath)
-				kr, err := h.service.Exec(ctx, provider.ExecConfig{
-					Command: `KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config view --raw &2> /dev/null`,
-				})
-				if err != nil {
-					return fmt.Errorf("writing kubeconfig to host: %w", err)
-				}
-
-				data, err := io.ReadAll(kr)
-				if err != nil {
-					return fmt.Errorf("reading kubeconfig from host: %w", err)
-				}
-
-				cfg, err := clientcmd.Load(data)
-				if err != nil {
-					return fmt.Errorf("loading kubeconfig: %w", err)
-				}
-
-				_, ok := cfg.Clusters["default"]
-				if !ok {
-					return fmt.Errorf("no default context found in kubeconfig")
-				}
-				cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%d", h.opt.HostPort)
-
-				if err := clientcmd.WriteToFile(*cfg, h.opt.HostKubeconfigPath); err != nil {
-					return fmt.Errorf("writing kubeconfig to host: %w", err)
-				}
-			}
-
-			// Run the post start hooks
-			for _, hook := range h.opt.Hooks.PostStart {
-				log.Info(ctx, "K3S Running post start hook", "hook", hook)
-				if _, err := h.service.Exec(ctx, provider.ExecConfig{
-					Command: hook,
-				}); err != nil {
-					return fmt.Errorf("running post start hook: %w", err)
-				}
-			}
-
-			return nil
-		})
-
-		g.Go(func() error {
-			// Start the sandbox
-			if err := h.sandbox.Start(ctx); err != nil {
-				return fmt.Errorf("starting sandbox: %w", err)
-			}
-			return nil
-		})
-
-		log.Info(ctx, "Waiting for k3s service to be ready")
-		if err := g.Wait(); err != nil {
-			return ctx, err
+		}); err != nil {
+			return fmt.Errorf("creating kubeconfig: %w", err)
 		}
 
-		return ctx, nil
+		if h.opt.HostKubeconfigPath != "" {
+			log.Info(ctx, "Writing kubeconfig to host", "path", h.opt.HostKubeconfigPath)
+			kr, err := h.service.Exec(ctx, provider.ExecConfig{
+				Command: `KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config view --raw &2> /dev/null`,
+			})
+			if err != nil {
+				return fmt.Errorf("writing kubeconfig to host: %w", err)
+			}
+
+			data, err := io.ReadAll(kr)
+			if err != nil {
+				return fmt.Errorf("reading kubeconfig from host: %w", err)
+			}
+
+			cfg, err := clientcmd.Load(data)
+			if err != nil {
+				return fmt.Errorf("loading kubeconfig: %w", err)
+			}
+
+			_, ok := cfg.Clusters["default"]
+			if !ok {
+				return fmt.Errorf("no default context found in kubeconfig")
+			}
+			cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%d", h.opt.HostPort)
+
+			if err := clientcmd.WriteToFile(*cfg, h.opt.HostKubeconfigPath); err != nil {
+				return fmt.Errorf("writing kubeconfig to host: %w", err)
+			}
+		}
+
+		// Run the post start hooks
+		for _, hook := range h.opt.Hooks.PostStart {
+			log.Info(ctx, "K3S Running post start hook", "hook", hook)
+			if _, err := h.service.Exec(ctx, provider.ExecConfig{
+				Command: hook,
+			}); err != nil {
+				return fmt.Errorf("running post start hook: %w", err)
+			}
+		}
+
+		return nil
 	})
+
+	g.Go(func() error {
+		// Start the sandbox
+		if err := h.sandbox.Start(ctx); err != nil {
+			return fmt.Errorf("starting sandbox: %w", err)
+		}
+		return nil
+	})
+
+	log.Info(ctx, "Waiting for k3s service to be ready")
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Run implements harness.Harness.
+func (h *k3s) Run(ctx context.Context, cmd harness.Command) error {
+	log.Info(ctx, "stepping in k3s sandbox container", "command", cmd.Args)
+	r, err := h.sandbox.Exec(ctx, provider.ExecConfig{
+		Command:    cmd.Args,
+		WorkingDir: cmd.WorkingDir,
+	})
+	if err != nil {
+		return err
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	log.Info(ctx, "finished stepping in k3s sandbox container", "command", cmd.Args, "out", string(out))
+
+	return nil
 }
 
 // Destroy implements types.Harness.
@@ -308,29 +326,6 @@ func (h *k3s) Destroy(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// StepFn implements types.Harness.
-func (h *k3s) StepFn(config types.StepConfig) types.StepFn {
-	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in k3s sandbox container", "command", config.Command)
-		r, err := h.sandbox.Exec(ctx, provider.ExecConfig{
-			Command:    config.Command,
-			WorkingDir: config.WorkingDir,
-		})
-		if err != nil {
-			return ctx, err
-		}
-
-		out, err := io.ReadAll(r)
-		if err != nil {
-			return ctx, err
-		}
-
-		log.Info(ctx, "finished stepping in k3s sandbox container", "command", config.Command, "out", string(out))
-
-		return ctx, nil
-	}
 }
 
 func (h *k3s) DebugLogCommand() string {

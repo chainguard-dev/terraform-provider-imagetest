@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/container"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -108,7 +108,7 @@ func (r *HarnessDockerResource) Update(ctx context.Context, req resource.UpdateR
 	}
 }
 
-func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDockerResourceModel) (itypes.Harness, diag.Diagnostics) {
+func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDockerResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 	var opts []docker.Option
 
@@ -241,7 +241,7 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container with access to a Docker daemon.`,
 		Attributes: mergeResourceSchemas(
-			r.BaseHarnessResource.schemaAttributes(ctx),
+			r.schemaAttributes(ctx),
 			map[string]schema.Attribute{
 				"image": schema.StringAttribute{
 					Description: "The full image reference to use for the container.",

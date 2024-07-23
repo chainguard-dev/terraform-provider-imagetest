@@ -7,51 +7,43 @@ import (
 	"io"
 	"os/exec"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 )
 
-var _ types.Harness = &host{}
+var _ harness.Harness = &host{}
 
 // host is a harness type that runs steps on the host machine.
 type host struct {
-	*base.Base
-
 	env map[string]string
 }
 
-func (h *host) DebugLogCommand() string {
-	// TODO implement something here
-	return ""
-}
-
-func NewHost() types.Harness {
+func NewHost() harness.Harness {
 	return &host{
-		Base: base.New(),
-		env:  make(map[string]string),
+		env: make(map[string]string),
 	}
 }
 
-// StepFn implements types.Harness.
-func (h *host) StepFn(config types.StepConfig) types.StepFn {
-	return func(ctx context.Context) (context.Context, error) {
-		if _, err := h.exec(ctx, []string{"sh", "-c", config.Command}); err != nil {
-			return ctx, fmt.Errorf("running step on host: %w", err)
-		}
-		return ctx, nil
-	}
+// Create implements harness.Harness.
+func (h *host) Create(context.Context) error {
+	return nil
 }
 
-// Setup implements types.Harn.
-func (h *host) Setup() types.StepFn {
-	return func(ctx context.Context) (context.Context, error) {
-		return ctx, nil
+// Run implements harness.Harness.
+func (h *host) Run(ctx context.Context, cmd harness.Command) error {
+	if _, err := h.exec(ctx, []string{"sh", "-c", cmd.Args}); err != nil {
+		return fmt.Errorf("running step on host: %w", err)
 	}
+	return nil
 }
 
 // Destroy implements types.Harn.
 func (*host) Destroy(context.Context) error {
 	return nil
+}
+
+func (h *host) DebugLogCommand() string {
+	// TODO implement something here
+	return ""
 }
 
 func (h *host) exec(ctx context.Context, command []string) (io.Reader, error) {

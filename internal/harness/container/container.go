@@ -6,21 +6,44 @@ import (
 	"io"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-var _ types.Harness = &container{}
+var _ harness.Harness = &container{}
 
 // container is a harness that spins up a container and steps within the
 // container environment.
 type container struct {
-	*base.Base
 	provider provider.Provider
+}
+
+// Create implements harness.Harness.
+func (h *container) Create(ctx context.Context) error {
+	return h.provider.Start(ctx)
+}
+
+// Run implements harness.Harness.
+func (h *container) Run(ctx context.Context, cmd harness.Command) error {
+	log.Info(ctx, "stepping in container", "command", cmd.Args)
+	r, err := h.provider.Exec(ctx, provider.ExecConfig{
+		Command:    cmd.Args,
+		WorkingDir: cmd.WorkingDir,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to execute command: %w", err)
+	}
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	log.Info(ctx, "finished stepping in container", "command", cmd.Args, "out", string(out))
+
+	return nil
 }
 
 func (h *container) DebugLogCommand() string {
@@ -28,42 +51,9 @@ func (h *container) DebugLogCommand() string {
 	return ""
 }
 
-// Setup implements types.Harness.
-func (h *container) Setup() types.StepFn {
-	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
-		if err := h.provider.Start(ctx); err != nil {
-			return ctx, err
-		}
-
-		return ctx, nil
-	})
-}
-
 // Destroy implements types.Harness.
 func (h *container) Destroy(ctx context.Context) error {
 	return h.provider.Teardown(ctx)
-}
-
-// StepFn implements types.Harness.
-func (h *container) StepFn(config types.StepConfig) types.StepFn {
-	return func(ctx context.Context) (context.Context, error) {
-		log.Info(ctx, "stepping in container", "command", config.Command)
-		r, err := h.provider.Exec(ctx, provider.ExecConfig{
-			Command:    config.Command,
-			WorkingDir: config.WorkingDir,
-		})
-		if err != nil {
-			return ctx, fmt.Errorf("failed to execute command: %w", err)
-		}
-
-		out, err := io.ReadAll(r)
-		if err != nil {
-			return ctx, err
-		}
-		log.Info(ctx, "finished stepping in container", "command", config.Command, "out", string(out))
-
-		return ctx, nil
-	}
 }
 
 type Config struct {
@@ -82,7 +72,7 @@ type ConfigMount struct {
 	Destination string
 }
 
-func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
+func New(name string, cli *provider.DockerClient, cfg Config) harness.Harness {
 	// TODO: Support more providers
 
 	mounts := make([]mount.Mount, 0, len(cfg.Mounts))
@@ -109,8 +99,8 @@ func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
 	p := provider.NewDocker(name, cli, provider.DockerRequest{
 		ContainerRequest: provider.ContainerRequest{
 			Ref:        cfg.Ref,
-			Entrypoint: base.DefaultEntrypoint(),
-			Cmd:        base.DefaultCmd(),
+			Entrypoint: harness.DefaultEntrypoint(),
+			Cmd:        harness.DefaultCmd(),
 			Env:        cfg.Env,
 			Networks:   cfg.Networks,
 			Resources: provider.ContainerResourcesRequest{
@@ -126,7 +116,6 @@ func New(name string, cli *provider.DockerClient, cfg Config) types.Harness {
 	})
 
 	return &container{
-		Base:     base.New(),
 		provider: p,
 	}
 }

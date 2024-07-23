@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/base"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -33,12 +32,9 @@ const (
 )
 
 // Ensure type k8s conforms to types.Harness.
-var _ types.Harness = &k8s{}
+var _ harness.Harness = &k8s{}
 
 type k8s struct {
-	// Provide basic functions needed to make the harness operate.
-	*base.Base
-
 	// ID to identify resources created by this harness.
 	Id string
 
@@ -49,7 +45,7 @@ type k8s struct {
 	Client kubernetes.Interface
 }
 
-func New(id string, kubeconfig *string) (types.Harness, error) {
+func New(id string, kubeconfig *string) (harness.Harness, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	rules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 
@@ -69,81 +65,130 @@ func New(id string, kubeconfig *string) (types.Harness, error) {
 	}
 
 	return &k8s{
-		Base:   base.New(),
 		Id:     id,
 		Config: config,
 		Client: clientset,
 	}, nil
 }
 
-func (h *k8s) Setup() types.StepFn {
-	return h.WithCreate(func(ctx context.Context) (context.Context, error) {
-		var rootUserID int64 = 0
-		commonLabels := map[string]string{
-			ImagetestLabel:        "true",
-			ParentHarnessRefLabel: h.Id,
+// Create implements harness.Harness.
+func (h *k8s) Create(ctx context.Context) error {
+	var rootUserID int64 = 0
+	commonLabels := map[string]string{
+		ImagetestLabel:        "true",
+		ParentHarnessRefLabel: h.Id,
+	}
+
+	namespaceName := fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)
+	sandboxPodName := fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)
+	rbacResourcesName := fmt.Sprintf(RbacResourcesNameFormat, h.Id)
+
+	_, err := h.Client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   namespaceName,
+			Labels: commonLabels,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create %q Namespace in cluster: %w", namespaceName, err)
 		}
 
-		namespaceName := fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)
-		sandboxPodName := fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)
-		rbacResourcesName := fmt.Sprintf(RbacResourcesNameFormat, h.Id)
+		log.Info(ctx, "namespace already exists")
+	}
 
-		_, err := h.Client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   namespaceName,
-				Labels: commonLabels,
-			},
-		}, metav1.CreateOptions{})
-		if err != nil {
-			if !errors.IsAlreadyExists(err) {
-				return ctx, fmt.Errorf("failed to create %q Namespace in cluster: %w", namespaceName, err)
-			}
-
-			log.Info(ctx, "namespace already exists")
+	err = h.createRbacResources(ctx, namespaceName, commonLabels)
+	if err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create RBAC resources for cluster: %w", err)
 		}
 
-		err = h.createRbacResources(ctx, namespaceName, commonLabels)
-		if err != nil {
-			if !errors.IsAlreadyExists(err) {
-				return ctx, fmt.Errorf("failed to create RBAC resources for cluster: %w", err)
-			}
+		log.Info(ctx, "rbac resources already exist")
+	}
 
-			log.Info(ctx, "rbac resources already exist")
-		}
+	podClient := h.Client.CoreV1().Pods(namespaceName)
 
-		podClient := h.Client.CoreV1().Pods(namespaceName)
-
-		_, err = podClient.Create(ctx, &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      sandboxPodName,
-				Namespace: namespaceName,
-				Labels:    commonLabels,
-			},
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{
-					{
-						Name:    EntrypointContainerName,
-						Image:   "cgr.dev/chainguard/kubectl:latest-dev",
-						Command: []string{"tail", "-f", "/dev/null"},
-					},
-				},
-				ServiceAccountName: rbacResourcesName,
-				SecurityContext: &corev1.PodSecurityContext{
-					RunAsUser: &rootUserID,
+	_, err = podClient.Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sandboxPodName,
+			Namespace: namespaceName,
+			Labels:    commonLabels,
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:    EntrypointContainerName,
+					Image:   "cgr.dev/chainguard/kubectl:latest-dev",
+					Command: []string{"tail", "-f", "/dev/null"},
 				},
 			},
-		}, metav1.CreateOptions{})
-		if err != nil {
-			return ctx, fmt.Errorf("failed to create Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
-		}
+			ServiceAccountName: rbacResourcesName,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser: &rootUserID,
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
+	}
 
-		err = h.waitForPod(ctx, podClient)
-		if err != nil {
-			return ctx, fmt.Errorf("failed to get Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
-		}
+	err = h.waitForPod(ctx, podClient)
+	if err != nil {
+		return fmt.Errorf("failed to get Pod %q in Namespace %q in cluster: %w", sandboxPodName, namespaceName, err)
+	}
 
-		return ctx, nil
+	return nil
+}
+
+// Run implements harness.Harness.
+// This code was heavily based on the code for kubectl exec: https://github.com/kubernetes/kubernetes/blob/a147693deb2e7f040cf367aae4a7ae5d1cb3e7aa/staging/src/k8s.io/kubectl/pkg/cmd/exec/exec.go
+func (h *k8s) Run(ctx context.Context, cmd harness.Command) error {
+	h.Config.GroupVersion = &schema.GroupVersion{
+		Group:   "",
+		Version: "v1",
+	}
+	h.Config.APIPath = "/api"
+	h.Config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+
+	restClient, err := rest.RESTClientFor(h.Config)
+	if err != nil {
+		return fmt.Errorf("failed to create REST client: %w", err)
+	}
+
+	execRequest := restClient.Post().
+		Resource("pods").
+		Name(fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)).
+		Namespace(fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)).
+		SubResource("exec")
+	execRequest.VersionedParams(&corev1.PodExecOptions{
+		Container: EntrypointContainerName,
+		Command:   []string{"sh", "-c", cmd.Args},
+		Stdout:    true,
+		Stderr:    true,
+	}, scheme.ParameterCodec)
+
+	execRequestURL := execRequest.URL()
+	executor, err := h.createExecutor(execRequestURL)
+	if err != nil {
+		return err
+	}
+
+	errBuf := &bytes.Buffer{}
+	outBuf := &bytes.Buffer{}
+
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Tty:    false,
+		Stdout: outBuf,
+		Stderr: errBuf,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to run command\n"+
+			"stdout output: \n\t%s\n\n"+
+			"stderr output: \n\t%s\n\n"+
+			"error message: %w", outBuf.String(), errBuf.String(), err)
+	}
+
+	return nil
 }
 
 func (h *k8s) waitForPod(ctx context.Context, podClient v1.PodInterface) error {
@@ -205,7 +250,8 @@ func (h *k8s) createRbacResources(ctx context.Context, namespaceName string, com
 				Verbs:     []string{"get", "create", "list", "delete", "watch"},
 				APIGroups: []string{"storage"},
 				Resources: []string{"jobs", "cronjobs"},
-			}, {
+			},
+			{
 				Verbs:     []string{"get", "create", "list", "delete", "watch"},
 				APIGroups: []string{"networking.k8s.io"},
 				Resources: []string{"ingresses"},
@@ -296,59 +342,6 @@ func (h *k8s) Destroy(ctx context.Context) error {
 
 	// no-op
 	return nil
-}
-
-func (h *k8s) StepFn(config types.StepConfig) types.StepFn {
-	// This code was heavily based on the code for kubectl exec: https://github.com/kubernetes/kubernetes/blob/a147693deb2e7f040cf367aae4a7ae5d1cb3e7aa/staging/src/k8s.io/kubectl/pkg/cmd/exec/exec.go
-	return func(ctx context.Context) (context.Context, error) {
-		h.Config.GroupVersion = &schema.GroupVersion{
-			Group:   "",
-			Version: "v1",
-		}
-		h.Config.APIPath = "/api"
-		h.Config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
-
-		restClient, err := rest.RESTClientFor(h.Config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create REST client: %w", err)
-		}
-
-		execRequest := restClient.Post().
-			Resource("pods").
-			Name(fmt.Sprintf(ImagetestSandboxPodNameFormat, h.Id)).
-			Namespace(fmt.Sprintf(ImagetestNamespaceNameFormat, h.Id)).
-			SubResource("exec")
-		execRequest.VersionedParams(&corev1.PodExecOptions{
-			Container: EntrypointContainerName,
-			Command:   []string{"sh", "-c", config.Command},
-			Stdout:    true,
-			Stderr:    true,
-		}, scheme.ParameterCodec)
-
-		execRequestURL := execRequest.URL()
-		executor, err := h.createExecutor(execRequestURL)
-		if err != nil {
-			return ctx, err
-		}
-
-		errBuf := &bytes.Buffer{}
-		outBuf := &bytes.Buffer{}
-
-		err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
-			Tty:    false,
-			Stdout: outBuf,
-			Stderr: errBuf,
-		})
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to run command\n"+
-				"stdout output: \n\t%s\n\n"+
-				"stderr output: \n\t%s\n\n"+
-				"error message: %w", outBuf.String(), errBuf.String(), err)
-		}
-
-		return ctx, nil
-	}
 }
 
 // createExecutor creates a remote executor to run commands in the target cluster.

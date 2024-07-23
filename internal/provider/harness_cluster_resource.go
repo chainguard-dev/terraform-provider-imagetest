@@ -3,8 +3,8 @@ package provider
 import (
 	"context"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/remote"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/remote"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/util"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -80,7 +80,7 @@ func (r *HarnessClusterResource) Update(ctx context.Context, req resource.Update
 func (r *HarnessClusterResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 }
 
-func (r *HarnessClusterResource) harness(_ context.Context, data *HarnessClusterResourceModel) (itypes.Harness, diag.Diagnostics) {
+func (r *HarnessClusterResource) harness(_ context.Context, data *HarnessClusterResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
 	var kubeconfig *string

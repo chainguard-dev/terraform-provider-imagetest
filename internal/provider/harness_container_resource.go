@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harnesses/container"
-	itypes "github.com/chainguard-dev/terraform-provider-imagetest/internal/types"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -99,7 +99,7 @@ func (r *HarnessContainerResource) Update(ctx context.Context, req resource.Upda
 	}
 }
 
-func (r *HarnessContainerResource) harness(ctx context.Context, data *HarnessContainerResourceModel) (itypes.Harness, diag.Diagnostics) {
+func (r *HarnessContainerResource) harness(ctx context.Context, data *HarnessContainerResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
 	ref, err := name.ParseReference(data.Image.ValueString())
