@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/container"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -44,14 +42,14 @@ type HarnessDockerResourceModel struct {
 	Inventory InventoryDataSourceModel         `tfsdk:"inventory"`
 	Volumes   []FeatureHarnessVolumeMountModel `tfsdk:"volumes"`
 
-	Image      types.String                             `tfsdk:"image"`
-	Privileged types.Bool                               `tfsdk:"privileged"`
-	Envs       types.Map                                `tfsdk:"envs"`
-	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
-	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
-	Registries map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
-	Resources  *ContainerResources                      `tfsdk:"resources"`
-	Timeouts   timeouts.Value                           `tfsdk:"timeouts"`
+	Image      types.String                           `tfsdk:"image"`
+	Privileged types.Bool                             `tfsdk:"privileged"`
+	Envs       *HarnessContainerEnvs                  `tfsdk:"envs"`
+	Mounts     []ContainerMountModel                  `tfsdk:"mounts"`
+	Networks   map[string]ContainerNetworkModel       `tfsdk:"networks"`
+	Registries map[string]DockerRegistryResourceModel `tfsdk:"registries"`
+	Resources  *ContainerResources                    `tfsdk:"resources"`
+	Timeouts   timeouts.Value                         `tfsdk:"timeouts"`
 }
 
 type DockerRegistryResourceModel struct {
@@ -110,21 +108,18 @@ func (r *HarnessDockerResource) Update(ctx context.Context, req resource.UpdateR
 
 func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDockerResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
-	var opts []docker.Option
 
 	ref, err := name.ParseReference(data.Image.ValueString())
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
 	}
-	opts = append(opts, docker.WithImageRef(ref))
 
-	if r.store.providerResourceData.Harnesses != nil &&
-		r.store.providerResourceData.Harnesses.Docker != nil &&
-		r.store.providerResourceData.Harnesses.Docker.HostSocketPath != nil {
-		opts = append(opts, docker.WithHostSocketPath(*r.store.providerResourceData.Harnesses.Docker.HostSocketPath))
+	opts := []docker.Option{
+		docker.WithName(data.Id.ValueString()),
+		docker.WithImageRef(ref),
 	}
 
-	mounts := make([]ContainerResourceMountModel, 0)
+	mounts := make([]ContainerMountModel, 0)
 	if data.Mounts != nil {
 		mounts = data.Mounts
 	}
@@ -134,18 +129,38 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		registries = data.Registries
 	}
 
-	networks := make(map[string]ContainerResourceModelNetwork)
+	networks := make(map[string]client.NetworkAttachment)
 	if data.Networks != nil {
-		networks = data.Networks
+		networks = make(map[string]client.NetworkAttachment)
+		for k, v := range data.Networks {
+			networks[k] = client.NetworkAttachment{
+				ID: v.Name.ValueString(),
+			}
+		}
 	}
 
+	volumes := make([]docker.VolumeConfig, 0)
+	if data.Volumes != nil {
+		for _, vol := range data.Volumes {
+			volumes = append(volumes, docker.VolumeConfig{
+				Name:   vol.Source.Id.ValueString(),
+				Target: vol.Destination,
+			})
+		}
+	}
+	opts = append(opts, docker.WithVolumes(volumes...))
+
 	if res := data.Resources; res != nil {
-		rreq, err := ParseResources(res)
+		resources, err := ParseResources(res)
 		if err != nil {
 			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse resources", err.Error())}
 		}
-		log.Info(ctx, "Setting resources for docker harness", "cpu_limit", rreq.CpuLimit.String(), "cpu_request", rreq.CpuRequest.String(), "memory_limit", rreq.MemoryLimit.String(), "memory_request", rreq.MemoryRequest.String())
-		opts = append(opts, docker.WithContainerResources(rreq))
+		log.Info(ctx, "Setting resources for docker harness", "cpu_limit", resources.CpuLimit.String(), "cpu_request", resources.CpuRequest.String(), "memory_limit", resources.MemoryLimit.String(), "memory_request", resources.MemoryRequest.String())
+		opts = append(opts, docker.WithResources(client.ResourcesRequest{
+			MemoryRequest: resources.MemoryRequest,
+			MemoryLimit:   resources.MemoryLimit,
+			CpuRequest:    resources.CpuRequest,
+		}))
 	}
 
 	if r.store.providerResourceData.Harnesses != nil {
@@ -153,19 +168,23 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 			mounts = append(mounts, c.Mounts...)
 
 			for k, v := range c.Networks {
-				networks[k] = v
+				networks[k] = client.NetworkAttachment{
+					ID: v.Name.ValueString(),
+				}
 			}
 
 			for k, v := range c.Registries {
 				registries[k] = v
 			}
 
-			envs := make(provider.Env)
-			if diags := c.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-				return nil, diags
+			if c.Envs != nil {
+				opts = append(opts, docker.WithEnvs(c.Envs.Slice()...))
 			}
-			opts = append(opts, docker.WithEnvs(envs))
 		}
+	}
+
+	if data.Envs != nil {
+		opts = append(opts, docker.WithEnvs(data.Envs.Slice()...))
 	}
 
 	for regAddress, regInfo := range registries {
@@ -189,47 +208,18 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid mount source: %s", err))}
 		}
 
-		opts = append(opts, docker.WithMounts(container.ConfigMount{
-			Type:        mount.TypeBind,
-			Source:      src,
-			Destination: m.Destination.ValueString(),
+		opts = append(opts, docker.WithMounts(mount.Mount{
+			Type:   mount.TypeBind,
+			Source: src,
+			Target: m.Destination.ValueString(),
 		}))
 	}
 
 	for _, network := range networks {
-		opts = append(opts, docker.WithNetworks(network.Name.ValueString()))
+		opts = append(opts, docker.WithNetworks(network))
 	}
 
-	if data.Volumes != nil {
-		for _, vol := range data.Volumes {
-			opts = append(opts, docker.WithManagedVolumes(container.ConfigMount{
-				Type:        mount.TypeVolume,
-				Source:      vol.Source.Id.ValueString(),
-				Destination: vol.Destination,
-			}))
-		}
-	}
-
-	envs := make(provider.Env)
-	if diags := data.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-		return nil, diags
-	}
-	opts = append(opts, docker.WithEnvs(envs))
-
-	id := data.Id.ValueString()
-	configVolumeName := id + "-config"
-
-	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Labels: provider.DefaultLabels(),
-		Name:   configVolumeName,
-	})
-	if err != nil {
-		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create config volume for the Docker harness", err.Error())}
-	}
-
-	opts = append(opts, docker.WithConfigVolumeName(configVolumeName))
-
-	harness, err := docker.New(id, r.store.cli, opts...)
+	harness, err := docker.New(opts...)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid provider data", err.Error())}
 	}

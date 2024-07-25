@@ -17,7 +17,7 @@ func TestAccFeatureResource(t *testing.T) {
 				Config: `
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
 }
@@ -25,7 +25,7 @@ resource "imagetest_harness_container" "test" {
 resource "imagetest_feature" "test" {
   name = "Ordering"
   description = "Test the step ordering"
-  harness = imagetest_harness_container.test
+  harness = imagetest_harness_docker.test
   before = [
     {
       name = "1"
@@ -69,7 +69,7 @@ func TestAccFeatureResourceRetry(t *testing.T) {
 				Config: `
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
 }
@@ -77,7 +77,7 @@ resource "imagetest_harness_container" "test" {
 resource "imagetest_feature" "test" {
   name = "Retry"
   description = "Test the step ordering"
-  harness = imagetest_harness_container.test
+  harness = imagetest_harness_docker.test
   steps = [
     {
       # NOTE: This technically will succeed for > n_attempts, but since the
@@ -132,7 +132,7 @@ func TestAccFeatureResourceUpdate(t *testing.T) {
 				Config: `
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
 }
@@ -140,7 +140,7 @@ resource "imagetest_harness_container" "test" {
 resource "imagetest_feature" "test" {
   name = "update"
   description = "Test whether creates work"
-  harness = imagetest_harness_container.test
+  harness = imagetest_harness_docker.test
   steps = [
     {
       name = "something"
@@ -157,7 +157,7 @@ resource "imagetest_feature" "test" {
 				Config: `
 data "imagetest_inventory" "this" {}
 
-resource "imagetest_harness_container" "test" {
+resource "imagetest_harness_docker" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
 }
@@ -165,7 +165,7 @@ resource "imagetest_harness_container" "test" {
 resource "imagetest_feature" "test" {
   name = "update"
   description = "Test whether updates work"
-  harness = imagetest_harness_container.test
+  harness = imagetest_harness_docker.test
   steps = [
     {
       name = "something"

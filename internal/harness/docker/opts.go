@@ -3,61 +3,52 @@ package docker
 import (
 	"fmt"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/container"
+	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
-type HarnessDockerOptions struct {
-	ImageRef           name.Reference
-	ManagedVolumes     []container.ConfigMount
-	Networks           []string
-	Mounts             []container.ConfigMount
-	HostSocketPath     string
-	Envs               provider.Env
-	Registries         map[string]*RegistryOpt
-	ConfigVolumeName   string
-	ContainerResources provider.ContainerResourcesRequest
+type Option func(*docker) error
+
+type VolumeConfig struct {
+	Name   string
+	Target string
 }
 
-type RegistryOpt struct {
-	Auth *RegistryAuthOpt
-	Tls  *RegistryTlsOpt
+type RegistryConfig struct {
+	Auth *RegistryAuthConfig
+	Tls  *RegistryTlsConfig
 }
 
-type RegistryAuthOpt struct {
+type RegistryAuthConfig struct {
 	Username string
 	Password string
 	Auth     string
 }
 
-type RegistryTlsOpt struct {
+type RegistryTlsConfig struct {
 	CertFile string
 	KeyFile  string
 	CaFile   string
 }
 
-type Option func(*HarnessDockerOptions) error
+func WithName(name string) Option {
+	return func(opt *docker) error {
+		opt.Name = name
+		return nil
+	}
+}
 
 func WithImageRef(ref name.Reference) Option {
-	return func(opt *HarnessDockerOptions) error {
+	return func(opt *docker) error {
 		opt.ImageRef = ref
 		return nil
 	}
 }
 
-func WithManagedVolumes(volumes ...container.ConfigMount) Option {
-	return func(opt *HarnessDockerOptions) error {
-		if volumes != nil {
-			opt.ManagedVolumes = append(opt.ManagedVolumes, volumes...)
-		}
-		return nil
-	}
-}
-
-func WithMounts(mounts ...container.ConfigMount) Option {
-	return func(opt *HarnessDockerOptions) error {
+func WithMounts(mounts ...mount.Mount) Option {
+	return func(opt *docker) error {
 		if mounts != nil {
 			opt.Mounts = append(opt.Mounts, mounts...)
 		}
@@ -65,23 +56,23 @@ func WithMounts(mounts ...container.ConfigMount) Option {
 	}
 }
 
-func WithNetworks(networks ...string) Option {
-	return func(opt *HarnessDockerOptions) error {
+func WithNetworks(networks ...client.NetworkAttachment) Option {
+	return func(opt *docker) error {
 		opt.Networks = append(opt.Networks, networks...)
 		return nil
 	}
 }
 
 func WithAuthFromStatic(registry, username, password, auth string) Option {
-	return func(opt *HarnessDockerOptions) error {
+	return func(opt *docker) error {
 		if opt.Registries == nil {
-			opt.Registries = make(map[string]*RegistryOpt)
+			opt.Registries = make(map[string]*RegistryConfig)
 		}
 		if _, ok := opt.Registries[registry]; !ok {
-			opt.Registries[registry] = &RegistryOpt{}
+			opt.Registries[registry] = &RegistryConfig{}
 		}
 
-		opt.Registries[registry].Auth = &RegistryAuthOpt{
+		opt.Registries[registry].Auth = &RegistryAuthConfig{
 			Username: username,
 			Password: password,
 			Auth:     auth,
@@ -92,12 +83,12 @@ func WithAuthFromStatic(registry, username, password, auth string) Option {
 }
 
 func WithAuthFromKeychain(registry string) Option {
-	return func(opt *HarnessDockerOptions) error {
+	return func(opt *docker) error {
 		if opt.Registries == nil {
-			opt.Registries = make(map[string]*RegistryOpt)
+			opt.Registries = make(map[string]*RegistryConfig)
 		}
 		if _, ok := opt.Registries[registry]; !ok {
-			opt.Registries[registry] = &RegistryOpt{}
+			opt.Registries[registry] = &RegistryConfig{}
 		}
 
 		r, err := name.NewRegistry(registry)
@@ -115,7 +106,7 @@ func WithAuthFromKeychain(registry string) Option {
 			return fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
 		}
 
-		opt.Registries[registry].Auth = &RegistryAuthOpt{
+		opt.Registries[registry].Auth = &RegistryAuthConfig{
 			Username: acfg.Username,
 			Password: acfg.Password,
 			Auth:     acfg.Auth,
@@ -125,43 +116,29 @@ func WithAuthFromKeychain(registry string) Option {
 	}
 }
 
-func WithEnvs(env ...provider.Env) Option {
-	return func(opt *HarnessDockerOptions) error {
-		if env == nil {
+func WithEnvs(env ...string) Option {
+	return func(opt *docker) error {
+		if opt.Envs == nil {
+			opt.Envs = make([]string, 0)
+		}
+		opt.Envs = append(opt.Envs, env...)
+		return nil
+	}
+}
+
+func WithResources(req client.ResourcesRequest) Option {
+	return func(opt *docker) error {
+		opt.Resources = req
+		return nil
+	}
+}
+
+func WithVolumes(volumes ...VolumeConfig) Option {
+	return func(opt *docker) error {
+		if volumes == nil {
 			return nil
 		}
-
-		if opt.Envs == nil {
-			opt.Envs = make(provider.Env)
-		}
-
-		for _, envItem := range env {
-			for k, v := range envItem {
-				opt.Envs[k] = v
-			}
-		}
-
-		return nil
-	}
-}
-
-func WithHostSocketPath(socketPath string) Option {
-	return func(opt *HarnessDockerOptions) error {
-		opt.HostSocketPath = socketPath
-		return nil
-	}
-}
-
-func WithConfigVolumeName(configVolumeName string) Option {
-	return func(opt *HarnessDockerOptions) error {
-		opt.ConfigVolumeName = configVolumeName
-		return nil
-	}
-}
-
-func WithContainerResources(request provider.ContainerResourcesRequest) Option {
-	return func(opt *HarnessDockerOptions) error {
-		opt.ContainerResources = request
+		opt.Volumes = append(opt.Volumes, volumes...)
 		return nil
 	}
 }

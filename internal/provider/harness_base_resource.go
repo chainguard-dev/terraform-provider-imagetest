@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	kresource "k8s.io/apimachinery/pkg/api/resource"
 )
@@ -48,6 +50,16 @@ type FeatureHarnessVolumeMountModel struct {
 	Destination string                       `tfsdk:"destination"`
 }
 
+type HarnessContainerEnvs map[string]string
+
+func (e HarnessContainerEnvs) Slice() []string {
+	s := make([]string, 0, len(e))
+	for k, v := range e {
+		s = append(s, fmt.Sprintf("%s=%s", k, v))
+	}
+	return s
+}
+
 type RegistryResourceAuthModel struct {
 	Username types.String `tfsdk:"username"`
 	Password types.String `tfsdk:"password"`
@@ -73,6 +85,15 @@ type ContainerMemoryResources struct {
 type ContainerCpuResources struct {
 	Request types.String `tfsdk:"request"`
 	Limit   types.String `tfsdk:"limit"`
+}
+
+type ContainerMountModel struct {
+	Source      types.String `tfsdk:"source"`
+	Destination types.String `tfsdk:"destination"`
+}
+
+type ContainerNetworkModel struct {
+	Name types.String `tfsdk:"name"`
 }
 
 type HarnessHooksModel struct {
@@ -234,8 +255,8 @@ func (r *BaseHarnessResource) Delete(context.Context, resource.DeleteRequest, *r
 }
 
 // ParseResources parses the ContainerResources object into a provider.ContainerResourcesRequest object.
-func ParseResources(resources *ContainerResources) (provider.ContainerResourcesRequest, error) {
-	req := provider.ContainerResourcesRequest{}
+func ParseResources(resources *ContainerResources) (docker.ResourcesRequest, error) {
+	req := docker.ResourcesRequest{}
 
 	if resources == nil {
 		return req, nil
@@ -306,23 +327,51 @@ func (r *BaseHarnessResource) schemaAttributes(ctx context.Context) map[string]s
 	}
 }
 
-func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute {
+// defaultContainerResourceSchemaAttributes adds common container resource
+// attributes to the given map. this function is provided knowing how common it
+// is for other harnesses to require some sort of container configuration.
+func (r *BaseHarnessResource) containerSchemaAttributes(_ context.Context) map[string]schema.Attribute {
 	return map[string]schema.Attribute{
-		"harness": schema.SingleNestedAttribute{
-			Required: true,
-			Attributes: map[string]schema.Attribute{
-				"id": schema.StringAttribute{
-					Required: true,
+		"image": schema.StringAttribute{
+			Description: "The full image reference to use for the container.",
+			Optional:    true,
+			Computed:    true,
+			Default:     stringdefault.StaticString("cgr.dev/chainguard/wolfi-base:latest"),
+		},
+		"privileged": schema.BoolAttribute{
+			Optional: true,
+			Computed: true,
+			Default:  booldefault.StaticBool(false),
+		},
+		"envs": schema.MapAttribute{
+			Description: "Environment variables to set on the container.",
+			Optional:    true,
+			ElementType: types.StringType,
+		},
+		"networks": schema.MapNestedAttribute{
+			Description: "A map of existing networks to attach the container to.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						Description: "The name of the existing network to attach the container to.",
+						Required:    true,
+					},
 				},
-				"name": schema.StringAttribute{
-					Required: true,
-				},
-				"inventory": schema.SingleNestedAttribute{
-					Required: true,
-					Attributes: map[string]schema.Attribute{
-						"seed": schema.StringAttribute{
-							Required: true,
-						},
+			},
+		},
+		"mounts": schema.ListNestedAttribute{
+			Description: "The list of mounts to create on the container.",
+			Optional:    true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"source": schema.StringAttribute{
+						Description: "The relative or absolute path on the host to the source directory to mount.",
+						Required:    true,
+					},
+					"destination": schema.StringAttribute{
+						Description: "The absolute path on the container to mount the source directory.",
+						Required:    true,
 					},
 				},
 			},

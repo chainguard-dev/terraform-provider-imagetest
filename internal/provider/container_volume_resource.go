@@ -2,15 +2,13 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/volume"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 var _ resource.ResourceWithModifyPlan = &ContainerVolumeResource{}
@@ -42,33 +40,48 @@ func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	inv := InventoryDataSourceModel{}
-	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
-		return
-	}
-
-	invEnc, err := r.store.Encode(inv.Seed.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create volume", "encoding inventory seed")
-		return
-	}
-
-	id := fmt.Sprintf("%s-%s", data.Name.ValueString(), invEnc)
-	_, err = r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Name:   id,
-		Labels: provider.DefaultLabels(),
-	})
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create volume", err.Error())
-		return
-	}
-
-	data.Id = basetypes.NewStringValue(id)
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	harness, diags := r.harness(ctx, &data)
+	resp.Diagnostics.Append(diags...)
+	if diags.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(r.create(ctx, req, harness)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 }
 
 func (r *ContainerVolumeResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data ContainerVolumeResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	harness, diags := r.harness(ctx, &data)
+	resp.Diagnostics.Append(diags...)
+	if diags.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(r.update(ctx, req, harness)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+}
+
+func (r *ContainerVolumeResource) harness(_ context.Context, data *ContainerVolumeResourceModel) (harness.Harness, diag.Diagnostics) {
+	diags := make(diag.Diagnostics, 0)
+
+	id := data.Id.ValueString()
+	harness := volume.New(volume.WithName(id))
+
+	return harness, diags
 }
 
 func (r *ContainerVolumeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {

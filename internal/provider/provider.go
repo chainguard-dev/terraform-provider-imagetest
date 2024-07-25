@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 
-	cprovider "github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -31,20 +30,13 @@ type ImageTestProviderModel struct {
 }
 
 type ImageTestProviderHarnessModel struct {
-	Container *ProviderHarnessContainerModel `tfsdk:"container"`
-	K3s       *ProviderHarnessK3sModel       `tfsdk:"k3s"`
-	Docker    *ProviderHarnessDockerModel    `tfsdk:"docker"`
-	Cluster   *ProviderHarnessClusterModel   `tfsdk:"cluster"`
-}
-
-type ProviderHarnessContainerModel struct {
-	Networks map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
-	Envs     types.Map                                `tfsdk:"envs"`
-	Mounts   []ContainerResourceMountModel            `tfsdk:"mounts"`
+	K3s     *ProviderHarnessK3sModel     `tfsdk:"k3s"`
+	Docker  *ProviderHarnessDockerModel  `tfsdk:"docker"`
+	Cluster *ProviderHarnessClusterModel `tfsdk:"cluster"`
 }
 
 type ProviderHarnessK3sModel struct {
-	Networks   map[string]ContainerResourceModelNetwork      `tfsdk:"networks"`
+	Networks   map[string]ContainerNetworkModel              `tfsdk:"networks"`
 	Registries map[string]RegistryResourceModel              `tfsdk:"registries"`
 	Sandbox    *ProviderHarnessContainerSandboxResourceModel `tfsdk:"sandbox"`
 }
@@ -58,11 +50,11 @@ type ProviderHarnessContainerSandboxResourceModel struct {
 }
 
 type ProviderHarnessDockerModel struct {
-	HostSocketPath *string                                  `tfsdk:"host_socket_path"`
-	Networks       map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
-	Envs           types.Map                                `tfsdk:"envs"`
-	Mounts         []ContainerResourceMountModel            `tfsdk:"mounts"`
-	Registries     map[string]DockerRegistryResourceModel   `tfsdk:"registries"`
+	HostSocketPath *string                                `tfsdk:"host_socket_path"`
+	Networks       map[string]ContainerNetworkModel       `tfsdk:"networks"`
+	Envs           *HarnessContainerEnvs                  `tfsdk:"envs"`
+	Mounts         []ContainerMountModel                  `tfsdk:"mounts"`
+	Registries     map[string]DockerRegistryResourceModel `tfsdk:"registries"`
 }
 
 type ProviderLoggerModel struct {
@@ -108,44 +100,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 			"harnesses": schema.SingleNestedAttribute{
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
-					"container": schema.SingleNestedAttribute{
-						Optional: true,
-						Attributes: map[string]schema.Attribute{
-							"envs": schema.MapAttribute{
-								Description: "Environment variables to set on the container.",
-								Optional:    true,
-								ElementType: types.StringType,
-							},
-							"networks": schema.MapNestedAttribute{
-								Description: "A map of existing networks to attach the container to.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"name": schema.StringAttribute{
-											Description: "The name of the existing network to attach the container to.",
-											Required:    true,
-										},
-									},
-								},
-							},
-							"mounts": schema.ListNestedAttribute{
-								Description: "The list of mounts to create on the container.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"source": schema.StringAttribute{
-											Description: "The relative or absolute path on the host to the source directory to mount.",
-											Required:    true,
-										},
-										"destination": schema.StringAttribute{
-											Description: "The absolute path on the container to mount the source directory to.",
-											Required:    true,
-										},
-									},
-								},
-							},
-						},
-					},
 					"k3s": schema.SingleNestedAttribute{
 						Optional: true,
 						Attributes: map[string]schema.Attribute{
@@ -315,14 +269,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	}
 	store.labels = labels
 
-	// TODO: Remove the need for a provider scoped docker cli
-	cli, err := cprovider.NewDockerClient()
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create docker client", err.Error())
-		return
-	}
-	store.cli = cli
-
 	// Store any "global" provider configuration in the store
 	store.providerResourceData = data
 
@@ -337,7 +283,6 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 		// Harnesses
 		NewHarnessK3sResource,
 		NewHarnessClusterResource,
-		NewHarnessContainerResource,
 		NewHarnessDockerResource,
 	}
 }
