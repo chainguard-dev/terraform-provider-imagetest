@@ -27,7 +27,6 @@ description: |-
 Optional:
 
 - `cluster` (Attributes) (see [below for nested schema](#nestedatt--harnesses--cluster))
-- `container` (Attributes) (see [below for nested schema](#nestedatt--harnesses--container))
 - `docker` (Attributes) (see [below for nested schema](#nestedatt--harnesses--docker))
 - `k3s` (Attributes) (see [below for nested schema](#nestedatt--harnesses--k3s))
 
@@ -37,33 +36,6 @@ Optional:
 Required:
 
 - `kubeconfig` (String) The relative or absolute path on the host to the source directory to mount.
-
-
-<a id="nestedatt--harnesses--container"></a>
-### Nested Schema for `harnesses.container`
-
-Optional:
-
-- `envs` (Map of String) Environment variables to set on the container.
-- `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--harnesses--container--mounts))
-- `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--harnesses--container--networks))
-
-<a id="nestedatt--harnesses--container--mounts"></a>
-### Nested Schema for `harnesses.container.mounts`
-
-Required:
-
-- `destination` (String) The absolute path on the container to mount the source directory to.
-- `source` (String) The relative or absolute path on the host to the source directory to mount.
-
-
-<a id="nestedatt--harnesses--container--networks"></a>
-### Nested Schema for `harnesses.container.networks`
-
-Required:
-
-- `name` (String) The name of the existing network to attach the container to.
-
 
 
 <a id="nestedatt--harnesses--docker"></a>

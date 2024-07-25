@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/chainguard-dev/clog"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	ilog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
@@ -29,10 +28,6 @@ type ProviderStore struct {
 	// TODO: there's probably a way to do this without passing around the whole
 	// model
 	providerResourceData ImageTestProviderModel
-
-	// cli is the Docker client. it is initialized once during the providers
-	// Configure() stage and reused for any resource that requires it.
-	cli *provider.DockerClient
 }
 
 func NewProviderStore() *ProviderStore {

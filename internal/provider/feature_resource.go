@@ -422,3 +422,27 @@ func addFeatureStepBackoffSchemaAttributes() map[string]schema.Attribute {
 		},
 	}
 }
+
+func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"harness": schema.SingleNestedAttribute{
+			Required: true,
+			Attributes: map[string]schema.Attribute{
+				"id": schema.StringAttribute{
+					Required: true,
+				},
+				"name": schema.StringAttribute{
+					Required: true,
+				},
+				"inventory": schema.SingleNestedAttribute{
+					Required: true,
+					Attributes: map[string]schema.Attribute{
+						"seed": schema.StringAttribute{
+							Required: true,
+						},
+					},
+				},
+			},
+		},
+	}
+}

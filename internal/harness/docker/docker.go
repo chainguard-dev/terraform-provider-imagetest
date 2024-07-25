@@ -1,19 +1,16 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 
+	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
 )
 
 var _ harness.Harness = &docker{}
@@ -21,123 +18,114 @@ var _ harness.Harness = &docker{}
 const DefaultDockerSocketPath = "/var/run/docker.sock"
 
 type docker struct {
-	id string
+	Name       string
+	ImageRef   name.Reference
+	Networks   []client.NetworkAttachment
+	Mounts     []mount.Mount
+	Resources  client.ResourcesRequest
+	Envs       []string
+	Registries map[string]*RegistryConfig
+	Volumes    []VolumeConfig
 
-	container provider.Provider
+	stack  *harness.Stack
+	runner func(context.Context, harness.Command) error
 }
 
-func New(id string, cli *provider.DockerClient, opts ...Option) (harness.Harness, error) {
-	options := &HarnessDockerOptions{
-		ContainerResources: provider.ContainerResourcesRequest{
+func New(opts ...Option) (harness.Harness, error) {
+	h := &docker{
+		ImageRef: name.MustParseReference("cgr.dev/chainguard/docker-cli:latest-dev"),
+		Resources: client.ResourcesRequest{
 			MemoryRequest: resource.MustParse("1Gi"),
 			MemoryLimit:   resource.MustParse("2Gi"),
 		},
+		Envs: []string{
+			"IMAGETEST=true",
+		},
+		stack: harness.NewStack(),
 	}
 
 	for _, opt := range opts {
-		if err := opt(options); err != nil {
+		if err := opt(h); err != nil {
 			return nil, err
 		}
 	}
 
-	dockerSocketPath := DefaultDockerSocketPath
-	if options.HostSocketPath != "" {
-		dockerSocketPath = options.HostSocketPath
-	}
-
-	var managedVolumes []mount.Mount
-	for _, vol := range options.ManagedVolumes {
-		managedVolumes = append(managedVolumes, mount.Mount{
-			Type:   mount.TypeVolume,
-			Source: vol.Source,
-			Target: vol.Destination,
-			VolumeOptions: &mount.VolumeOptions{
-				Labels: provider.DefaultLabels(),
-			},
-		})
-	}
-
-	managedVolumes = append(managedVolumes, mount.Mount{
-		Type:   mount.TypeVolume,
-		Target: "/root/.docker",
-		Source: options.ConfigVolumeName,
-		VolumeOptions: &mount.VolumeOptions{
-			Labels: provider.DefaultLabels(),
-		},
-	})
-
-	var mounts []mount.Mount
-	mounts = append(mounts, mount.Mount{
-		Type:   mount.TypeBind,
-		Source: dockerSocketPath,
-		Target: DefaultDockerSocketPath,
-	})
-
-	for _, mt := range options.Mounts {
-		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: mt.Source,
-			Target: mt.Destination,
-		})
-	}
-
-	dockerConfigJson, err := createDockerConfigJSON(options.Registries)
-	if err != nil {
-		return nil, err
-	}
-
-	container := provider.NewDocker(id, cli, provider.DockerRequest{
-		ContainerRequest: provider.ContainerRequest{
-			Ref:        options.ImageRef,
-			Entrypoint: harness.DefaultEntrypoint(),
-			Cmd:        harness.DefaultCmd(),
-			Networks:   options.Networks,
-			Env:        options.Envs,
-			User:       "0:0", // required to be able to change path permissions, access the socket, other tasks
-			Files: []provider.File{
-				{
-					Contents: bytes.NewBuffer(dockerConfigJson),
-					Target:   "/root/.docker/config.json",
-					Mode:     0644,
-				},
-			},
-			Resources: options.ContainerResources,
-			Labels:    provider.MainHarnessLabel(),
-		},
-		Mounts:         mounts,
-		ManagedVolumes: managedVolumes,
-	})
-
-	return &docker{
-		id:        id,
-		container: container,
-	}, nil
+	return h, nil
 }
 
 // Create implements harness.Harness.
 func (h *docker) Create(ctx context.Context) error {
-	return h.container.Start(ctx)
+	cli, err := client.New()
+	if err != nil {
+		return err
+	}
+
+	nw, err := cli.CreateNetwork(ctx, &client.NetworkRequest{})
+	if err != nil {
+		return fmt.Errorf("creating network: %w", err)
+	}
+
+	if err := h.stack.Add(func(ctx context.Context) error {
+		return cli.RemoveNetwork(ctx, nw)
+	}); err != nil {
+		return fmt.Errorf("adding network teardown to stack: %w", err)
+	}
+
+	dockerconfigjson, err := createDockerConfigJSON(h.Registries)
+	if err != nil {
+		return fmt.Errorf("creating docker config json: %w", err)
+	}
+
+	mounts := append(h.Mounts, mount.Mount{
+		Type:   mount.TypeBind,
+		Source: "/var/run/docker.sock",
+		Target: "/var/run/docker.sock",
+	})
+
+	if len(h.Volumes) > 0 {
+		for _, vol := range h.Volumes {
+			mounts = append(mounts, mount.Mount{
+				Type:   mount.TypeVolume,
+				Source: vol.Name, // mount.Mount refers to "Source" as the name for a named volume
+				Target: vol.Target,
+			})
+		}
+	}
+
+	resp, err := cli.Start(ctx, &client.Request{
+		Name:       h.Name,
+		Ref:        h.ImageRef,
+		Entrypoint: harness.DefaultEntrypoint(),
+		Cmd:        harness.DefaultCmd(),
+		Networks:   h.Networks,
+		Resources:  h.Resources,
+		User:       "0:0",
+		Mounts:     mounts,
+		Env:        h.Envs,
+		Contents: []*client.Content{
+			client.NewContentFromString(string(dockerconfigjson), "/root/.docker/config.json"),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("starting container: %w", err)
+	}
+
+	if err := h.stack.Add(func(ctx context.Context) error {
+		return cli.Remove(ctx, resp)
+	}); err != nil {
+		return fmt.Errorf("adding container teardown to stack: %w", err)
+	}
+
+	h.runner = func(ctx context.Context, cmd harness.Command) error {
+		return resp.Run(ctx, cmd)
+	}
+
+	return nil
 }
 
 // Run implements harness.Harness.
 func (h *docker) Run(ctx context.Context, cmd harness.Command) error {
-	log.Info(ctx, "stepping in docker container with command", "command", cmd.Args)
-	r, err := h.container.Exec(ctx, provider.ExecConfig{
-		Command:    cmd.Args,
-		WorkingDir: cmd.WorkingDir,
-	})
-	if err != nil {
-		return err
-	}
-
-	out, err := io.ReadAll(r)
-	if err != nil {
-		return err
-	}
-
-	log.Info(ctx, "finished stepping in docker container", "command", cmd.Args, "out", string(out))
-
-	return nil
+	return h.runner(ctx, cmd)
 }
 
 func (h *docker) DebugLogCommand() string {
@@ -146,7 +134,7 @@ func (h *docker) DebugLogCommand() string {
 }
 
 func (h *docker) Destroy(ctx context.Context) error {
-	return h.container.Teardown(ctx)
+	return h.stack.Teardown(ctx)
 }
 
 type dockerAuthEntry struct {
@@ -160,7 +148,7 @@ type dockerConfig struct {
 }
 
 // createDockerConfigJSON creates a Docker config.json file used by the harness for auth.
-func createDockerConfigJSON(registryAuths map[string]*RegistryOpt) ([]byte, error) {
+func createDockerConfigJSON(registryAuths map[string]*RegistryConfig) ([]byte, error) {
 	authConfig := dockerConfig{}
 	authConfig.Auths = make(map[string]dockerAuthEntry)
 

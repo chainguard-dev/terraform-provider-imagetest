@@ -8,12 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -42,18 +41,18 @@ type HarnessK3sResourceModel struct {
 	Name      types.String             `tfsdk:"name"`
 	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
 
-	Image                types.String                             `tfsdk:"image"`
-	DisableCni           types.Bool                               `tfsdk:"disable_cni"`
-	DisableNetworkPolicy types.Bool                               `tfsdk:"disable_network_policy"`
-	DisableTraefik       types.Bool                               `tfsdk:"disable_traefik"`
-	DisableMetricsServer types.Bool                               `tfsdk:"disable_metrics_server"`
-	Registries           map[string]RegistryResourceModel         `tfsdk:"registries"`
-	Networks             map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
-	Sandbox              types.Object                             `tfsdk:"sandbox"`
-	Timeouts             timeouts.Value                           `tfsdk:"timeouts"`
-	Resources            *ContainerResources                      `tfsdk:"resources"`
-	Hooks                *HarnessHooksModel                       `tfsdk:"hooks"`
-	KubeletConfig        types.String                             `tfsdk:"kubelet_config"`
+	Image                types.String                     `tfsdk:"image"`
+	DisableCni           types.Bool                       `tfsdk:"disable_cni"`
+	DisableNetworkPolicy types.Bool                       `tfsdk:"disable_network_policy"`
+	DisableTraefik       types.Bool                       `tfsdk:"disable_traefik"`
+	DisableMetricsServer types.Bool                       `tfsdk:"disable_metrics_server"`
+	Registries           map[string]RegistryResourceModel `tfsdk:"registries"`
+	Networks             map[string]ContainerNetworkModel `tfsdk:"networks"`
+	Sandbox              types.Object                     `tfsdk:"sandbox"`
+	Timeouts             timeouts.Value                   `tfsdk:"timeouts"`
+	Resources            *ContainerResources              `tfsdk:"resources"`
+	Hooks                *HarnessHooksModel               `tfsdk:"hooks"`
+	KubeletConfig        types.String                     `tfsdk:"kubelet_config"`
 }
 
 type RegistryResourceModel struct {
@@ -67,11 +66,11 @@ type RegistryResourceMirrorModel struct {
 }
 
 type HarnessK3sSandboxResourceModel struct {
-	Image      types.String                             `tfsdk:"image"`
-	Privileged types.Bool                               `tfsdk:"privileged"`
-	Envs       types.Map                                `tfsdk:"envs"`
-	Mounts     []ContainerResourceMountModel            `tfsdk:"mounts"`
-	Networks   map[string]ContainerResourceModelNetwork `tfsdk:"networks"`
+	Image      types.String                     `tfsdk:"image"`
+	Privileged types.Bool                       `tfsdk:"privileged"`
+	Envs       types.Map                        `tfsdk:"envs"`
+	Mounts     []ContainerMountModel            `tfsdk:"mounts"`
+	Networks   map[string]ContainerNetworkModel `tfsdk:"networks"`
 }
 
 func (r *HarnessK3sResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -124,6 +123,7 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 	diags := make(diag.Diagnostics, 0)
 
 	kopts := append([]k3s.Option{
+		k3s.WithName(data.Id.ValueString()),
 		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
 		k3s.WithTraefikDisabled(data.DisableTraefik.ValueBool()),
 		k3s.WithMetricsServerDisabled(data.DisableMetricsServer.ValueBool()),
@@ -135,10 +135,12 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 		registries = data.Registries
 	}
 
-	networks := make([]string, 0)
+	networks := make([]docker.NetworkAttachment, 0)
 	if data.Networks != nil {
 		for _, v := range data.Networks {
-			networks = append(networks, v.Name.ValueString())
+			networks = append(networks, docker.NetworkAttachment{
+				ID: v.Name.ValueString(),
+			})
 		}
 	}
 
@@ -149,7 +151,9 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			}
 
 			for _, v := range pc.Networks {
-				networks = append(networks, v.Name.ValueString())
+				networks = append(networks, docker.NetworkAttachment{
+					ID: v.Name.ValueString(),
+				})
 			}
 
 			if pc.Sandbox != nil {
@@ -201,14 +205,21 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 		}
 
 		for _, n := range sandbox.Networks {
-			kopts = append(kopts, k3s.WithSandboxNetworks(n.Name.ValueString()))
+			// kopts = append(kopts, k3s.WithSandboxNetworks(n.Name.ValueString()))
+			kopts = append(kopts, k3s.WithNetworks(docker.NetworkAttachment{
+				ID: n.Name.ValueString(),
+			}))
 		}
 
 		envs := make(map[string]string)
 		if diags := sandbox.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
 			return nil, diags
 		}
-		kopts = append(kopts, k3s.WithSandboxEnv(envs))
+		envslist := make([]string, 0)
+		for k, v := range envs {
+			envslist = append(envslist, fmt.Sprintf("%s=%s", k, v))
+		}
+		kopts = append(kopts, k3s.WithSandboxEnv(envslist...))
 	}
 
 	for rname, rdata := range registries {
@@ -237,7 +248,12 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse resources", err.Error())}
 		}
 		log.Info(ctx, "Setting resources for k3s harness", "cpu_limit", rreq.CpuLimit.String(), "cpu_request", rreq.CpuRequest.String(), "memory_limit", rreq.MemoryLimit.String(), "memory_request", rreq.MemoryRequest.String())
-		kopts = append(kopts, k3s.WithResources(rreq))
+		kopts = append(kopts, k3s.WithResources(docker.ResourcesRequest{
+			MemoryRequest: rreq.MemoryRequest,
+			MemoryLimit:   rreq.MemoryLimit,
+			CpuRequest:    rreq.CpuRequest,
+			CpuLimit:      rreq.CpuLimit,
+		}))
 	}
 
 	if data.Hooks != nil {
@@ -290,19 +306,7 @@ You can access the cluster with something like: "KUBECONFIG=%s kubectl get po -A
 		kopts = append(kopts, k3s.WithKubeletConfig(data.KubeletConfig.ValueString()))
 	}
 
-	id := data.Id.ValueString()
-	configVolumeName := id + "-config"
-
-	if _, err := r.store.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Labels: provider.DefaultLabels(),
-		Name:   configVolumeName,
-	}); err != nil {
-		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create config volume for k3s harness", err.Error())}
-	}
-
-	kopts = append(kopts, k3s.WithContainerVolumeName(configVolumeName))
-
-	harness, err := k3s.New(id, r.store.cli, kopts...)
+	harness, err := k3s.New(kopts...)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize k3s harness", err.Error())}
 	}
@@ -315,7 +319,7 @@ func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
 	opts := make([]k3s.Option, 0)
 
 	if os.Getenv("WORKSTATION") != "" {
-		opts = append(opts, k3s.WithContainerSnapshotter(k3s.K3sContainerSnapshotterNative))
+		opts = append(opts, k3s.WithSnapshotter(k3s.K3sContainerSnapshotterNative))
 	}
 
 	return opts
@@ -323,7 +327,7 @@ func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
 
 func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	sandboxAttributes := mergeResourceSchemas(
-		defaultContainerResourceSchemaAttributes(),
+		r.containerSchemaAttributes(ctx),
 		map[string]schema.Attribute{
 			// Override the default image to use one with kubectl instead
 			"image": schema.StringAttribute{
