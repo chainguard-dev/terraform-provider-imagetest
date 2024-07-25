@@ -80,3 +80,83 @@ jobs:
           TF_ACC: "1"
         run: go test -v -cover ./internal/provider/
         timeout-minutes: 10
+
+  images-test:
+    name: Run imagetest against images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - uses: hashicorp/setup-terraform@651471c36a6092792c552e8b1bef71e592b462d8 # v3.1.1
+        with:
+          terraform_version: "1.8.*"
+          terraform_wrapper: false
+
+      - name: Build the provider
+        run: |
+          go install .
+
+      - name: Clone the public images repo
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          repository: chainguard-images/images
+          path: images
+
+      - name: Build images
+        working-directory: images
+        env:
+          TF_VAR_target_repository: "ttl.sh/imagetest"
+        run: |
+          make init-upgrade
+
+          # Use the local provider
+          cat <<EOF > $HOME/.terraformrc
+          provider_installation {
+            dev_overrides {
+              "registry.terraform.io/chainguard-dev/imagetest" = "$HOME/go/bin/"
+            }
+          }
+          direct {}
+          EOF
+
+          # # Run a presubmit scoped global imagetest provider override that
+          # # configures the k3s harnesses for the presubmit scoped local registry.
+          # # This _could_ be in the `main.tf` with some conditionals, but since
+          # # this is striclty for presubmit we take this approach to keep things
+          # # simpler.
+          # cat >> main_override.tf <<EOF
+          # provider "imagetest" {
+          #   log = {
+          #     file = {
+          #       directory = "imagetest-logs"
+          #     }
+          #   }
+          #   harnesses = {
+          #     k3s = {
+          #       networks = {
+          #         // wire in k3d's default network where the registry lives
+          #         "k3d-default" = { name = "k3d-k3s-default" }
+          #       }
+          #       registries = {
+          #         # Mirror the var.target_repository host registry to the local registry.
+          #         # This ensures the images that are pushed from the host registry are
+          #         # mirrored to the internal hostname:port registry.
+          #         "registry.local:5000" = {
+          #           mirror = { endpoints = ["http://registry.local:5000"] }
+          #         }
+          #       }
+          #     }
+          #   }
+          # }
+          # EOF
+
+          targets=""
+          for image in calico cert-manager spire istio jre; do
+            targets+=' -target='module."${image}"''
+          done
+
+          terraform apply ${targets} -auto-approve --parallelism=$(nproc)
