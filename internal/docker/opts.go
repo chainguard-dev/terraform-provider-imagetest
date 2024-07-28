@@ -12,3 +12,16 @@ func WithClient(cli *client.Client) Option {
 		return nil
 	}
 }
+
+func WithClientOpts(opts ...client.Opt) Option {
+	return func(d *docker) error {
+		if opts == nil {
+			return nil
+		}
+		if d.copts == nil {
+			d.copts = make([]client.Opt, 0)
+		}
+		d.copts = append(d.copts, opts...)
+		return nil
+	}
+}

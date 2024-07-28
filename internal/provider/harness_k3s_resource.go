@@ -40,6 +40,7 @@ type HarnessK3sResourceModel struct {
 	Id        types.String             `tfsdk:"id"`
 	Name      types.String             `tfsdk:"name"`
 	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
+	Timeouts  timeouts.Value           `tfsdk:"timeouts"`
 
 	Image                types.String                     `tfsdk:"image"`
 	DisableCni           types.Bool                       `tfsdk:"disable_cni"`
@@ -49,7 +50,6 @@ type HarnessK3sResourceModel struct {
 	Registries           map[string]RegistryResourceModel `tfsdk:"registries"`
 	Networks             map[string]ContainerNetworkModel `tfsdk:"networks"`
 	Sandbox              types.Object                     `tfsdk:"sandbox"`
-	Timeouts             timeouts.Value                   `tfsdk:"timeouts"`
 	Resources            *ContainerResources              `tfsdk:"resources"`
 	Hooks                *HarnessHooksModel               `tfsdk:"hooks"`
 	KubeletConfig        types.String                     `tfsdk:"kubelet_config"`

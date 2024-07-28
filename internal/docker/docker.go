@@ -27,7 +27,8 @@ import (
 )
 
 type docker struct {
-	cli *client.Client
+	cli   *client.Client
+	copts []client.Opt
 }
 
 type Request struct {
@@ -57,7 +58,9 @@ type ResourcesRequest struct {
 }
 
 func New(opts ...Option) (*docker, error) {
-	d := &docker{}
+	d := &docker{
+		copts: make([]client.Opt, 0),
+	}
 
 	for _, opt := range opts {
 		if err := opt(d); err != nil {
@@ -66,11 +69,14 @@ func New(opts ...Option) (*docker, error) {
 	}
 
 	if d.cli == nil {
-		cli, err := client.NewClientWithOpts(
+		copts := []client.Opt{
 			client.FromEnv,
 			client.WithAPIVersionNegotiation(),
 			client.WithVersionFromEnv(),
-		)
+		}
+		copts = append(copts, d.copts...)
+
+		cli, err := client.NewClientWithOpts(copts...)
 		if err != nil {
 			return nil, fmt.Errorf("creating docker client: %w", err)
 		}
@@ -82,8 +88,6 @@ func New(opts ...Option) (*docker, error) {
 
 // Start starts a container with the given request.
 func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
-	teardown := harness.NewStack()
-
 	endpointSettings := make(map[string]*network.EndpointSettings)
 	for _, nw := range req.Networks {
 		endpointSettings[nw.Name] = &network.EndpointSettings{
@@ -117,34 +121,38 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 		return nil, fmt.Errorf("pulling image: %w", err)
 	}
 
-	cresp, err := d.cli.ContainerCreate(ctx, &container.Config{
-		Image:        req.Ref.String(),
-		Entrypoint:   req.Entrypoint,
-		User:         req.User,
-		Env:          req.Env,
-		Cmd:          req.Cmd,
-		AttachStdout: true,
-		AttachStderr: true,
-		Labels:       d.withDefaultLabels(req.Labels),
-		Healthcheck:  req.HealthCheck,
-		ExposedPorts: exposedPorts,
-	}, &container.HostConfig{
-		Privileged: req.Privileged,
-		RestartPolicy: container.RestartPolicy{
-			// Never restart
-			Name: container.RestartPolicyDisabled,
+	cresp, err := d.cli.ContainerCreate(ctx,
+		&container.Config{
+			Image:        req.Ref.String(),
+			Entrypoint:   req.Entrypoint,
+			User:         req.User,
+			Env:          req.Env,
+			Cmd:          req.Cmd,
+			AttachStdout: true,
+			AttachStderr: true,
+			Labels:       d.withDefaultLabels(req.Labels),
+			Healthcheck:  req.HealthCheck,
+			ExposedPorts: exposedPorts,
 		},
-		Resources: container.Resources{
-			Memory:            req.Resources.MemoryLimit.Value(),
-			MemoryReservation: req.Resources.MemoryRequest.Value(),
-			// mirroring what's done in Docker CLI: https://github.com/docker/cli/blob/0ad1d55b02910f4b40462c0d01aac2934eb0f061/cli/command/container/update.go#L117
-			NanoCPUs: req.Resources.CpuRequest.Value(),
+		&container.HostConfig{
+			Privileged: req.Privileged,
+			RestartPolicy: container.RestartPolicy{
+				// Never restart
+				Name: container.RestartPolicyDisabled,
+			},
+			Resources: container.Resources{
+				Memory:            req.Resources.MemoryLimit.Value(),
+				MemoryReservation: req.Resources.MemoryRequest.Value(),
+				// mirroring what's done in Docker CLI: https://github.com/docker/cli/blob/0ad1d55b02910f4b40462c0d01aac2934eb0f061/cli/command/container/update.go#L117
+				NanoCPUs: req.Resources.CpuRequest.Value(),
+			},
+			Mounts:       req.Mounts,
+			PortBindings: req.PortBindings,
 		},
-		Mounts:       req.Mounts,
-		PortBindings: req.PortBindings,
-	}, &network.NetworkingConfig{
-		EndpointsConfig: endpointSettings,
-	}, nil, req.Name)
+		&network.NetworkingConfig{
+			EndpointsConfig: endpointSettings,
+		},
+		nil, req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
@@ -163,22 +171,6 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 
 	if err := d.cli.ContainerStart(ctx, cresp.ID, container.StartOptions{}); err != nil {
 		return nil, fmt.Errorf("starting container: %w", err)
-	}
-
-	if err := teardown.Add(func(ctx context.Context) error {
-		// Forcibly stop the container
-		force := 0
-		if err := d.cli.ContainerStop(ctx, cresp.ID, container.StopOptions{
-			Timeout: &force,
-		}); err != nil {
-			return fmt.Errorf("stopping container: %w", err)
-		}
-
-		return d.cli.ContainerRemove(ctx, cresp.ID, container.RemoveOptions{
-			RemoveVolumes: true,
-		})
-	}); err != nil {
-		return nil, fmt.Errorf("adding container teardown to stack: %w", err)
 	}
 
 	// Block until the container is running
@@ -219,10 +211,27 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	return &Response{
-		ID:    cresp.ID,
-		Name:  cname,
-		cli:   d.cli,
-		stack: teardown,
+		ID:   cresp.ID,
+		Name: cname,
+		cli:  d.cli,
+	}, nil
+}
+
+// Connect returns a response for a container that is already running.
+func (d *docker) Connect(ctx context.Context, cid string) (*Response, error) {
+	info, err := d.cli.ContainerInspect(ctx, cid)
+	if err != nil {
+		return nil, fmt.Errorf("inspecting container: %w", err)
+	}
+
+	if !info.State.Running {
+		return nil, fmt.Errorf("container is not running")
+	}
+
+	return &Response{
+		ID:   info.ID,
+		Name: info.Name,
+		cli:  d.cli,
 	}, nil
 }
 
@@ -274,15 +283,23 @@ func (d *docker) pull(ctx context.Context, ref name.Reference) error {
 
 // Remove forcibly removes all the resources associated with the given request.
 func (d *docker) Remove(ctx context.Context, resp *Response) error {
-	return resp.stack.Teardown(ctx)
+	force := 0
+	if err := d.cli.ContainerStop(ctx, resp.ID, container.StopOptions{
+		Timeout: &force,
+	}); err != nil {
+		return fmt.Errorf("stopping container: %w", err)
+	}
+
+	return d.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{
+		RemoveVolumes: true,
+	})
 }
 
 // Response is returned from a Start() request.
 type Response struct {
-	ID    string
-	Name  string
-	cli   *client.Client
-	stack *harness.Stack
+	ID   string
+	Name string
+	cli  *client.Client
 }
 
 func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
