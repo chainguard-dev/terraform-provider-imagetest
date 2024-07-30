@@ -49,7 +49,10 @@ func NewStack() *Stack {
 func (r *Stack) Add(f func(ctx context.Context) error) error {
 	select {
 	case <-r.done:
-		return fmt.Errorf("teardown already done")
+		// NOTE: Erroring here instead of ignoring because its a good indicator
+		// that something is being done wrong. A manager of a stack (a harness)
+		// should only be tearing things down once.
+		return fmt.Errorf("teardown already completed")
 	default:
 		r.mu.Lock()
 		defer r.mu.Unlock()

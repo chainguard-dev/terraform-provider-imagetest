@@ -21,7 +21,8 @@ func (d *docker) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 	}
 
 	v, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Name: req.Name,
+		Name:   req.Name,
+		Labels: req.Labels,
 	})
 	if err != nil {
 		return mount.Mount{}, err
