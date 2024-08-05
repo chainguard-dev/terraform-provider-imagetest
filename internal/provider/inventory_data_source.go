@@ -2,11 +2,12 @@ package provider
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"k8s.io/apimachinery/pkg/util/rand"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -25,7 +26,7 @@ type InventoryDataSource struct {
 
 // InventoryDataSourceModel describes the data source data model.
 type InventoryDataSourceModel struct {
-	Seed types.String `tfsdk:"seed"`
+	Id types.String `tfsdk:"id"`
 }
 
 func (d *InventoryDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -37,7 +38,7 @@ func (d *InventoryDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Inventory data source. Keeps track of harness resources.",
 		Attributes: map[string]schema.Attribute{
-			"seed": schema.StringAttribute{
+			"id": schema.StringAttribute{
 				Computed: true,
 			},
 		},
@@ -66,9 +67,13 @@ func (d *InventoryDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	// NOTE: We don't need internet scale collision resistance here, just on the
-	// order of ~images. Pick 6 to give us resistance (~<1%) across ~10^4 entries.
-	data.Seed = types.StringValue(rand.String(6))
+	t, err := os.MkdirTemp("", "imagetest")
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create inventory directory", err.Error())
+		return
+	}
+
+	data.Id = types.StringValue(filepath.Join(t, "inventory.db"))
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

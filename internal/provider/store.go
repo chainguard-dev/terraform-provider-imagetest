@@ -29,11 +29,7 @@ type ProviderStore struct {
 	// model
 	providerResourceData ImageTestProviderModel
 
-	// cli is the Docker client. it is initialized once during the providers
-	// Configure() stage and reused for any resource that requires it.
-	cli *provider.DockerClient
-
-	inv inventory.Inventory
+	invs *inventory.Inventories
 }
 
 func NewProviderStore() *ProviderStore {
@@ -43,6 +39,12 @@ func NewProviderStore() *ProviderStore {
 			store: make(map[string]harness.Harness),
 			mu:    sync.Mutex{},
 		},
+		invs: inventory.NewInventories(
+			func(id string) (inventory.Inventory, error) {
+				// TODO: This hardcodes sqlite for now
+				return inventory.NewSqlite(id)
+			},
+		),
 	}
 }
 
@@ -78,7 +80,7 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 	}
 
 	if lf := s.providerResourceData.Log.File; lf != nil {
-		ihash, err := s.Encode(inv.Seed.ValueString())
+		ihash, err := s.Encode(inv.Id.ValueString())
 		if err != nil {
 			return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
 		}

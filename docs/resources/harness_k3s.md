@@ -37,14 +37,14 @@ A harness that runs steps in a sandbox container networked to a running k3s clus
 
 ### Read-Only
 
-- `id` (String) The unique identifier for the harness. This is generated from the inventory seed and harness name.
+- `id` (String) The unique identifier for the harness. This is generated from the inventory id and harness name.
 
 <a id="nestedatt--inventory"></a>
 ### Nested Schema for `inventory`
 
 Required:
 
-- `seed` (String)
+- `id` (String)
 
 
 <a id="nestedatt--hooks"></a>

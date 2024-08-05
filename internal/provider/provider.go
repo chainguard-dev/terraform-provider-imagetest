@@ -3,9 +3,6 @@ package provider
 import (
 	"context"
 
-	cprovider "github.com/chainguard-dev/terraform-provider-imagetest/internal/containers/provider"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -17,8 +14,6 @@ import (
 
 var _ provider.Provider = &ImageTestProvider{}
 
-const InventoryPath = ".imagetest.db"
-
 // ImageTestProvider defines the provider implementation.
 type ImageTestProvider struct {
 	// version is set to the provider version on release, "dev" when the
@@ -29,10 +24,9 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
-	Log           *ProviderLoggerModel           `tfsdk:"log"`
-	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
-	Labels        types.Map                      `tfsdk:"labels"`
-	InventoryPath types.String                   `tfsdk:"inventory_path"`
+	Log       *ProviderLoggerModel           `tfsdk:"log"`
+	Harnesses *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
+	Labels    types.Map                      `tfsdk:"labels"`
 }
 
 type ImageTestProviderHarnessModel struct {
@@ -80,10 +74,6 @@ func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataR
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"inventory_path": schema.StringAttribute{
-				Description: "The relative path to the inventory database.",
-				Optional:    true,
-			},
 			"labels": schema.MapAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
@@ -277,27 +267,7 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	if diag := data.Labels.ElementsAs(ctx, &labels, false); diag.HasError() {
 		return
 	}
-	p.store.labels = labels
-
-	cli, err := cprovider.NewDockerClient()
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create docker client", err.Error())
-		return
-
-	}
-	p.store.cli = cli
-
-	ipath := data.InventoryPath.ValueString()
-	if ipath == "" {
-		ipath = InventoryPath
-		log.Info(ctx, "Using inventory path", "path", ipath)
-	}
-
-	p.store.inv, err = inventory.NewBolt(ipath)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to create inventory", err.Error())
-		return
-	}
+	store.labels = labels
 
 	// Store any "global" provider configuration in the store
 	store.providerResourceData = data

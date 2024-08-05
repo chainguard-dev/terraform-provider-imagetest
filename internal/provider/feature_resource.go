@@ -212,21 +212,27 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 	// Set the "constants" we know during plan
 	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), id)...)
-	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("harness"), data.Harness)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	labels := make(map[string]string)
-	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
+	resp.Diagnostics.Append(data.Labels.ElementsAs(ctx, &labels, false)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := r.store.inv.AddFeature(ctx, inventory.Feature{
+	inv, err := r.store.invs.Get(data.Harness.Inventory.Id.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("failed to get inventory", err.Error())
+		return
+	}
+
+	if err := inv.AddFeature(ctx, inventory.Feature{
 		Id:     id,
 		Labels: labels,
 		Harness: inventory.Harness{
-			InventoryId: data.Harness.Inventory.Seed.ValueString(),
+			InventoryId: data.Harness.Inventory.Id.ValueString(),
 			Id:          data.Harness.Id.ValueString(),
 		},
 	}); err != nil {
@@ -270,26 +276,39 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 		return []diag.Diagnostic{diag.NewWarningDiagnostic(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")}
 	}
 
+	inv, err := r.store.invs.Get(data.Harness.Inventory.Id.ValueString())
+	if err != nil {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to get inventory", err.Error())}
+	}
+
 	defer func() {
-		remaining, err := r.store.inv.RemoveFeature(ctx, inventory.Feature{
+		if err := inv.RemoveFeature(ctx, inventory.Feature{
 			Id: data.Id.ValueString(),
 			Harness: inventory.Harness{
-				InventoryId: data.Harness.Inventory.Seed.ValueString(),
+				InventoryId: data.Harness.Inventory.Id.ValueString(),
 				Id:          data.Harness.Id.ValueString(),
 			},
+		}); err != nil {
+			diags = append(diags, diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error()))
+			return
+		}
+
+		remaining, err := inv.ListFeatures(ctx, inventory.Harness{
+			InventoryId: data.Harness.Inventory.Id.ValueString(),
+			Id:          data.Harness.Id.ValueString(),
 		})
 		if err != nil {
-			diags = append(diags, diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error()))
+			diags = append(diags, diag.NewErrorDiagnostic("failed to list features", err.Error()))
 			return
 		}
 
 		if len(remaining) == 0 {
 			log.Debug(ctx, "no more features remain in inventory, removing harness")
-			if err := r.store.inv.RemoveHarness(ctx, inventory.Harness{
-				InventoryId: data.Harness.Inventory.Seed.ValueString(),
+			if err := inv.RemoveHarness(ctx, inventory.Harness{
+				InventoryId: data.Harness.Inventory.Id.ValueString(),
 				Id:          data.Harness.Id.ValueString(),
 			}); err != nil {
-				resp.Diagnostics.AddError("failed to remove harness from inventory", err.Error())
+				diags = append(diags, diag.NewErrorDiagnostic("failed to remove harness from inventory", err.Error()))
 				return
 			}
 
@@ -433,7 +452,7 @@ func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute
 				"inventory": schema.SingleNestedAttribute{
 					Required: true,
 					Attributes: map[string]schema.Attribute{
-						"seed": schema.StringAttribute{
+						"id": schema.StringAttribute{
 							Required: true,
 						},
 					},

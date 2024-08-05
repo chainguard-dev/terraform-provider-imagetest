@@ -96,13 +96,13 @@ func (r *ContainerVolumeResource) Schema(_ context.Context, _ resource.SchemaReq
 				Description: "The inventory this volume belongs to. This is received as a direct input from a data.imagetest_inventory data source.",
 				Required:    true,
 				Attributes: map[string]schema.Attribute{
-					"seed": schema.StringAttribute{
+					"id": schema.StringAttribute{
 						Required: true,
 					},
 				},
 			},
 			"id": schema.StringAttribute{
-				Description: "The unique identifier for this volume. This is generated from the volume name and inventory seed.",
+				Description: "The unique identifier for this volume. This is generated from the volume name and inventory id.",
 				Computed:    true,
 			},
 		},
