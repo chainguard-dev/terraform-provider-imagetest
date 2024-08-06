@@ -17,4 +17,4 @@ Inventory data source. Keeps track of harness resources.
 
 ### Read-Only
 
-- `seed` (String)
+- `id` (String) The ID of this resource.

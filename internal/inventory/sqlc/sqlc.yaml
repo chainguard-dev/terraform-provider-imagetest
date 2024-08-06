@@ -1,0 +1,15 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "query.sql"
+    schema: "schema.sql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "."
+        emit_json_tags: true
+        # overrides:
+        #   - column: "features.labels"
+        #     go_type:
+        #       import: "github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
+        #       type: "Labels"

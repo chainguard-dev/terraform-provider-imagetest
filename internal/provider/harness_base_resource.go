@@ -125,20 +125,22 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 		return
 	}
 
-	inv := InventoryDataSourceModel{}
-	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
+	var invm InventoryDataSourceModel
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("inventory"), &invm)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	var name string
-	if diags := req.Config.GetAttribute(ctx, path.Root("name"), &name); diags.HasError() {
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("name"), &name)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// The ID is the {name}-{inventory-hash}. It's intentionally chose to be more
 	// user-friendly than just a hash, since it is prepended to resources the
 	// harnesses will create.
-	invEnc, err := r.store.Encode(inv.Seed.ValueString())
+	invEnc, err := r.store.Encode(invm.Id.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("failed to add harness", "encoding harness id")
 		return
@@ -148,18 +150,21 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 
 	// Set the "constants" we know during plan
 	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), id)...)
-	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("inventory"), inv)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	added, err := r.store.Inventory(inv).AddHarness(ctx, inventory.Harness(id))
+	inv, err := r.store.invs.Get(invm.Id.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("failed to add harness", err.Error())
+		resp.Diagnostics.AddError("failed to get inventory", err.Error())
+		return
 	}
 
-	if added {
-		log.Debug(ctx, fmt.Sprintf("Harness.ModifyPlan() | harness [%s] added to inventory", id))
+	if err := inv.AddHarness(ctx, inventory.Harness{
+		Id:          id,
+		InventoryId: invm.Id.ValueString(),
+	}); err != nil {
+		resp.Diagnostics.AddError("failed to add harness to inventory", err.Error())
 	}
 }
 
@@ -193,7 +198,7 @@ func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateReq
 func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceModel, harness harness.Harness) diag.Diagnostics {
 	diags := make(diag.Diagnostics, 0)
 
-	if r.skip(ctx, data.Inventory, data.Id.ValueString()) {
+	if r.skip(ctx, data.Inventory.Id.ValueString(), data.Id.ValueString()) {
 		return append(diags, diag.NewWarningDiagnostic(
 			"skipping harness",
 			fmt.Sprintf("id [%s] reason: feature labels do not match", data.Id.ValueString()),
@@ -226,8 +231,16 @@ func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceMo
 	return diags
 }
 
-func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceModel, harnessId string) bool {
-	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(harnessId))
+func (r *BaseHarnessResource) skip(ctx context.Context, invId string, harnessId string) bool {
+	inv, err := r.store.invs.Get(invId)
+	if err != nil {
+		return false
+	}
+
+	feats, err := inv.ListFeatures(ctx, inventory.Harness{
+		InventoryId: invId,
+		Id:          harnessId,
+	})
 	if err != nil {
 		return false
 	}
@@ -304,7 +317,7 @@ func ParseResources(resources *ContainerResources) (docker.ResourcesRequest, err
 func (r *BaseHarnessResource) schemaAttributes(ctx context.Context) map[string]schema.Attribute {
 	return map[string]schema.Attribute{
 		"id": schema.StringAttribute{
-			Description: "The unique identifier for the harness. This is generated from the inventory seed and harness name.",
+			Description: "The unique identifier for the harness. This is generated from the inventory id and harness name.",
 			Computed:    true,
 		},
 		"name": schema.StringAttribute{
@@ -315,7 +328,7 @@ func (r *BaseHarnessResource) schemaAttributes(ctx context.Context) map[string]s
 			Description: "The inventory this harness belongs to. This is received as a direct input from a data.imagetest_inventory data source.",
 			Required:    true,
 			Attributes: map[string]schema.Attribute{
-				"seed": schema.StringAttribute{
+				"id": schema.StringAttribute{
 					Required: true,
 				},
 			},

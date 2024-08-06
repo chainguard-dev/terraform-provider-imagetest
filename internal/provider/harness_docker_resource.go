@@ -345,7 +345,7 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 									"inventory": schema.SingleNestedAttribute{
 										Required: true,
 										Attributes: map[string]schema.Attribute{
-											"seed": schema.StringAttribute{
+											"id": schema.StringAttribute{
 												Required: true,
 											},
 										},

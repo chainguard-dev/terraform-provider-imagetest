@@ -22,11 +22,11 @@ A volume in the container engine that can be referenced by containers.
 
 ### Read-Only
 
-- `id` (String) The unique identifier for this volume. This is generated from the volume name and inventory seed.
+- `id` (String) The unique identifier for this volume. This is generated from the volume name and inventory id.
 
 <a id="nestedatt--inventory"></a>
 ### Nested Schema for `inventory`
 
 Required:
 
-- `seed` (String)
+- `id` (String)

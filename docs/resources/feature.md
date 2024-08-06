@@ -47,7 +47,7 @@ Required:
 
 Required:
 
-- `seed` (String)
+- `id` (String)
 
 
 

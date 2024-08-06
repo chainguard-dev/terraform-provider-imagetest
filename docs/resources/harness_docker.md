@@ -34,14 +34,14 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 
 ### Read-Only
 
-- `id` (String) The unique identifier for the harness. This is generated from the inventory seed and harness name.
+- `id` (String) The unique identifier for the harness. This is generated from the inventory id and harness name.
 
 <a id="nestedatt--inventory"></a>
 ### Nested Schema for `inventory`
 
 Required:
 
-- `seed` (String)
+- `id` (String)
 
 
 <a id="nestedatt--mounts"></a>
@@ -136,4 +136,4 @@ Required:
 
 Required:
 
-- `seed` (String)
+- `id` (String)

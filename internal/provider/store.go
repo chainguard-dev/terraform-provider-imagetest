@@ -28,6 +28,8 @@ type ProviderStore struct {
 	// TODO: there's probably a way to do this without passing around the whole
 	// model
 	providerResourceData ImageTestProviderModel
+
+	invs *inventory.Inventories
 }
 
 func NewProviderStore() *ProviderStore {
@@ -37,6 +39,12 @@ func NewProviderStore() *ProviderStore {
 			store: make(map[string]harness.Harness),
 			mu:    sync.Mutex{},
 		},
+		invs: inventory.NewInventories(
+			func(id string) (inventory.Inventory, error) {
+				// TODO: This hardcodes sqlite for now
+				return inventory.NewSqlite(id)
+			},
+		),
 	}
 }
 
@@ -65,12 +73,6 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 	return hashint.Text(36)[:5], nil
 }
 
-// Inventory returns an instance of the inventory per inventory data source.
-func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
-	// TODO: More backends?
-	return inventory.NewFile(data.Seed.ValueString())
-}
-
 // Logger initializes the context logger for the given inventory.
 func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel, withs ...any) (context.Context, error) {
 	if s.providerResourceData.Log == nil {
@@ -78,7 +80,7 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 	}
 
 	if lf := s.providerResourceData.Log.File; lf != nil {
-		ihash, err := s.Encode(inv.Seed.ValueString())
+		ihash, err := s.Encode(inv.Id.ValueString())
 		if err != nil {
 			return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
 		}
