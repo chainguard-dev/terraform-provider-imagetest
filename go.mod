@@ -8,7 +8,7 @@ require (
 	github.com/chainguard-dev/clog v1.4.0
 	github.com/docker/cli v27.1.1+incompatible
 	github.com/docker/go-connections v0.5.0
-	github.com/google/go-containerregistry v0.20.1
+	github.com/google/go-containerregistry v0.20.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/terraform-plugin-docs v0.19.4
 	github.com/hashicorp/terraform-plugin-framework v1.10.0
