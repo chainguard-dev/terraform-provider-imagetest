@@ -73,45 +73,45 @@ func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inven
 
 // Logger initializes the context logger for the given inventory.
 func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel, withs ...any) (context.Context, error) {
-	if s.providerResourceData.Log != nil {
-		if lf := s.providerResourceData.Log.File; lf != nil {
-			ihash, err := s.Encode(inv.Seed.ValueString())
-			if err != nil {
-				return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
-			}
-			logpath := fmt.Sprintf("%s.log", ihash)
-
-			if dir := lf.Directory.ValueString(); dir != "" {
-				if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-					return ctx, fmt.Errorf("failed to create log directory: %w", err)
-				}
-				logpath = path.Join(dir, logpath)
-			}
-
-			f, err := os.OpenFile(logpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err != nil {
-				return ctx, fmt.Errorf("failed to create logfile: %w", err)
-			}
-
-			var fhandler slog.Handler
-			switch lf.Format.ValueString() {
-			case "text":
-				fhandler = slog.NewTextHandler(f, &slog.HandlerOptions{})
-			default:
-				fhandler = slog.NewJSONHandler(f, &slog.HandlerOptions{})
-			}
-
-			logger := clog.New(slogmulti.Fanout(
-				&ilog.TFHandler{},
-				fhandler,
-			)).With("inventory", ihash)
-
-			ctx = clog.WithLogger(ctx, logger)
-		}
-	}
-
 	logger := clog.FromContext(ctx).With(withs...)
 	ctx = clog.WithLogger(ctx, logger)
+
+	plog := s.providerResourceData.Log
+
+	if plog != nil && plog.File != nil {
+		ihash, err := s.Encode(inv.Seed.ValueString())
+		if err != nil {
+			return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
+		}
+		logpath := fmt.Sprintf("%s.log", ihash)
+
+		if dir := plog.File.Directory.ValueString(); dir != "" {
+			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+				return ctx, fmt.Errorf("failed to create log directory: %w", err)
+			}
+			logpath = path.Join(dir, logpath)
+		}
+
+		f, err := os.OpenFile(logpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return ctx, fmt.Errorf("failed to create logfile: %w", err)
+		}
+
+		var fhandler slog.Handler
+		switch plog.File.Format.ValueString() {
+		case "text":
+			fhandler = slog.NewTextHandler(f, &slog.HandlerOptions{})
+		default:
+			fhandler = slog.NewJSONHandler(f, &slog.HandlerOptions{})
+		}
+
+		logger := clog.New(slogmulti.Fanout(
+			&ilog.TFHandler{},
+			fhandler,
+		)).With("inventory", ihash)
+
+		ctx = clog.WithLogger(ctx, logger)
+	}
 
 	return ctx, nil
 }
