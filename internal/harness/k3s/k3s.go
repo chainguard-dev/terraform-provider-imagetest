@@ -162,7 +162,7 @@ func (h *k3s) Create(ctx context.Context) error {
 				},
 			},
 			HealthCheck: &container.HealthConfig{
-				Test:          []string{"CMD", "/bin/sh", "-c", "k3s kubectl get --raw='/healthz'"},
+				Test:          []string{"CMD", "/bin/sh", "-c", "kubectl get --raw='/healthz'"},
 				Interval:      1 * time.Second,
 				Timeout:       5 * time.Second,
 				Retries:       5,
@@ -184,7 +184,7 @@ func (h *k3s) Create(ctx context.Context) error {
 		// Modify the kubeconfig to use the containers external hostname, this
 		// makes it accessible from the host and any network attached container
 		if err := resp.Run(ctx, harness.Command{
-			Args: fmt.Sprintf("KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config set-cluster default --server https://%[1]s:6443 > /dev/null", resp.Name),
+			Args: fmt.Sprintf("KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config set-cluster default --server https://%[1]s:6443 > /dev/null", resp.Name),
 		}); err != nil {
 			return fmt.Errorf("setting cluster name: %w", err)
 		}
@@ -192,7 +192,7 @@ func (h *k3s) Create(ctx context.Context) error {
 		if h.HostKubeconfigPath != "" {
 			var kr bytes.Buffer
 			if err := resp.Run(ctx, harness.Command{
-				Args:   "KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl config view --raw > /dev/null",
+				Args:   "KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config view --raw > /dev/null",
 				Stdout: &kr,
 			}); err != nil {
 				return fmt.Errorf("writing kubeconfig to host: %w", err)

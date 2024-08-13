@@ -84,7 +84,17 @@ jobs:
   images-test:
     name: Run imagetest against images
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pick small, reliable image tests that hit the various harnesses. Run
+        # these in shards because we're using undersized runners compared to
+        # upstream and will easily hit disk pressure.
+        images:
+          - calico
+          - cilium
+          - jre
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
@@ -123,40 +133,4 @@ jobs:
           direct {}
           EOF
 
-          # # Run a presubmit scoped global imagetest provider override that
-          # # configures the k3s harnesses for the presubmit scoped local registry.
-          # # This _could_ be in the `main.tf` with some conditionals, but since
-          # # this is striclty for presubmit we take this approach to keep things
-          # # simpler.
-          # cat >> main_override.tf <<EOF
-          # provider "imagetest" {
-          #   log = {
-          #     file = {
-          #       directory = "imagetest-logs"
-          #     }
-          #   }
-          #   harnesses = {
-          #     k3s = {
-          #       networks = {
-          #         // wire in k3d's default network where the registry lives
-          #         "k3d-default" = { name = "k3d-k3s-default" }
-          #       }
-          #       registries = {
-          #         # Mirror the var.target_repository host registry to the local registry.
-          #         # This ensures the images that are pushed from the host registry are
-          #         # mirrored to the internal hostname:port registry.
-          #         "registry.local:5000" = {
-          #           mirror = { endpoints = ["http://registry.local:5000"] }
-          #         }
-          #       }
-          #     }
-          #   }
-          # }
-          # EOF
-
-          targets=""
-          for image in calico cert-manager spire istio jre; do
-            targets+=' -target='module."${image}"''
-          done
-
-          terraform apply ${targets} -auto-approve --parallelism=$(nproc)
+          terraform apply -target='module.${{ matrix.images }}' -auto-approve --parallelism=$(nproc)
