@@ -70,7 +70,7 @@ func TestFeature(t *testing.T) {
 				}
 			},
 			wantout: "after ",
-			wanterr: "before step error",
+			wanterr: "before step 'Before Step' failed: before step error",
 		},
 		{
 			name: "ShortCircuitAssessmentFailure",
@@ -94,10 +94,13 @@ func TestFeature(t *testing.T) {
 					{Name: "After Step 2", Fn: func(ctx context.Context) error {
 						return errors.New("after step error")
 					}},
+					{Name: "After Step 3", Fn: func(ctx context.Context) error {
+						return errors.New("ignored")
+					}},
 				}
 			},
 			wantout: "assessment after ",
-			wanterr: "assessment step error; after step error",
+			wanterr: "assessment step 'Assessment Step' failed: assessment step error; after step 'After Step 2' failed: after step error",
 		},
 		{
 			name: "Retry",
@@ -121,7 +124,7 @@ func TestFeature(t *testing.T) {
 			},
 			wantout: "foo foo foo ",
 			// This will always fail, so just grep on the error message
-			wanterr: "timed out waiting for the condition",
+			wanterr: "assessment step 'Assessment Step' failed: timed out waiting for the condition",
 		},
 	}
 

@@ -73,18 +73,19 @@ func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inven
 
 // Logger initializes the context logger for the given inventory.
 func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel, withs ...any) (context.Context, error) {
-	if s.providerResourceData.Log == nil {
-		return ctx, nil
-	}
+	logger := clog.FromContext(ctx).With(withs...)
+	ctx = clog.WithLogger(ctx, logger)
 
-	if lf := s.providerResourceData.Log.File; lf != nil {
+	plog := s.providerResourceData.Log
+
+	if plog != nil && plog.File != nil {
 		ihash, err := s.Encode(inv.Seed.ValueString())
 		if err != nil {
 			return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
 		}
 		logpath := fmt.Sprintf("%s.log", ihash)
 
-		if dir := lf.Directory.ValueString(); dir != "" {
+		if dir := plog.File.Directory.ValueString(); dir != "" {
 			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 				return ctx, fmt.Errorf("failed to create log directory: %w", err)
 			}
@@ -97,7 +98,7 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 		}
 
 		var fhandler slog.Handler
-		switch lf.Format.ValueString() {
+		switch plog.File.Format.ValueString() {
 		case "text":
 			fhandler = slog.NewTextHandler(f, &slog.HandlerOptions{})
 		default:
@@ -111,9 +112,6 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 
 		ctx = clog.WithLogger(ctx, logger)
 	}
-
-	logger := clog.FromContext(ctx).With(withs...)
-	ctx = clog.WithLogger(ctx, logger)
 
 	return ctx, nil
 }

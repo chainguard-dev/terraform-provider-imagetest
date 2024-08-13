@@ -131,7 +131,7 @@ func (f *Feature) Test(ctx context.Context) error {
 	afters := func() {
 		for _, after := range f.afters {
 			if err := after.Fn(ctx); err != nil {
-				collectError(err)
+				collectError(fmt.Errorf("after step '%s' failed: %v", after.Name, err))
 				// Don't continue if we error
 				break
 			}
@@ -140,7 +140,7 @@ func (f *Feature) Test(ctx context.Context) error {
 
 	for _, before := range f.befores {
 		if err := before.Fn(ctx); err != nil {
-			collectError(err)
+			collectError(fmt.Errorf("before step '%s' failed: %v", before.Name, err))
 			afters()
 			return collectedError
 		}
@@ -148,7 +148,7 @@ func (f *Feature) Test(ctx context.Context) error {
 
 	for _, assessment := range f.assessments {
 		if err := assessment.Fn(ctx); err != nil {
-			collectError(err)
+			collectError(fmt.Errorf("assessment step '%s' failed: %v", assessment.Name, err))
 			afters()
 			return collectedError
 		}

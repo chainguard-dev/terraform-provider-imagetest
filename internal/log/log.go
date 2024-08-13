@@ -25,6 +25,11 @@ func Error(ctx context.Context, msg string, args ...any) {
 	log(ctx, clog.FromContext(ctx), slog.LevelError, msg, args...)
 }
 
+func With(ctx context.Context, args ...any) context.Context {
+	logger := clog.FromContext(ctx).With(args...)
+	return clog.WithLogger(ctx, logger)
+}
+
 func log(ctx context.Context, l *clog.Logger, level slog.Level, msg string, args ...any) {
 	if !l.Enabled(ctx, level) {
 		return
