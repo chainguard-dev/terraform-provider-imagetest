@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -329,7 +330,11 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 	log.Info(ctx, "testing feature against harness")
 
 	if err := feat.Test(ctx); err != nil {
-		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to test feature", err.Error())}
+		return []diag.Diagnostic{
+			diag.NewErrorDiagnostic(
+				fmt.Sprintf("failed to test feature: %s", feat.Name),
+				err.Error()),
+		}
 	}
 
 	return diags
@@ -359,10 +364,23 @@ func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ 
 
 func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data FeatureStepModel, level features.Level) error {
 	fn := features.StepFn(func(ctx context.Context) error {
-		return h.Run(ctx, harness.Command{
+		ctx = log.With(ctx, "step_name", data.Name.ValueString())
+
+		log.Info(ctx, "running step")
+
+		var bufout, buferr bytes.Buffer
+		err := h.Run(ctx, harness.Command{
 			Args:       data.Cmd.ValueString(),
 			WorkingDir: data.Workdir.ValueString(),
+			Stdout:     &bufout,
+			Stderr:     &buferr,
 		})
+		if err != nil {
+			return fmt.Errorf("running step: %w: %s", err, buferr.String())
+		}
+
+		log.Info(ctx, "step output", "stdout", bufout.String(), "stderr", buferr.String())
+		return nil
 	})
 
 	sopts := []features.StepOpt{}
