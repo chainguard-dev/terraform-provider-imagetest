@@ -4,9 +4,10 @@ import (
 	"fmt"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
-	"github.com/docker/docker/api/types/mount"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
@@ -15,18 +16,19 @@ import (
 type Option func(*k3s) error
 
 type serviceConfig struct {
-	Name          string
-	Ref           name.Reference
-	Traefik       bool
-	Cni           bool
-	MetricsServer bool
-	NetworkPolicy bool
-	KubeletConfig string
-	Snapshotter   Snapshotter
-	Registries    map[string]*RegistryConfig
-	Mirrors       map[string]*MirrorConfig
-	Resources     docker.ResourcesRequest
-	Networks      []docker.NetworkAttachment // A list of existing networks names (or network aliases) to attach the harness containers to.
+	Name            string
+	Ref             name.Reference
+	Traefik         bool
+	Cni             bool
+	MetricsServer   bool
+	NetworkPolicy   bool
+	KubeletConfig   string
+	Snapshotter     Snapshotter
+	Registries      map[string]*RegistryConfig
+	Mirrors         map[string]*MirrorConfig
+	Resources       docker.ResourcesRequest
+	Networks        []docker.NetworkAttachment // A list of existing networks names (or network aliases) to attach the harness containers to.
+	HttpsListenPort int
 }
 
 type RegistryConfig struct {
@@ -82,6 +84,27 @@ func WithImageRef(ref name.Reference) Option {
 func WithCniDisabled(disabled bool) Option {
 	return func(h *k3s) error {
 		h.Service.Cni = !disabled
+
+		// Ensure the sandbox can start without a cni
+		h.Sandbox.HostNetwork = true
+
+		// Before a CNI is available means we won't have cluster wide DNS, so we
+		// need to ensure we fallback to the host DNS first, and then use the
+		// cluster DNS once something like coredns is available
+		h.Sandbox.DnsPolicy = corev1.DNSClusterFirst
+
+		// Ensure the sandbox can tolerate the CNI not being available
+		h.Sandbox.Tolerations = []corev1.Toleration{
+			{
+				Effect:   corev1.TaintEffectNoExecute,
+				Operator: corev1.TolerationOpExists,
+			},
+			{
+				Effect:   corev1.TaintEffectNoSchedule,
+				Operator: corev1.TolerationOpExists,
+			},
+		}
+
 		return nil
 	}
 }
@@ -215,32 +238,12 @@ func WithKubeletConfig(kubeletConfig string) Option {
 	}
 }
 
-func WithHostPort(port int) Option {
-	return func(o *k3s) error {
-		o.HostPort = port
-		return nil
-	}
-}
-
-func WithHostKubeconfigPath(path string) Option {
-	return func(o *k3s) error {
-		o.HostKubeconfigPath = path
-		return nil
-	}
-}
-
 func WithNetworks(networks ...docker.NetworkAttachment) Option {
 	return func(opt *k3s) error {
 		if opt.Service.Networks == nil {
 			opt.Service.Networks = make([]docker.NetworkAttachment, 0)
 		}
 		opt.Service.Networks = append(opt.Service.Networks, networks...)
-
-		// also append to sandbox networks
-		if opt.Sandbox.Networks == nil {
-			opt.Sandbox.Networks = make([]docker.NetworkAttachment, 0)
-		}
-		opt.Sandbox.Networks = append(opt.Sandbox.Networks, networks...)
 		return nil
 	}
 }
@@ -252,37 +255,17 @@ func WithSandboxImageRef(ref name.Reference) Option {
 	}
 }
 
-func WithSandboxMounts(mounts ...mount.Mount) Option {
+func WithSandboxEnv(envs map[string]string) Option {
 	return func(opt *k3s) error {
-		if opt.Sandbox.Mounts == nil {
-			opt.Sandbox.Mounts = []mount.Mount{}
+		if envs == nil {
+			envs = make(map[string]string)
 		}
-		opt.Sandbox.Mounts = append(opt.Sandbox.Mounts, mounts...)
+		opt.Sandbox.Env = envs
 		return nil
 	}
 }
 
-func WithSandboxNetworks(networks ...docker.NetworkAttachment) Option {
-	return func(opt *k3s) error {
-		if opt.Sandbox.Networks == nil {
-			opt.Sandbox.Networks = make([]docker.NetworkAttachment, 0)
-		}
-		opt.Sandbox.Networks = append(opt.Sandbox.Networks, networks...)
-		return nil
-	}
-}
-
-func WithSandboxEnv(envs ...string) Option {
-	return func(opt *k3s) error {
-		if opt.Sandbox.Env == nil {
-			opt.Sandbox.Env = make([]string, 0)
-		}
-		opt.Sandbox.Env = append(opt.Sandbox.Env, envs...)
-		return nil
-	}
-}
-
-func WithSandboxResources(req docker.ResourcesRequest) Option {
+func WithSandboxResources(req sandbox.ResourceRequest) Option {
 	return func(opt *k3s) error {
 		opt.Sandbox.Resources = req
 		return nil
@@ -291,7 +274,14 @@ func WithSandboxResources(req docker.ResourcesRequest) Option {
 
 func WithSandboxName(name string) Option {
 	return func(opt *k3s) error {
-		opt.Sandbox.Name = name + "-sandbox"
+		opt.Sandbox.Name = name
+		return nil
+	}
+}
+
+func WithSandboxNamespace(name string) Option {
+	return func(opt *k3s) error {
+		opt.Sandbox.Namespace = name
 		return nil
 	}
 }

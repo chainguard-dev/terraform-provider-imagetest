@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
@@ -175,6 +176,7 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 
 	// Block until the container is running
 	cname := ""
+	var cinspect types.ContainerJSON
 	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, req.Timeout, true, func(ctx context.Context) (bool, error) {
 		inspect, err := d.cli.ContainerInspect(ctx, cresp.ID)
 		if err != nil {
@@ -201,6 +203,7 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 		// Name's start with a leading "/", so remove it
 		cname = strings.TrimPrefix(inspect.Name, "/")
 
+		cinspect = inspect
 		return true, nil
 	}); err != nil {
 		return nil, fmt.Errorf("waiting for container to be running: %w", err)
@@ -211,9 +214,10 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	return &Response{
-		ID:   cresp.ID,
-		Name: cname,
-		cli:  d.cli,
+		ContainerJSON: cinspect,
+		ID:            cresp.ID,
+		Name:          cname,
+		cli:           d.cli,
 	}, nil
 }
 
@@ -297,6 +301,7 @@ func (d *docker) Remove(ctx context.Context, resp *Response) error {
 
 // Response is returned from a Start() request.
 type Response struct {
+	types.ContainerJSON
 	ID   string
 	Name string
 	cli  *client.Client

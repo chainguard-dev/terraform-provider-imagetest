@@ -23,9 +23,6 @@ EOF
 
 output "connection" {
   value = {
-    # docker = {
-    #   cid = terraform_data.foo.id
-    # }
     kubernetes = {
       kubeconfig_path = "foo.yaml"
     }
