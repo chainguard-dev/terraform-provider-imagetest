@@ -1,15 +1,8 @@
 package pterraform
 
 import (
-	"context"
-
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
-
-type Runner interface {
-	Run(ctx context.Context, cmd harness.Command) error
-}
 
 type Connection struct {
 	Kubernetes *KubernetesConnection `json:"kubernetes"`
