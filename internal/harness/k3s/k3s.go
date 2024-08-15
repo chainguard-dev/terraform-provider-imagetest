@@ -162,7 +162,7 @@ func (h *k3s) Create(ctx context.Context) error {
 				},
 			},
 			HealthCheck: &container.HealthConfig{
-				Test:          []string{"CMD", "/bin/sh", "-c", "kubectl get --raw='/healthz'"},
+				Test:          []string{"CMD", "/bin/sh", "-c", "kubectl get --raw='/readyz' && kubectl get sa default -n default"},
 				Interval:      1 * time.Second,
 				Timeout:       5 * time.Second,
 				Retries:       5,
