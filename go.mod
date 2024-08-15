@@ -5,7 +5,7 @@ go 1.22.5
 toolchain go1.22.6
 
 require (
-	github.com/chainguard-dev/clog v1.4.0
+	github.com/chainguard-dev/clog v1.5.0
 	github.com/docker/cli v27.1.2+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.2
