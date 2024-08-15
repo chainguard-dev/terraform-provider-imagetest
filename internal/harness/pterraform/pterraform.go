@@ -17,6 +17,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -35,7 +36,7 @@ type pterraform struct {
 	tf    *tfexec.Terraform
 	stack *harness.Stack
 
-	runner Runner
+	runner sandbox.Runner
 }
 
 func New(source fs.FS, opts ...Option) (*pterraform, error) {
@@ -259,7 +260,6 @@ func (p *pterraform) Create(ctx context.Context) error {
 		}
 	}
 
-	var runner Runner
 	if conn.Docker != nil {
 		conn.Docker.PrivateKeyPath = filepath.Join(p.work, conn.Docker.PrivateKeyPath)
 
@@ -269,7 +269,7 @@ func (p *pterraform) Create(ctx context.Context) error {
 				log.Warn(ctx, "failed to create docker runner", "error", err)
 				return false, nil
 			}
-			runner = c
+			p.runner = c
 			return true, nil
 		}); err != nil {
 			return fmt.Errorf("waiting for docker connection to be ready: %w", err)
@@ -280,13 +280,18 @@ func (p *pterraform) Create(ctx context.Context) error {
 			conn.Kubernetes.KubeconfigPath = filepath.Join(p.work, conn.Kubernetes.KubeconfigPath)
 		}
 
+		sbx, err := conn.Kubernetes.runner()
+		if err != nil {
+			return err
+		}
+
 		if err := wait.ExponentialBackoffWithContext(ctx, conn.backoff, func(ctx context.Context) (bool, error) {
-			c, err := newK8sRunner(ctx, conn.Kubernetes)
+			r, err := sbx.Start(ctx)
 			if err != nil {
-				log.Warn(ctx, "failed to create kubernetes runner", "error", err)
-				return false, nil
+				return false, err
 			}
-			runner = c
+			p.runner = r
+
 			return true, nil
 		}); err != nil {
 			return fmt.Errorf("waiting for kubernetes connection to be ready: %w", err)
@@ -296,7 +301,6 @@ func (p *pterraform) Create(ctx context.Context) error {
 		return fmt.Errorf("unknown connection type")
 	}
 
-	p.runner = runner
 	return nil
 }
 

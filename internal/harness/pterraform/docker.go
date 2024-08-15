@@ -8,11 +8,12 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
 	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/client"
 )
 
-var _ Runner = &dockerConnector{}
+var _ sandbox.Runner = &dockerConnector{}
 
 type DockerConnection struct {
 	Cid            string `json:"cid"`
@@ -74,7 +75,7 @@ func (c DockerConnection) client() ([]client.Opt, error) {
 	return opts, nil
 }
 
-func newDockerRunner(ctx context.Context, cfg *DockerConnection) (Runner, error) {
+func newDockerRunner(ctx context.Context, cfg *DockerConnection) (sandbox.Runner, error) {
 	copts, err := cfg.client()
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
