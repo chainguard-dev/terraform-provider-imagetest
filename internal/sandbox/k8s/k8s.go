@@ -25,6 +25,10 @@ var _ sandbox.Sandbox = &k8s{}
 
 type Request struct {
 	sandbox.Request
+
+	HostNetwork bool
+	DnsPolicy   corev1.DNSPolicy
+	Tolerations []corev1.Toleration
 }
 
 // k8s is a sandbox that runs steps in a pod in a k8s cluster.
@@ -254,6 +258,7 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 			Namespace: ns.Name,
 		},
 		Spec: corev1.PodSpec{
+			HostNetwork:        k.request.HostNetwork,
 			ServiceAccountName: sa.Name,
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser:  &k.request.User,
@@ -354,6 +359,14 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 	if k.request.Resources.Requests != nil {
 		// TODO:
 		preq.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
+	}
+
+	if k.request.DnsPolicy != "" {
+		preq.Spec.DNSPolicy = k.request.DnsPolicy
+	}
+
+	if k.request.Tolerations != nil {
+		preq.Spec.Tolerations = k.request.Tolerations
 	}
 
 	for k, v := range k.request.Labels {
