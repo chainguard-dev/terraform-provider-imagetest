@@ -15,7 +15,7 @@ type VolumeRequest struct {
 	Labels map[string]string
 }
 
-func (d *docker) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mount, error) {
+func (d *Client) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mount, error) {
 	if req.Labels == nil {
 		req.Labels = make(map[string]string)
 	}
@@ -38,6 +38,6 @@ func (d *docker) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 	}, nil
 }
 
-func (d *docker) RemoveVolume(ctx context.Context, v mount.Mount) error {
+func (d *Client) RemoveVolume(ctx context.Context, v mount.Mount) error {
 	return d.cli.VolumeRemove(ctx, v.Source, true)
 }

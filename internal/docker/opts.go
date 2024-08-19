@@ -4,17 +4,17 @@ import (
 	"github.com/docker/docker/client"
 )
 
-type Option func(*docker) error
+type Option func(*Client) error
 
 func WithClient(cli *client.Client) Option {
-	return func(d *docker) error {
+	return func(d *Client) error {
 		d.cli = cli
 		return nil
 	}
 }
 
 func WithClientOpts(opts ...client.Opt) Option {
-	return func(d *docker) error {
+	return func(d *Client) error {
 		if opts == nil {
 			return nil
 		}

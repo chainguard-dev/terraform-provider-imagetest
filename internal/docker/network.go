@@ -27,7 +27,7 @@ type NetworkAttachment struct {
 	ID   string
 }
 
-func (d *docker) CreateNetwork(ctx context.Context, req *NetworkRequest) (*NetworkAttachment, error) {
+func (d *Client) CreateNetwork(ctx context.Context, req *NetworkRequest) (*NetworkAttachment, error) {
 	if req.Name == "" {
 		req.Name = uuid.New().String()
 	}
@@ -77,7 +77,7 @@ func (d *docker) CreateNetwork(ctx context.Context, req *NetworkRequest) (*Netwo
 	}, nil
 }
 
-func (d *docker) RemoveNetwork(ctx context.Context, nw *NetworkAttachment) error {
+func (d *Client) RemoveNetwork(ctx context.Context, nw *NetworkAttachment) error {
 	return d.cli.NetworkRemove(ctx, nw.ID)
 }
 
