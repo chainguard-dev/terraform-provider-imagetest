@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
@@ -79,6 +80,20 @@ func TestDocker(t *testing.T) {
 
 	err = resp.Run(ctx, harness.Command{Args: "cat /doesnt/exist/tmp/test | grep test3"})
 	require.NoError(t, err)
+
+	// Get a file from the container
+	rc, err := resp.GetFile(ctx, "/test")
+	require.NoError(t, err)
+	data, _ := io.ReadAll(rc)
+	require.Equal(t, "test1", string(data))
+
+	// Fail to get a file that doesn't exist from the container
+	_, err = resp.GetFile(ctx, "/doesnt/exist/tmp/test")
+	require.ErrorContains(t, err, "requested file")
+
+	// Fail to get a relative file from the container
+	_, err = resp.GetFile(ctx, "test")
+	require.ErrorContains(t, err, "not absolute")
 
 	// Cleanup
 	err = d.Remove(ctx, resp)

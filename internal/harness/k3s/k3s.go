@@ -6,17 +6,21 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api"
 )
 
 var _ harness.Harness = &k3s{}
@@ -27,27 +31,29 @@ type k3s struct {
 
 	Hooks Hooks
 
-	HostPort           int
-	HostKubeconfigPath string
-
 	stack  *harness.Stack
 	runner func(context.Context, harness.Command) error
+
+	kcfg *rest.Config
+	kcli kubernetes.Interface
 }
 
 func New(opts ...Option) (*k3s, error) {
 	h := &k3s{
 		Service: &serviceConfig{
-			Ref:           name.MustParseReference("cgr.dev/chainguard/k3s:latest"),
-			Cni:           true,
-			Traefik:       false,
-			MetricsServer: false,
-			NetworkPolicy: false,
+			Ref:             name.MustParseReference("cgr.dev/chainguard/k3s:latest"),
+			Cni:             true,
+			Traefik:         false,
+			MetricsServer:   false,
+			NetworkPolicy:   false,
+			HttpsListenPort: 6443,
 			// Default to the bare minimum k3s needs to run properly
 			// https://docs.k3s.io/installation/requirements#hardware
 			Resources: docker.ResourcesRequest{
 				MemoryRequest: resource.MustParse("2Gi"),
 				CpuRequest:    resource.MustParse("1"),
 			},
+			Networks: make([]docker.NetworkAttachment, 0),
 		},
 		Sandbox: &docker.Request{
 			Ref:        name.MustParseReference("cgr.dev/chainguard/kubectl:latest-dev"),
@@ -63,6 +69,7 @@ func New(opts ...Option) (*k3s, error) {
 				"IMAGETEST=true",
 				"KUBECONFIG=/k3s-config/k3s.yaml",
 			},
+			Networks: make([]docker.NetworkAttachment, 0),
 		},
 		stack: harness.NewStack(),
 	}
@@ -85,185 +92,13 @@ func (h *k3s) Create(ctx context.Context) error {
 		return err
 	}
 
-	// Create the network first
-	nw, err := cli.CreateNetwork(ctx, &docker.NetworkRequest{})
+	kresp, err := h.startK3s(ctx, cli)
 	if err != nil {
-		return fmt.Errorf("creating network: %w", err)
+		return fmt.Errorf("starting k3s: %w", err)
 	}
 
-	if err := h.stack.Add(func(ctx context.Context) error {
-		return cli.RemoveNetwork(ctx, nw)
-	}); err != nil {
-		return fmt.Errorf("adding network teardown to stack: %w", err)
-	}
-
-	vol, err := cli.CreateVolume(ctx, &docker.VolumeRequest{
-		Target: "/etc/rancher/k3s",
-	})
-	if err != nil {
-		return fmt.Errorf("creating volume: %w", err)
-	}
-
-	if err := h.stack.Add(func(ctx context.Context) error {
-		return cli.RemoveVolume(ctx, vol)
-	}); err != nil {
-		return fmt.Errorf("adding volume teardown to stack: %w", err)
-	}
-
-	g, ctx := errgroup.WithContext(ctx)
-
-	// Spin up the k3s service
-	g.Go(func() error {
-		name := h.Service.Name
-		if name == "" {
-			// We need a deterministic name for the clusters tls-san
-			name = uuid.New().String()
-		}
-
-		contents := []*docker.Content{}
-
-		cfg, err := h.config(name)
-		if err != nil {
-			return err
-		}
-		contents = append(contents, cfg)
-
-		reg, err := h.registries()
-		if err != nil {
-			return err
-		}
-		contents = append(contents, reg)
-
-		if h.Service.KubeletConfig != "" {
-			kcfg := docker.NewContentFromString(h.Service.KubeletConfig, "/etc/rancher/k3s/kubelet.yaml")
-			contents = append(contents, kcfg)
-		}
-
-		resp, err := cli.Start(ctx, &docker.Request{
-			Name:       name,
-			Ref:        h.Service.Ref,
-			Cmd:        []string{"server"},
-			Privileged: true,
-			Networks: []docker.NetworkAttachment{
-				{
-					Name: nw.Name,
-					ID:   nw.ID,
-				},
-			},
-			Mounts: []mount.Mount{
-				vol,
-				{
-					Type:   mount.TypeTmpfs,
-					Target: "/run",
-				},
-				{
-					Type:   mount.TypeTmpfs,
-					Target: "/tmp",
-				},
-			},
-			HealthCheck: &container.HealthConfig{
-				Test:          []string{"CMD", "/bin/sh", "-c", "kubectl get --raw='/healthz'"},
-				Interval:      1 * time.Second,
-				Timeout:       5 * time.Second,
-				Retries:       5,
-				StartInterval: 1 * time.Second,
-			},
-			Contents:  contents,
-			Resources: h.Service.Resources,
-		})
-		if err != nil {
-			return fmt.Errorf("starting k3s service: %w", err)
-		}
-
-		if err := h.stack.Add(func(ctx context.Context) error {
-			return cli.Remove(ctx, resp)
-		}); err != nil {
-			return fmt.Errorf("adding k3s service teardown to stack: %w", err)
-		}
-
-		// Modify the kubeconfig to use the containers external hostname, this
-		// makes it accessible from the host and any network attached container
-		if err := resp.Run(ctx, harness.Command{
-			Args: fmt.Sprintf("KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config set-cluster default --server https://%[1]s:6443 > /dev/null", resp.Name),
-		}); err != nil {
-			return fmt.Errorf("setting cluster name: %w", err)
-		}
-
-		if h.HostKubeconfigPath != "" {
-			var kr bytes.Buffer
-			if err := resp.Run(ctx, harness.Command{
-				Args:   "KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl config view --raw > /dev/null",
-				Stdout: &kr,
-			}); err != nil {
-				return fmt.Errorf("writing kubeconfig to host: %w", err)
-			}
-
-			data, err := io.ReadAll(&kr)
-			if err != nil {
-				return fmt.Errorf("reading kubeconfig from host: %w", err)
-			}
-
-			cfg, err := clientcmd.Load(data)
-			if err != nil {
-				return fmt.Errorf("loading kubeconfig: %w", err)
-			}
-
-			_, ok := cfg.Clusters["default"]
-			if !ok {
-				return fmt.Errorf("no default context found in kubeconfig")
-			}
-			cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%d", h.HostPort)
-
-			if err := clientcmd.WriteToFile(*cfg, h.HostKubeconfigPath); err != nil {
-				return fmt.Errorf("writing kubeconfig to host: %w", err)
-			}
-		}
-
-		// Run the post start hooks
-		for _, hook := range h.Hooks.PostStart {
-			if err := resp.Run(ctx, harness.Command{
-				Args: hook,
-			}); err != nil {
-				return fmt.Errorf("running post start hook: %w", err)
-			}
-		}
-
-		return nil
-	})
-
-	// Create the sandbox
-	g.Go(func() error {
-		req := h.Sandbox
-		req.Mounts = append(req.Mounts, mount.Mount{
-			Type:   mount.TypeVolume,
-			Source: vol.Source,
-			Target: "/k3s-config",
-		})
-		req.Networks = append(req.Networks, docker.NetworkAttachment{
-			Name: nw.Name,
-			ID:   nw.ID,
-		})
-
-		sandbox, err := cli.Start(ctx, req)
-		if err != nil {
-			return fmt.Errorf("starting sandbox: %w", err)
-		}
-
-		if err := h.stack.Add(func(ctx context.Context) error {
-			return cli.Remove(ctx, sandbox)
-		}); err != nil {
-			return fmt.Errorf("adding sandbox teardown to stack: %w", err)
-		}
-
-		h.runner = func(ctx context.Context, cmd harness.Command) error {
-			return sandbox.Run(ctx, cmd)
-		}
-
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return err
+	if err := h.startSandbox(ctx, cli, kresp); err != nil {
+		return fmt.Errorf("starting sandbox: %w", err)
 	}
 
 	return nil
@@ -279,9 +114,191 @@ func (h *k3s) Run(ctx context.Context, cmd harness.Command) error {
 	return h.runner(ctx, cmd)
 }
 
+func (h *k3s) startK3s(ctx context.Context, cli *docker.Client) (*docker.Response, error) {
+	nw, err := cli.CreateNetwork(ctx, &docker.NetworkRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("creating network: %w", err)
+	}
+
+	if err := h.stack.Add(func(ctx context.Context) error {
+		return cli.RemoveNetwork(ctx, nw)
+	}); err != nil {
+		return nil, fmt.Errorf("adding network teardown to stack: %w", err)
+	}
+
+	name := h.Service.Name
+	if name == "" {
+		// We need a deterministic name for the clusters tls-san
+		name = uuid.New().String()
+	}
+
+	contents := []*docker.Content{}
+
+	cfg, err := h.config(name)
+	if err != nil {
+		return nil, err
+	}
+	contents = append(contents, cfg)
+
+	reg, err := h.registries()
+	if err != nil {
+		return nil, err
+	}
+	contents = append(contents, reg)
+
+	contents = append(contents, docker.NewContentFromString(`
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+- level: Request
+  users: ["system:admin"]
+  resources:
+  - group: ""
+    resources: ["*"]
+      `, "/var/lib/rancher/k3s/server/audit.yaml"))
+
+	if h.Service.KubeletConfig != "" {
+		kcfg := docker.NewContentFromString(h.Service.KubeletConfig, "/etc/rancher/k3s/kubelet.yaml")
+		contents = append(contents, kcfg)
+	}
+
+	resp, err := cli.Start(ctx, &docker.Request{
+		Name:       name,
+		Ref:        h.Service.Ref,
+		Cmd:        []string{"server"},
+		Privileged: true,
+		Networks: append(h.Service.Networks, docker.NetworkAttachment{
+			Name: nw.Name,
+			ID:   nw.ID,
+		}),
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeTmpfs,
+				Target: "/run",
+			},
+			{
+				Type:   mount.TypeTmpfs,
+				Target: "/tmp",
+			},
+		},
+		HealthCheck: &container.HealthConfig{
+			Test:          []string{"CMD", "/bin/sh", "-c", "kubectl get --raw='/healthz'"},
+			Interval:      1 * time.Second,
+			Timeout:       5 * time.Second,
+			Retries:       5,
+			StartInterval: 1 * time.Second,
+		},
+		PortBindings: nat.PortMap{
+			nat.Port(strconv.Itoa(h.Service.HttpsListenPort)): []nat.PortBinding{
+				{
+					HostIP:   "127.0.0.1",
+					HostPort: "", // Let the daemon pick a random port
+				},
+			},
+		},
+		Contents:  contents,
+		Resources: h.Service.Resources,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("starting k3s service: %w", err)
+	}
+
+	if err := h.stack.Add(func(ctx context.Context) error {
+		return cli.Remove(ctx, resp)
+	}); err != nil {
+		return nil, fmt.Errorf("adding k3s service teardown to stack: %w", err)
+	}
+
+	// Run the post start hooks
+	for _, hook := range h.Hooks.PostStart {
+		if err := resp.Run(ctx, harness.Command{
+			Args: hook,
+		}); err != nil {
+			return nil, fmt.Errorf("running post start hook: %w", err)
+		}
+	}
+
+	kcfg, err := h.kubeconfig(ctx, resp, func(cfg *api.Config) error {
+		if resp.NetworkSettings == nil && resp.NetworkSettings.Networks == nil {
+			return fmt.Errorf("no network settings found")
+		}
+
+		apiPortName := nat.Port(strconv.Itoa(h.Service.HttpsListenPort)) + "/tcp"
+		ports, ok := resp.NetworkSettings.Ports[apiPortName]
+		if !ok {
+			return fmt.Errorf("no host port found for %s", apiPortName)
+		}
+
+		if len(ports) == 0 {
+			return fmt.Errorf("no host port found for %s", apiPortName)
+		}
+
+		cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%s", ports[0].HostPort)
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting kubeconfig: %w", err)
+	}
+
+	h.kcfg, err = clientcmd.RESTConfigFromKubeConfig(kcfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating kubernetes config: %w", err)
+	}
+
+	h.kcli, err = kubernetes.NewForConfig(h.kcfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating kubernetes client: %w", err)
+	}
+
+	return resp, nil
+}
+
+func (h *k3s) startSandbox(ctx context.Context, cli *docker.Client, resp *docker.Response) error {
+	skcfg, err := h.kubeconfig(ctx, resp, func(cfg *api.Config) error {
+		cfg.Clusters["default"].Server = fmt.Sprintf("https://%s:%d", resp.Name, h.Service.HttpsListenPort)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("getting kubeconfig: %w", err)
+	}
+
+	// Attach the sandbox to all networks the k3s service is also part of
+	for nn, nw := range resp.NetworkSettings.Networks {
+		h.Sandbox.Networks = append(h.Sandbox.Networks, docker.NetworkAttachment{
+			Name: nn,
+			ID:   nw.NetworkID,
+		})
+	}
+
+	h.Sandbox.Name = resp.Name + "-sandbox"
+
+	h.Sandbox.Contents = []*docker.Content{
+		docker.NewContentFromString(string(skcfg), "/k3s-config/k3s.yaml"),
+	}
+
+	sandbox, err := cli.Start(ctx, h.Sandbox)
+	if err != nil {
+		return fmt.Errorf("starting sandbox: %w", err)
+	}
+
+	if err := h.stack.Add(func(ctx context.Context) error {
+		return cli.Remove(ctx, sandbox)
+	}); err != nil {
+		return fmt.Errorf("adding sandbox teardown to stack: %w", err)
+	}
+
+	h.runner = func(ctx context.Context, cmd harness.Command) error {
+		return sandbox.Run(ctx, cmd)
+	}
+
+	return nil
+}
+
 func (h *k3s) config(host string) (*docker.Content, error) {
 	tpl := fmt.Sprintf(`
 tls-san: "%[1]s"
+http-listen-port: {{ .HttpsListenPort }}
 disable:
 {{- if not .Traefik }}
   - traefik
@@ -300,6 +317,10 @@ snapshotter: "%[2]s"
 kubelet-arg:
   - config=%[3]s
 {{- end }}
+
+kube-apiserver-arg:
+  - 'audit-log-path=/var/lib/rancher/k3s/server/logs/audit.log'
+  - 'audit-policy-file=/var/lib/rancher/k3s/server/audit.yaml'
     `, host, h.Service.Snapshotter, "/etc/rancher/k3s/kubelet.yaml")
 
 	cfg, err := tmpl(tpl, h.Service)
@@ -343,6 +364,34 @@ configs:
 	}
 
 	return docker.NewContentFromString(cfg, "/etc/rancher/k3s/registries.yaml"), nil
+}
+
+func (h *k3s) kubeconfig(ctx context.Context, resp *docker.Response, config func(cfg *api.Config) error) ([]byte, error) {
+	// Setup host's kube client
+	kr, err := resp.GetFile(ctx, "/etc/rancher/k3s/k3s.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("getting kubeconfig: %w", err)
+	}
+
+	krdata, err := io.ReadAll(kr)
+	if err != nil {
+		return nil, fmt.Errorf("reading kubeconfig from host: %w", err)
+	}
+
+	kcfg, err := clientcmd.Load(krdata)
+	if err != nil {
+		return nil, fmt.Errorf("loading kubeconfig: %w", err)
+	}
+
+	if _, ok := kcfg.Clusters["default"]; !ok {
+		return nil, fmt.Errorf("no default context found in kubeconfig")
+	}
+
+	if err := config(kcfg); err != nil {
+		return nil, fmt.Errorf("configuring kubeconfig: %w", err)
+	}
+
+	return clientcmd.Write(*kcfg)
 }
 
 func tmpl(tpl string, data interface{}) (string, error) {

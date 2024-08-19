@@ -2,16 +2,19 @@
 package docker
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
@@ -26,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-type docker struct {
+type Client struct {
 	cli   *client.Client
 	copts []client.Opt
 }
@@ -57,8 +60,8 @@ type ResourcesRequest struct {
 	MemoryLimit   resource.Quantity
 }
 
-func New(opts ...Option) (*docker, error) {
-	d := &docker{
+func New(opts ...Option) (*Client, error) {
+	d := &Client{
 		copts: make([]client.Opt, 0),
 	}
 
@@ -87,7 +90,7 @@ func New(opts ...Option) (*docker, error) {
 }
 
 // Start starts a container with the given request.
-func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
+func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 	endpointSettings := make(map[string]*network.EndpointSettings)
 	for _, nw := range req.Networks {
 		endpointSettings[nw.Name] = &network.EndpointSettings{
@@ -175,6 +178,7 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 
 	// Block until the container is running
 	cname := ""
+	var cjson types.ContainerJSON
 	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, req.Timeout, true, func(ctx context.Context) (bool, error) {
 		inspect, err := d.cli.ContainerInspect(ctx, cresp.ID)
 		if err != nil {
@@ -201,6 +205,8 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 		// Name's start with a leading "/", so remove it
 		cname = strings.TrimPrefix(inspect.Name, "/")
 
+		cjson = inspect
+
 		return true, nil
 	}); err != nil {
 		return nil, fmt.Errorf("waiting for container to be running: %w", err)
@@ -211,14 +217,15 @@ func (d *docker) Start(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	return &Response{
-		ID:   cresp.ID,
-		Name: cname,
-		cli:  d.cli,
+		ContainerJSON: cjson,
+		ID:            cresp.ID,
+		Name:          cname,
+		cli:           d.cli,
 	}, nil
 }
 
 // Connect returns a response for a container that is already running.
-func (d *docker) Connect(ctx context.Context, cid string) (*Response, error) {
+func (d *Client) Connect(ctx context.Context, cid string) (*Response, error) {
 	info, err := d.cli.ContainerInspect(ctx, cid)
 	if err != nil {
 		return nil, fmt.Errorf("inspecting container: %w", err)
@@ -236,7 +243,7 @@ func (d *docker) Connect(ctx context.Context, cid string) (*Response, error) {
 }
 
 // pull the image if it doesn't exist in the daemon.
-func (d *docker) pull(ctx context.Context, ref name.Reference) error {
+func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 	if _, _, err := d.cli.ImageInspectWithRaw(ctx, ref.Name()); err != nil {
 		if !client.IsErrNotFound(err) {
 			return fmt.Errorf("checking if image exists: %w", err)
@@ -282,7 +289,7 @@ func (d *docker) pull(ctx context.Context, ref name.Reference) error {
 }
 
 // Remove forcibly removes all the resources associated with the given request.
-func (d *docker) Remove(ctx context.Context, resp *Response) error {
+func (d *Client) Remove(ctx context.Context, resp *Response) error {
 	force := 0
 	if err := d.cli.ContainerStop(ctx, resp.ID, container.StopOptions{
 		Timeout: &force,
@@ -297,6 +304,7 @@ func (d *docker) Remove(ctx context.Context, resp *Response) error {
 
 // Response is returned from a Start() request.
 type Response struct {
+	types.ContainerJSON
 	ID   string
 	Name string
 	cli  *client.Client
@@ -367,7 +375,38 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 	return nil
 }
 
-func (d *docker) withDefaultLabels(labels map[string]string) map[string]string {
+func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) {
+	// ensure path is absolute
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("path %s is not absolute", path)
+	}
+
+	trc, _, err := r.cli.CopyFromContainer(ctx, r.ID, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// its a tar archive and we just want to return the files read closer
+	tr := tar.NewReader(trc)
+	hdr, err := tr.Next()
+	if err == io.EOF {
+		return nil, fmt.Errorf("no file found in tar")
+	} else if err != nil {
+		return nil, err
+	}
+
+	if hdr.Typeflag != tar.TypeReg {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+
+	if hdr.Name != filepath.Base(path) {
+		return nil, fmt.Errorf("requested file %s does not match what is in the archive: %s", hdr.Name, path)
+	}
+
+	return tr, nil
+}
+
+func (d *Client) withDefaultLabels(labels map[string]string) map[string]string {
 	l := map[string]string{
 		"dev.chainguard.imagetest": "true",
 	}
