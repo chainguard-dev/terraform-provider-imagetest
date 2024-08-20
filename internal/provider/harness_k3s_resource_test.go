@@ -284,6 +284,51 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
+		"with local registry": {
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "terraform_data" "registry_up" {
+  provisioner "local-exec" {
+    command = "docker run --name it-test-registry -d -p 12344:5000 registry:2"
+  }
+}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  depends_on = [terraform_data.registry_up]
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple k3s based test"
+  description = "Test that we can attach existing networks"
+  harness = imagetest_harness_k3s.test
+  steps = [
+    {
+      name = "Access cluster"
+      cmd = <<EOF
+        kubectl get po -A
+
+        apk add curl jq
+        curl -v http://host.docker.internal:12344/v2/ | jq '.'
+      EOF
+    },
+  ]
+}
+
+resource "terraform_data" "registry_down" {
+  provisioner "local-exec" {
+    command = "docker rm -f it-test-registry"
+  }
+  depends_on = [imagetest_feature.test]
+}
+          `,
+			},
+		},
 	}
 
 	for name, tc := range testCases {

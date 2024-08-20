@@ -105,6 +105,9 @@ func (h *docker) Create(ctx context.Context) error {
 		Contents: []*client.Content{
 			client.NewContentFromString(string(dockerconfigjson), "/root/.docker/config.json"),
 		},
+		ExtraHosts: []string{
+			"host.docker.internal:host-gateway",
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("starting container: %w", err)
