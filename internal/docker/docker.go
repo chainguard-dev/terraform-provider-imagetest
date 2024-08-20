@@ -50,6 +50,7 @@ type Request struct {
 	HealthCheck  *container.HealthConfig
 	Contents     []*Content
 	PortBindings nat.PortMap
+	ExtraHosts   []string
 }
 
 type ResourcesRequest struct {
@@ -138,6 +139,7 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 			ExposedPorts: exposedPorts,
 		},
 		&container.HostConfig{
+			ExtraHosts: req.ExtraHosts,
 			Privileged: req.Privileged,
 			RestartPolicy: container.RestartPolicy{
 				// Never restart

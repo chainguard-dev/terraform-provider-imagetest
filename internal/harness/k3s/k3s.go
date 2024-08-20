@@ -70,6 +70,9 @@ func New(opts ...Option) (*k3s, error) {
 				"KUBECONFIG=/k3s-config/k3s.yaml",
 			},
 			Networks: make([]docker.NetworkAttachment, 0),
+			ExtraHosts: []string{
+				"host.docker.internal:host-gateway",
+			},
 		},
 		stack: harness.NewStack(),
 	}
@@ -198,6 +201,9 @@ rules:
 		},
 		Contents:  contents,
 		Resources: h.Service.Resources,
+		ExtraHosts: []string{
+			"host.docker.internal:host-gateway",
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("starting k3s service: %w", err)
