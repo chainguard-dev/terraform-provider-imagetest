@@ -98,7 +98,7 @@ func (h *k3s) Create(ctx context.Context) error {
 	}
 
 	if err := h.startSandbox(ctx, cli, kresp); err != nil {
-		return fmt.Errorf("starting sandbox: %w", err)
+		return fmt.Errorf("creating sandbox: %w", err)
 	}
 
 	return nil
@@ -263,12 +263,24 @@ func (h *k3s) startSandbox(ctx context.Context, cli *docker.Client, resp *docker
 		return fmt.Errorf("getting kubeconfig: %w", err)
 	}
 
-	// Attach the sandbox to all networks the k3s service is also part of
+	networks := make(map[string]struct{})
+	for _, nw := range h.Sandbox.Networks {
+		networks[nw.ID] = struct{}{}
+	}
+
+	// Attach the sandbox to any networks k3s is also a part of, excluding any
+	// invalid networks or networks already attached (the daemon cannot deconflict
+	// these)
 	for nn, nw := range resp.NetworkSettings.Networks {
-		h.Sandbox.Networks = append(h.Sandbox.Networks, docker.NetworkAttachment{
-			Name: nn,
-			ID:   nw.NetworkID,
-		})
+		if nn == "" {
+			continue
+		}
+		if _, ok := networks[nn]; !ok {
+			h.Sandbox.Networks = append(h.Sandbox.Networks, docker.NetworkAttachment{
+				Name: nn,
+				ID:   nw.NetworkID,
+			})
+		}
 	}
 
 	h.Sandbox.Name = resp.Name + "-sandbox"

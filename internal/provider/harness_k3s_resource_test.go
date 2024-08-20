@@ -257,6 +257,33 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
+		"with additional networks": {
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  networks = { "bridge" = { name = "bridge" } }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple k3s based test"
+  description = "Test that we can attach existing networks"
+  harness = imagetest_harness_k3s.test
+  steps = [
+    {
+      name = "Access cluster"
+      cmd = "kubectl get po -A"
+    },
+  ]
+}
+          `,
+			},
+		},
 	}
 
 	for name, tc := range testCases {
