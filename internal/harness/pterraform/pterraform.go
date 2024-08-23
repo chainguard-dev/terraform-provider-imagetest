@@ -71,6 +71,22 @@ func New(source fs.FS, opts ...Option) (*pterraform, error) {
 	p.tf = tf
 	p.tf.SetStdout(io.Discard)
 
+	// Use the host variables but ignore any host TF_VAR_
+	envs := make(map[string]string)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "TF_VAR_") {
+			continue
+		}
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		envs[parts[0]] = parts[1]
+	}
+	if err := p.tf.SetEnv(envs); err != nil {
+		return nil, fmt.Errorf("setting environment variables: %w", err)
+	}
+
 	return p, nil
 }
 
@@ -201,6 +217,10 @@ func (p *pterraform) Create(ctx context.Context) error {
 
 	applyopts := []tfexec.ApplyOption{}
 
+	for _, opt := range p.evars() {
+		applyopts = append(applyopts, opt)
+	}
+
 	if p.vars != nil {
 		// Write the vars as a vars.tf.json file
 		vdata, err := json.Marshal(p.vars)
@@ -218,7 +238,11 @@ func (p *pterraform) Create(ctx context.Context) error {
 	}
 
 	if err := p.stack.Add(func(ctx context.Context) error {
-		return p.tf.Destroy(ctx)
+		destroyopts := []tfexec.DestroyOption{}
+		for _, opt := range p.evars() {
+			destroyopts = append(destroyopts, opt)
+		}
+		return p.tf.Destroy(ctx, destroyopts...)
 	}); err != nil {
 		return fmt.Errorf("adding terraform destroy to stack: %w", err)
 	}
@@ -311,6 +335,32 @@ func (p *pterraform) Run(ctx context.Context, cmd harness.Command) error {
 
 func (p *pterraform) Destroy(ctx context.Context) error {
 	return p.stack.Teardown(ctx)
+}
+
+// evars slurps any IMAGETEST_TF_VAR_* environment variables and adds them to
+// the pterraform executor as -var="key=value".
+func (p *pterraform) evars() []*tfexec.VarOption {
+	opts := make([]*tfexec.VarOption, 0)
+
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "TF_VAR_") {
+			continue
+		}
+
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		k, v := parts[0], parts[1]
+
+		if strings.HasPrefix(k, "IMAGETEST_TF_VAR_") {
+			k = strings.TrimPrefix(k, "IMAGETEST_TF_VAR_")
+			opts = append(opts, tfexec.Var(fmt.Sprintf("%s=%s", k, v)))
+		}
+	}
+
+	return opts
 }
 
 type Option func(*pterraform) error
