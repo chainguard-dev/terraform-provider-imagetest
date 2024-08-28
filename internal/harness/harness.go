@@ -25,6 +25,19 @@ func DefaultEntrypoint() []string {
 	return []string{"/bin/sh", "-c"}
 }
 
+type RunError struct {
+	ExitCode int
+	Cmd      string
+	// CombinedOutput is intentional since when something goes wrong, it usually
+	// makes more sense to see the interweaved stdout/stderr since thats how they
+	// appear in a shell.
+	CombinedOutput string
+}
+
+func (e *RunError) Error() string {
+	return fmt.Sprintf("%s\n%s\nexit status %d", e.Cmd, e.CombinedOutput, e.ExitCode)
+}
+
 func DefaultCmd() []string {
 	return []string{"tail -f /dev/null"}
 }
