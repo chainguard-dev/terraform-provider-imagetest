@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/features"
@@ -364,22 +365,39 @@ func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ 
 
 func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data FeatureStepModel, level features.Level) error {
 	fn := features.StepFn(func(ctx context.Context) error {
-		ctx = log.With(ctx, "step_name", data.Name.ValueString())
+		ctx = log.With(ctx,
+			"step_name", data.Name.ValueString(),
+			"cmd", data.Cmd.ValueString(),
+			"feature", data.Name.ValueString(),
+		)
 
-		log.Info(ctx, "running step")
+		// capture a combined output buffer and a stderr buffer. the combined
+		// output is usually easier to reason that just stdout alone, and lets us
+		// return more information on failures.
+		var bufall, buferr bytes.Buffer
 
-		var bufout, buferr bytes.Buffer
 		err := h.Run(ctx, harness.Command{
 			Args:       data.Cmd.ValueString(),
 			WorkingDir: data.Workdir.ValueString(),
-			Stdout:     &bufout,
-			Stderr:     &buferr,
+			Stdout:     &bufall,
+			Stderr:     io.MultiWriter(&buferr, &bufall),
 		})
+
+		ctx = log.With(ctx,
+			"output", bufall.String(),
+		)
+
 		if err != nil {
-			return fmt.Errorf("running step: %w: %s", err, buferr.String())
+			if rerr, ok := err.(*harness.RunError); ok {
+				log.Warn(ctx, "feature step failed with non-zero exit code",
+					"exit_code", rerr.ExitCode,
+					"stderr", buferr.String())
+				return rerr
+			}
+			return fmt.Errorf("running step: %w", err)
 		}
 
-		log.Info(ctx, "step output", "stdout", bufout.String(), "stderr", buferr.String())
+		log.Info(ctx, "ran feature step")
 		return nil
 	})
 

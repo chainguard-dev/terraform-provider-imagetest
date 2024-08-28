@@ -337,16 +337,16 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 		return fmt.Errorf("starting exec: %w", err)
 	}
 
-	var stdout, stderr bytes.Buffer
-	var stdoutw, stderrw io.Writer
-	stdoutw, stderrw = &stdout, &stderr
+	var stdout, stderr, stdall bytes.Buffer
+	var stdoutw, stderrw, stdallw io.Writer
+	stdoutw, stderrw, stdallw = &stdout, &stderr, &stdall
 
 	if cmd.Stdout != nil {
-		stdoutw = io.MultiWriter(stdoutw, cmd.Stdout)
+		stdoutw = io.MultiWriter(stdoutw, stdallw, cmd.Stdout)
 	}
 
 	if cmd.Stderr != nil {
-		stderrw = io.MultiWriter(stderrw, cmd.Stderr)
+		stderrw = io.MultiWriter(stderrw, stdallw, cmd.Stderr)
 	}
 
 	done := make(chan error, 1)
@@ -371,7 +371,11 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 	}
 
 	if exec.ExitCode != 0 {
-		return fmt.Errorf("command exited with non-zero exit code: %d\n\n%s", exec.ExitCode, stderr.String())
+		return &harness.RunError{
+			ExitCode:       exec.ExitCode,
+			CombinedOutput: stdall.String(),
+			Cmd:            cmd.Args,
+		}
 	}
 
 	return nil
