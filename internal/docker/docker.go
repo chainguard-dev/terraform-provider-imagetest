@@ -46,6 +46,7 @@ type Request struct {
 	Resources    ResourcesRequest
 	Mounts       []mount.Mount
 	Networks     []NetworkAttachment
+	NetworkMode  string
 	Timeout      time.Duration
 	HealthCheck  *container.HealthConfig
 	Contents     []*Content
@@ -153,6 +154,7 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 			},
 			Mounts:       req.Mounts,
 			PortBindings: req.PortBindings,
+			NetworkMode:  container.NetworkMode(req.NetworkMode),
 		},
 		&network.NetworkingConfig{
 			EndpointsConfig: endpointSettings,
@@ -382,12 +384,7 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 }
 
 func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) {
-	// ensure path is absolute
-	if !filepath.IsAbs(path) {
-		return nil, fmt.Errorf("path %s is not absolute", path)
-	}
-
-	trc, _, err := r.cli.CopyFromContainer(ctx, r.ID, path)
+	trc, err := r.GetFromContainer(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -410,6 +407,20 @@ func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) 
 	}
 
 	return tr, nil
+}
+
+func (r *Response) GetFromContainer(ctx context.Context, path string) (io.ReadCloser, error) {
+	// ensure path is absolute
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("path %s is not absolute", path)
+	}
+
+	trc, _, err := r.cli.CopyFromContainer(ctx, r.ID, path)
+	if err != nil {
+		return nil, err
+	}
+
+	return trc, nil
 }
 
 func (d *Client) withDefaultLabels(labels map[string]string) map[string]string {
