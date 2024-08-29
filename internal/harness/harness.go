@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 )
 
@@ -35,7 +36,32 @@ type RunError struct {
 }
 
 func (e *RunError) Error() string {
-	return fmt.Sprintf("%s\n%s\nexit status %d", e.Cmd, e.CombinedOutput, e.ExitCode)
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Error executing command (exit code %d)\n\n", e.ExitCode))
+
+	sb.WriteString("Command:\n")
+
+	cmdLines := strings.Split(strings.TrimSpace(e.Cmd), "\n")
+	for _, line := range cmdLines {
+		sb.WriteString("\t")
+		sb.WriteString(strings.TrimLeft(line, " \t"))
+		sb.WriteString("\n")
+	}
+
+	// Add a newline between command and output
+	sb.WriteString("\n")
+
+	// Write the output
+	sb.WriteString("Output (stdout/stderr):\n")
+	outputLines := strings.Split(strings.TrimSpace(e.CombinedOutput), "\n")
+	for _, line := range outputLines {
+		sb.WriteString("\t")
+		sb.WriteString(strings.TrimLeft(line, " \t"))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
 
 func DefaultCmd() []string {
