@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
@@ -193,10 +194,10 @@ func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateReq
 func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceModel, harness harness.Harness) diag.Diagnostics {
 	diags := make(diag.Diagnostics, 0)
 
-	if r.skip(ctx, data.Inventory, data.Id.ValueString()) {
+	if skip, reason := r.skip(ctx, data.Inventory, data.Id.ValueString()); skip {
 		return append(diags, diag.NewWarningDiagnostic(
 			"skipping harness",
-			fmt.Sprintf("id [%s] reason: feature labels do not match", data.Id.ValueString()),
+			fmt.Sprintf("id [%s] reason: %s", data.Id.ValueString(), reason),
 		))
 	}
 
@@ -226,15 +227,19 @@ func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceMo
 	return diags
 }
 
-func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceModel, harnessId string) bool {
+func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceModel, harnessId string) (bool, string) {
 	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(harnessId))
 	if err != nil {
-		return false
+		return false, ""
+	}
+
+	if os.Getenv("IMAGETEST_SKIP_ALL") != "" {
+		return true, "IMAGETEST_SKIP_ALL is set"
 	}
 
 	// skipping is only possible when labels are specified
 	if len(r.store.labels) == 0 {
-		return false
+		return false, ""
 	}
 
 	for _, feat := range feats {
@@ -242,12 +247,12 @@ func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceM
 			fv, ok := feat.Labels[pk]
 			if ok && (fv != pv) {
 				// if the feature label exists but the value doesn't match, skip
-				return true
+				return true, "feature labels do not match"
 			}
 		}
 	}
 
-	return false
+	return false, ""
 }
 
 // Delete implements resource.Resource. This is intentionally a no-op.
