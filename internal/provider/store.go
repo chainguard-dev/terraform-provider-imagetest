@@ -14,6 +14,10 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	ilog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/google"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	slogmulti "github.com/samber/slog-multi"
 )
 
@@ -32,9 +36,23 @@ type ProviderStore struct {
 	// TODO: there's probably a way to do this without passing around the whole
 	// model
 	providerResourceData ImageTestProviderModel
+	repo                 name.Repository
+	ropts                []remote.Option
 }
 
-func NewProviderStore() *ProviderStore {
+func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
+	kc := authn.NewMultiKeychain(google.Keychain, authn.DefaultKeychain)
+	ropts := []remote.Option{
+		remote.WithAuthFromKeychain(kc),
+		remote.WithUserAgent("terraform-provider-imagetest"),
+	}
+
+	pusher, err := remote.NewPusher(ropts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pusher: %w", err)
+	}
+	ropts = append(ropts, remote.Reuse(pusher))
+
 	return &ProviderStore{
 		excludeTests: make(map[string]string),
 		includeTests: make(map[string]string),
@@ -42,7 +60,9 @@ func NewProviderStore() *ProviderStore {
 			store: make(map[string]harness.Harness),
 			mu:    sync.Mutex{},
 		},
-	}
+		repo:  repo,
+		ropts: ropts,
+	}, nil
 }
 
 func (s *ProviderStore) AddHarness(id string, harness harness.Harness) {

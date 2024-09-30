@@ -51,6 +51,7 @@ provider "imagetest" {
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
 - `log` (Attributes) (see [below for nested schema](#nestedatt--log))
 - `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
+- `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
 
 <a id="nestedatt--harnesses"></a>
 ### Nested Schema for `harnesses`
@@ -176,6 +177,8 @@ Optional:
 
 Optional:
 
+- `extra_packages` (List of String) A list of extra apk packages to install in the sandboxes.
+- `extra_repositories` (List of String) A list of extra repositories to add to the sandboxes apk sources.
 - `image` (String) The full image reference to use for the container.
 
 

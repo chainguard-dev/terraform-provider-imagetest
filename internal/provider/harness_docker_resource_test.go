@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -8,6 +9,8 @@ import (
 )
 
 func TestHarnessDockerResource(t *testing.T) {
+	t.Parallel()
+
 	testCases := map[string][]resource.TestStep{
 		"basic container harness": {
 			{
@@ -327,6 +330,40 @@ resource "imagetest_feature" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(),
 			},
 		},
+		"with sandbox": {
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name      = "test"
+  inventory = data.imagetest_inventory.this
+
+  # this is called via go test, so path.module is relative to the test directory
+  layers = [{ source = path.module, destination = "/src/bar/" }]
+
+  packages = ["crane"]
+}
+
+resource "imagetest_feature" "test" {
+  name        = "Simple Docker based test"
+  description = "Test that we can spin up a container and run some steps"
+  harness     = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "layers"
+      cmd  = "cat /src/bar/harness_docker_resource_test.go"
+    },
+    {
+      name = "customization"
+      cmd  = "crane --help"
+    },
+  ]
+}
+        `,
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -334,7 +371,7 @@ resource "imagetest_feature" "test" {
 			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 				Steps:                    tc,
 			})
 		})

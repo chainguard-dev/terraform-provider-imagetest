@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/bundler"
 	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/docker"
@@ -12,11 +14,11 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -40,14 +42,18 @@ type HarnessDockerResource struct {
 type HarnessDockerResourceModel struct {
 	BaseHarnessResourceModel
 
-	Image      types.String                           `tfsdk:"image"`
-	Volumes    []FeatureHarnessVolumeMountModel       `tfsdk:"volumes"`
-	Privileged types.Bool                             `tfsdk:"privileged"`
-	Envs       *HarnessContainerEnvs                  `tfsdk:"envs"`
-	Mounts     []ContainerMountModel                  `tfsdk:"mounts"`
-	Networks   map[string]ContainerNetworkModel       `tfsdk:"networks"`
-	Registries map[string]DockerRegistryResourceModel `tfsdk:"registries"`
-	Resources  *ContainerResources                    `tfsdk:"resources"`
+	Image        types.String                           `tfsdk:"image"`
+	Volumes      []FeatureHarnessVolumeMountModel       `tfsdk:"volumes"`
+	Privileged   types.Bool                             `tfsdk:"privileged"`
+	Envs         *HarnessContainerEnvs                  `tfsdk:"envs"`
+	Mounts       []ContainerMountModel                  `tfsdk:"mounts"`
+	Layers       []ContainerMountModel                  `tfsdk:"layers"`
+	Packages     []string                               `tfsdk:"packages"`
+	Repositories []string                               `tfsdk:"repositories"`
+	Networks     map[string]ContainerNetworkModel       `tfsdk:"networks"`
+	Registries   map[string]DockerRegistryResourceModel `tfsdk:"registries"`
+	Resources    *ContainerResources                    `tfsdk:"resources"`
+	Timeouts     timeouts.Value                         `tfsdk:"timeouts"`
 }
 
 type DockerRegistryResourceModel struct {
@@ -103,14 +109,8 @@ func (r *HarnessDockerResource) Update(ctx context.Context, req resource.UpdateR
 func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDockerResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
-	ref, err := name.ParseReference(data.Image.ValueString())
-	if err != nil {
-		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
-	}
-
 	opts := []docker.Option{
 		docker.WithName(data.Id.ValueString()),
-		docker.WithImageRef(ref),
 	}
 
 	mounts := make([]ContainerMountModel, 0)
@@ -196,6 +196,47 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		}
 	}
 
+	var layers []bundler.Layerer
+	for _, sl := range data.Layers {
+		layers = append(layers, bundler.NewFSLayer(
+			os.DirFS(sl.Source.ValueString()),
+			sl.Destination.ValueString(),
+		))
+	}
+
+	var (
+		b   bundler.Bundler
+		err error
+	)
+	if data.Image.ValueString() != "" {
+		ref, err := name.ParseReference(data.Image.ValueString())
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
+		}
+
+		b, err = bundler.NewAppender(ref)
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
+		}
+	} else {
+		b, err = bundler.NewApko(
+			bundler.ApkoWithRemoteOptions(r.store.ropts...),
+			bundler.ApkoWithPackages("docker-cli"),
+			bundler.ApkoWithPackages(data.Packages...),
+			bundler.ApkoWithRepositories(data.Repositories...),
+		)
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
+		}
+	}
+
+	bref, err := b.Bundle(ctx, r.store.repo, layers...)
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to bundle image", err.Error())}
+	}
+
+	opts = append(opts, docker.WithImageRef(bref))
+
 	for _, m := range mounts {
 		src, err := filepath.Abs(m.Source.ValueString())
 		if err != nil {
@@ -230,8 +271,16 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 				"image": schema.StringAttribute{
 					Description: "The full image reference to use for the container.",
 					Optional:    true,
-					Computed:    true,
-					Default:     stringdefault.StaticString(ContainerImage),
+				},
+				"packages": schema.ListAttribute{
+					Description: "A list of packages to install in the container.",
+					Optional:    true,
+					ElementType: types.StringType,
+				},
+				"repositories": schema.ListAttribute{
+					Description: "A list of repositories to use for the container.",
+					Optional:    true,
+					ElementType: types.StringType,
 				},
 				"privileged": schema.BoolAttribute{
 					Optional: true,
@@ -256,8 +305,9 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 					},
 				},
 				"mounts": schema.ListNestedAttribute{
-					Description: "The list of mounts to create on the container.",
-					Optional:    true,
+					Description:        "The list of mounts to create on the container.",
+					DeprecationMessage: "These should only be used under specific circumstances. Use the layers attribute instead.",
+					Optional:           true,
 					NestedObject: schema.NestedAttributeObject{
 						Attributes: map[string]schema.Attribute{
 							"source": schema.StringAttribute{
@@ -266,6 +316,22 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 							},
 							"destination": schema.StringAttribute{
 								Description: "The absolute path on the container to mount the source directory.",
+								Required:    true,
+							},
+						},
+					},
+				},
+				"layers": schema.ListNestedAttribute{
+					Description: "The list of layers to add to the container.",
+					Optional:    true,
+					NestedObject: schema.NestedAttributeObject{
+						Attributes: map[string]schema.Attribute{
+							"source": schema.StringAttribute{
+								Description: "The relative or absolute path on the host to the source directory to create a layer from.",
+								Required:    true,
+							},
+							"destination": schema.StringAttribute{
+								Description: "The absolute path on the container to root the source directory in.",
 								Required:    true,
 							},
 						},

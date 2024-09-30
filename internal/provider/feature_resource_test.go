@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -8,9 +9,11 @@ import (
 )
 
 func TestAccFeatureResource(t *testing.T) {
+	t.Parallel()
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 		Steps: []resource.TestStep{
 			// Create and read testing
 			{
@@ -60,9 +63,11 @@ resource "imagetest_feature" "test" {
 }
 
 func TestAccFeatureResourceRetry(t *testing.T) {
+	t.Parallel()
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 		Steps: []resource.TestStep{
 			// Create and read testing
 			{
@@ -122,9 +127,11 @@ resource "imagetest_feature" "test" {
 // requests as well. This also hits the base_harness path, where all the
 // harness update logic is located.
 func TestAccFeatureResourceUpdate(t *testing.T) {
+	t.Parallel()
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 		Steps: []resource.TestStep{
 			// Create testing
 			{
