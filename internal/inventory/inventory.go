@@ -17,9 +17,9 @@ type Inventory interface {
 type Harness string
 
 type Feature struct {
-	Id      string            `json:"id"`
-	Labels  map[string]string `json:"labels"`
-	Harness Harness           `json:"harness"`
+	Id      string  `json:"id"`
+	Skipped string  `json:"skipped"` // Either the reason for skipping or an empty string
+	Harness Harness `json:"harness"`
 }
 
 type InventoryModel map[Harness][]Feature

@@ -5,6 +5,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/volume"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -13,9 +14,8 @@ import (
 
 var _ resource.ResourceWithModifyPlan = &ContainerVolumeResource{}
 
-const metadataSuffix = "_container_volume"
-
 type ContainerVolumeResource struct {
+	framework.WithTypeName
 	BaseHarnessResource
 }
 
@@ -26,11 +26,7 @@ type ContainerVolumeResourceModel struct {
 }
 
 func NewContainerVolumeResource() resource.Resource {
-	return &ContainerVolumeResource{}
-}
-
-func (r *ContainerVolumeResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + metadataSuffix
+	return &ContainerVolumeResource{WithTypeName: "container_volume"}
 }
 
 func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/pterraform"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -20,10 +21,11 @@ import (
 var _ resource.ResourceWithModifyPlan = &HarnessPterraformResource{}
 
 func NewHarnessPterraformResource() resource.Resource {
-	return &HarnessPterraformResource{}
+	return &HarnessPterraformResource{WithTypeName: "harness_pterraform"}
 }
 
 type HarnessPterraformResource struct {
+	framework.WithTypeName
 	BaseHarnessResource
 }
 
@@ -35,10 +37,6 @@ type HarnessPterraformResourceModel struct {
 
 	Path types.String `tfsdk:"path"`
 	Vars types.String `tfsdk:"vars"`
-}
-
-func (r *HarnessPterraformResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_harness_pterraform"
 }
 
 func (r *HarnessPterraformResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -84,15 +82,15 @@ func (r *HarnessPterraformResource) Update(ctx context.Context, req resource.Upd
 }
 
 func (r *HarnessPterraformResource) harness(_ context.Context, data *HarnessPterraformResourceModel) (harness.Harness, diag.Diagnostics) {
-	diags := make(diag.Diagnostics, 0)
+	var diags diag.Diagnostics
 
 	popts := []pterraform.Option{}
 
 	// Ensure the source path exists
 	if _, err := os.Stat(data.Path.ValueString()); err != nil {
 		diags = append(diags, diag.NewErrorDiagnostic(
-			fmt.Sprintf("failed to find source path %[1]s", data.Path.ValueString()),
-			fmt.Sprintf(`The source path %[1]s does not exist`, data.Path.ValueString()),
+			fmt.Sprintf("failed to find source path %s", data.Path.ValueString()),
+			fmt.Sprintf("error opening file: %s", err.Error()),
 		))
 		return nil, diags
 	}
@@ -101,8 +99,8 @@ func (r *HarnessPterraformResource) harness(_ context.Context, data *HarnessPter
 	if ok {
 		p := path.Join(ws, data.Name.ValueString())
 		diags = append(diags, diag.NewWarningDiagnostic(
-			fmt.Sprintf("Using pterraform harness in dev mode. The working directory will be persisted across runs to `%[1]s`, and you will be responsible for cleaning up the workspace.", p),
-			fmt.Sprintf(`You have used IMAGETEST_WORKSPACE=%[1]s to activate the pterraform harness in dev mode.
+			fmt.Sprintf("Using pterraform harness in dev mode. The working directory will be persisted across runs to `%s`, and you will be responsible for cleaning up the workspace.", p),
+			fmt.Sprintf(`You have used IMAGETEST_WORKSPACE=%s to activate the pterraform harness in dev mode.
 
 This will only work as intended if all harnesses are named uniquely across ALL inventories.
 		`, ws)))

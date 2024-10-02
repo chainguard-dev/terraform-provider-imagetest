@@ -9,9 +9,9 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -27,37 +27,31 @@ const (
 var _ resource.ResourceWithModifyPlan = &HarnessDockerResource{}
 
 func NewHarnessDockerResource() resource.Resource {
-	return &HarnessDockerResource{}
+	return &HarnessDockerResource{WithTypeName: "harness_docker"}
 }
 
 // HarnessDockerResource defines the resource implementation.
 type HarnessDockerResource struct {
+	framework.WithTypeName
 	BaseHarnessResource
 }
 
 // HarnessDockerResourceModel describes the resource data model.
 type HarnessDockerResourceModel struct {
-	Id        types.String                     `tfsdk:"id"`
-	Name      types.String                     `tfsdk:"name"`
-	Inventory InventoryDataSourceModel         `tfsdk:"inventory"`
-	Volumes   []FeatureHarnessVolumeMountModel `tfsdk:"volumes"`
+	BaseHarnessResourceModel
 
 	Image      types.String                           `tfsdk:"image"`
+	Volumes    []FeatureHarnessVolumeMountModel       `tfsdk:"volumes"`
 	Privileged types.Bool                             `tfsdk:"privileged"`
 	Envs       *HarnessContainerEnvs                  `tfsdk:"envs"`
 	Mounts     []ContainerMountModel                  `tfsdk:"mounts"`
 	Networks   map[string]ContainerNetworkModel       `tfsdk:"networks"`
 	Registries map[string]DockerRegistryResourceModel `tfsdk:"registries"`
 	Resources  *ContainerResources                    `tfsdk:"resources"`
-	Timeouts   timeouts.Value                         `tfsdk:"timeouts"`
 }
 
 type DockerRegistryResourceModel struct {
 	Auth *RegistryResourceAuthModel `tfsdk:"auth"`
-}
-
-func (r *HarnessDockerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_harness_docker"
 }
 
 func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

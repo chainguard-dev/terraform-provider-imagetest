@@ -32,7 +32,7 @@ func (*file) Open(_ context.Context) error {
 	panic("open")
 }
 
-// AddFeature implements Inventory. it returns true if the feature was added,
+// AddFeature implements [Inventory]. It returns true if the feature was added,
 // false if it already exists.
 func (i *file) AddFeature(ctx context.Context, f Feature) (bool, error) {
 	data, err := i.read(ctx)
@@ -55,7 +55,7 @@ func (i *file) AddFeature(ctx context.Context, f Feature) (bool, error) {
 	return true, nil
 }
 
-// AddHarness implements Inventory.
+// AddHarness implements [Inventory].
 func (i *file) AddHarness(ctx context.Context, id Harness) (bool, error) {
 	data, err := i.read(ctx)
 	if err != nil {
@@ -75,7 +75,7 @@ func (i *file) AddHarness(ctx context.Context, id Harness) (bool, error) {
 	return true, nil
 }
 
-// GetFeatures implements I.
+// GetFeatures implements [Inventory].
 func (i *file) GetFeatures(ctx context.Context, id Harness) ([]Feature, error) {
 	data, err := i.read(ctx)
 	if err != nil {
@@ -90,7 +90,7 @@ func (i *file) GetFeatures(ctx context.Context, id Harness) ([]Feature, error) {
 	return features, nil
 }
 
-// RemoveFeature implements Inventory.
+// RemoveFeature implements [Inventory].
 func (i *file) RemoveFeature(ctx context.Context, f Feature) ([]Feature, error) {
 	data, err := i.read(ctx)
 	if err != nil {
@@ -123,7 +123,7 @@ func (i *file) RemoveFeature(ctx context.Context, f Feature) ([]Feature, error) 
 	return features, nil
 }
 
-// RemoveHarness implements Inventory.
+// RemoveHarness implements [Inventory].
 func (i *file) RemoveHarness(ctx context.Context, h Harness) error {
 	data, err := i.read(ctx)
 	if err != nil {

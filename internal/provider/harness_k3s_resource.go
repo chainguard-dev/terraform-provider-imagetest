@@ -10,9 +10,9 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/k3s"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -25,20 +25,18 @@ import (
 var _ resource.ResourceWithModifyPlan = &HarnessK3sResource{}
 
 func NewHarnessK3sResource() resource.Resource {
-	return &HarnessK3sResource{}
+	return &HarnessK3sResource{WithTypeName: "harness_k3s"}
 }
 
 // HarnessK3sResource defines the resource implementation.
 type HarnessK3sResource struct {
+	framework.WithTypeName
 	BaseHarnessResource
 }
 
 // HarnessK3sResourceModel describes the resource data model.
 type HarnessK3sResourceModel struct {
-	Id        types.String             `tfsdk:"id"`
-	Name      types.String             `tfsdk:"name"`
-	Inventory InventoryDataSourceModel `tfsdk:"inventory"`
-	Timeouts  timeouts.Value           `tfsdk:"timeouts"`
+	BaseHarnessResourceModel
 
 	Image                types.String                     `tfsdk:"image"`
 	DisableCni           types.Bool                       `tfsdk:"disable_cni"`
@@ -71,10 +69,6 @@ type HarnessK3sSandboxResourceModel struct {
 	Networks   map[string]ContainerNetworkModel `tfsdk:"networks"`
 }
 
-func (r *HarnessK3sResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_harness_k3s"
-}
-
 func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data HarnessK3sResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -91,9 +85,6 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	resp.Diagnostics.Append(r.create(ctx, req, harness)...)
-	if diags.HasError() {
-		return
-	}
 }
 
 func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -112,9 +103,6 @@ func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	resp.Diagnostics.Append(r.update(ctx, req, harness)...)
-	if diags.HasError() {
-		return
-	}
 }
 
 func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResourceModel) (harness.Harness, diag.Diagnostics) {
