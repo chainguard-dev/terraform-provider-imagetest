@@ -194,6 +194,9 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			}
 		} else {
 			b, err = bundler.NewApko(
+				bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
+				bundler.ApkoWithRepositories(r.store.providerResourceData.Sandbox.ExtraRepos...),
+				bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
 				bundler.ApkoWithRemoteOptions(r.store.ropts...),
 				bundler.ApkoWithPackages("kubectl", "helm"),
 				bundler.ApkoWithPackages(sandbox.Packages...),

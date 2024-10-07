@@ -220,6 +220,9 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		}
 	} else {
 		b, err = bundler.NewApko(
+			bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
+			bundler.ApkoWithRepositories(r.store.providerResourceData.Sandbox.ExtraRepos...),
+			bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
 			bundler.ApkoWithRemoteOptions(r.store.ropts...),
 			bundler.ApkoWithPackages("docker-cli"),
 			bundler.ApkoWithPackages(data.Packages...),

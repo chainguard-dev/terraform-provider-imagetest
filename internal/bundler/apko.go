@@ -112,12 +112,7 @@ func (a *apko) Bundle(ctx context.Context, repo name.Repository, layers ...Layer
 
 	ref := repo.Digest(digest.String())
 
-	pusher, err := remote.NewPusher(a.ropts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pusher: %w", err)
-	}
-
-	if err := pusher.Push(ctx, ref, img); err != nil {
+	if err := remote.Push(ref, img, a.ropts...); err != nil {
 		return nil, fmt.Errorf("failed to push bundle: %w", err)
 	}
 

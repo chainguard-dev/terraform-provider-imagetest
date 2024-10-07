@@ -33,6 +33,7 @@ type ImageTestProviderModel struct {
 	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
 	TestExecution *ProviderTestExecutionModel    `tfsdk:"test_execution"`
 	Repo          types.String                   `tfsdk:"repo"`
+	Sandbox       *ProviderSandboxModel          `tfsdk:"sandbox"`
 }
 
 type ImageTestProviderHarnessModel struct {
@@ -51,10 +52,14 @@ type ProviderHarnessClusterModel struct {
 	Kubeconfig *string `tfsdk:"kubeconfig"`
 }
 
+type ProviderSandboxModel struct {
+	ExtraRepos    []string `tfsdk:"extra_repos"`
+	ExtraKeyrings []string `tfsdk:"extra_keyrings"`
+	ExtraPackages []string `tfsdk:"extra_packages"`
+}
+
 type ProviderHarnessContainerSandboxResourceModel struct {
-	Image             types.String `tfsdk:"image"`
-	ExtraRepositories []string     `tfsdk:"extra_repositories"`
-	ExtraPackages     []string     `tfsdk:"extra_packages"`
+	Image types.String `tfsdk:"image"`
 }
 
 type ProviderHarnessDockerModel struct {
@@ -138,6 +143,26 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					},
 				},
 			},
+			"sandbox": schema.SingleNestedAttribute{
+				Description: "The optional configuration for all test sandboxes.",
+				Attributes: map[string]schema.Attribute{
+					"extra_repos": schema.ListAttribute{
+						Description: "A list of additional repositories to use for the sandbox.",
+						Optional:    true,
+						ElementType: types.StringType,
+					},
+					"extra_keyrings": schema.ListAttribute{
+						Description: "A list of additional keyrings to use for the sandbox.",
+						Optional:    true,
+						ElementType: types.StringType,
+					},
+					"extra_packages": schema.ListAttribute{
+						Description: "A list of additional packages to use for the sandbox.",
+						Optional:    true,
+						ElementType: types.StringType,
+					},
+				},
+			},
 			"harnesses": schema.SingleNestedAttribute{
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
@@ -208,16 +233,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 								Attributes: map[string]schema.Attribute{
 									"image": schema.StringAttribute{
 										Description: "The full image reference to use for the container.",
-										Optional:    true,
-									},
-									"extra_repositories": schema.ListAttribute{
-										Description: "A list of extra repositories to add to the sandboxes apk sources.",
-										ElementType: basetypes.StringType{},
-										Optional:    true,
-									},
-									"extra_packages": schema.ListAttribute{
-										Description: "A list of extra apk packages to install in the sandboxes.",
-										ElementType: basetypes.StringType{},
 										Optional:    true,
 									},
 								},
