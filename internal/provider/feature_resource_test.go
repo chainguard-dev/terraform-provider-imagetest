@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -174,6 +175,152 @@ resource "imagetest_feature" "test" {
   ]
 }
 `,
+			},
+		},
+	})
+}
+
+func TestAccFeatureResourceSkip(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Destroy:            false,
+				Config: `
+provider "imagetest" {
+  test_execution = { skip_all_tests = true }
+}
+
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "test" {
+  name = "update"
+  description = "Test whether creates work"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do something"
+    },
+  ]
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestMatchResourceAttr(
+						"imagetest_feature.test", "skipped", regexp.MustCompile("^Provider is configured to skip all tests$")),
+				),
+			},
+			{
+				ExpectNonEmptyPlan: true,
+				Destroy:            false,
+				Config: `
+provider "imagetest" {
+  test_execution = {
+    include_by_label = { "baz" = "qux" }
+  }
+}
+
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "include" {
+  name = "include"
+  description = "This should be included"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do something"
+    },
+  ]
+
+  labels = { foo = "bar", baz = "qux" }
+}
+
+resource "imagetest_feature" "exclude" {
+  name = "skip"
+  description = "This should be skipped"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do something"
+    },
+  ]
+
+  labels = { foo = "bar" }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestMatchResourceAttr(
+						"imagetest_feature.include", "skipped", regexp.MustCompile("")),
+					resource.TestMatchResourceAttr(
+						"imagetest_feature.exclude", "skipped", regexp.MustCompile("skipped")),
+				),
+			},
+			{
+				ExpectNonEmptyPlan: true,
+				Destroy:            false,
+				Config: `
+provider "imagetest" {
+  test_execution = {
+    exclude_by_label = { "foo" = "bar" }
+  }
+}
+
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_docker" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+}
+
+resource "imagetest_feature" "exclude1" {
+  name = "exclude"
+  description = "This should be skipped"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do something"
+    },
+  ]
+
+  labels = { foo = "bar", baz = "qux" }
+}
+
+resource "imagetest_feature" "exclude2" {
+  name = "skip"
+  description = "This should be skipped"
+  harness = imagetest_harness_docker.test
+  steps = [
+    {
+      name = "something"
+      cmd = "echo do something"
+    },
+  ]
+
+  labels = { foo = "bar" }
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestMatchResourceAttr(
+						"imagetest_feature.exclude1", "skipped", regexp.MustCompile("skipped")),
+					resource.TestMatchResourceAttr(
+						"imagetest_feature.exclude2", "skipped", regexp.MustCompile("skipped")),
+				),
 			},
 		},
 	})
