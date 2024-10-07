@@ -146,3 +146,10 @@ func ApkoWithRemoteOptions(opts ...remote.Option) ApkoOpt {
 		return nil
 	}
 }
+
+func ApkoWithArch(arch string) ApkoOpt {
+	return func(a *apko) error {
+		a.arch = apko_types.ParseArchitecture(arch)
+		return nil
+	}
+}
