@@ -14,7 +14,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -53,7 +52,6 @@ type HarnessDockerResourceModel struct {
 	Networks     map[string]ContainerNetworkModel       `tfsdk:"networks"`
 	Registries   map[string]DockerRegistryResourceModel `tfsdk:"registries"`
 	Resources    *ContainerResources                    `tfsdk:"resources"`
-	Timeouts     timeouts.Value                         `tfsdk:"timeouts"`
 }
 
 type DockerRegistryResourceModel struct {

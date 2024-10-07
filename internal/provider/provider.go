@@ -145,6 +145,7 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 			},
 			"sandbox": schema.SingleNestedAttribute{
 				Description: "The optional configuration for all test sandboxes.",
+				Optional:    true,
 				Attributes: map[string]schema.Attribute{
 					"extra_repos": schema.ListAttribute{
 						Description: "A list of additional repositories to use for the sandbox.",
@@ -359,6 +360,14 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 			return
 		}
 		repo = r
+	}
+
+	if data.Sandbox == nil {
+		data.Sandbox = &ProviderSandboxModel{
+			ExtraRepos:    []string{},
+			ExtraKeyrings: []string{},
+			ExtraPackages: []string{},
+		}
 	}
 
 	store, err := NewProviderStore(repo)

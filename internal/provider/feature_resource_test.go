@@ -190,7 +190,7 @@ resource "imagetest_feature" "test" {
 func TestAccFeatureResourceSkip(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 		Steps: []resource.TestStep{
 			// Create testing
 			{

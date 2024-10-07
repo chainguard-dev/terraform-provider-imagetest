@@ -50,8 +50,9 @@ provider "imagetest" {
 
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
 - `log` (Attributes) (see [below for nested schema](#nestedatt--log))
-- `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
 - `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
+- `sandbox` (Attributes) The optional configuration for all test sandboxes. (see [below for nested schema](#nestedatt--sandbox))
+- `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
 
 <a id="nestedatt--harnesses"></a>
 ### Nested Schema for `harnesses`
@@ -177,8 +178,6 @@ Optional:
 
 Optional:
 
-- `extra_packages` (List of String) A list of extra apk packages to install in the sandboxes.
-- `extra_repositories` (List of String) A list of extra repositories to add to the sandboxes apk sources.
 - `image` (String) The full image reference to use for the container.
 
 
@@ -199,6 +198,16 @@ Optional:
 - `directory` (String) The directory to write the log file to.
 - `format` (String) The format of the log entries (text|json).
 
+
+
+<a id="nestedatt--sandbox"></a>
+### Nested Schema for `sandbox`
+
+Optional:
+
+- `extra_keyrings` (List of String) A list of additional keyrings to use for the sandbox.
+- `extra_packages` (List of String) A list of additional packages to use for the sandbox.
+- `extra_repos` (List of String) A list of additional repositories to use for the sandbox.
 
 
 <a id="nestedatt--test_execution"></a>
