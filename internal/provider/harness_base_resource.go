@@ -3,13 +3,13 @@ package provider
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -28,6 +28,8 @@ const (
 // BaseHarnessResource provides common methods for all BaseHarnessResource
 // implementations.
 type BaseHarnessResource struct {
+	framework.WithNoOpDelete
+	framework.WithNoOpRead
 	store *ProviderStore
 }
 
@@ -126,13 +128,16 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 		return
 	}
 
-	inv := InventoryDataSourceModel{}
-	if diags := req.Config.GetAttribute(ctx, path.Root("inventory"), &inv); diags.HasError() {
-		return
-	}
+	var (
+		inv  = InventoryDataSourceModel{}
+		name string
+	)
 
-	var name string
-	if diags := req.Config.GetAttribute(ctx, path.Root("name"), &name); diags.HasError() {
+	resp.Diagnostics.Append(framework.JoinDiagnostics(
+		req.Config.GetAttribute(ctx, path.Root("inventory"), &inv),
+		req.Config.GetAttribute(ctx, path.Root("name"), &name),
+	)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
@@ -141,7 +146,10 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 	// harnesses will create.
 	invEnc, err := r.store.Encode(inv.Seed.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("failed to add harness", "encoding harness id")
+		resp.Diagnostics.AddError(
+			"failed to add harness",
+			fmt.Sprintf("encoding harness id: %s", err.Error()),
+		)
 		return
 	}
 
@@ -164,49 +172,64 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 	}
 }
 
-// Read implements resource.Resource. This is intentionally a no-op.
-func (r *BaseHarnessResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {}
-
 func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateRequest, harness harness.Harness) diag.Diagnostics {
-	// We unmarshal this explicitly because of the insanity of the framework not
-	// supporting embedded structs
-	var data BaseHarnessResourceModel
-	req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory)
-	req.Plan.GetAttribute(ctx, path.Root("name"), &data.Name)
-	req.Plan.GetAttribute(ctx, path.Root("id"), &data.Id)
-	req.Plan.GetAttribute(ctx, path.Root("timeouts"), &data.Timeouts)
-
-	return r.do(ctx, data, harness)
+	return r.do(
+		ctx,
+		framework.CreateOrUpdateRequest{
+			Config:       req.Config,
+			Plan:         req.Plan,
+			ProviderMeta: req.ProviderMeta,
+		},
+		harness,
+	)
 }
 
 func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateRequest, harness harness.Harness) diag.Diagnostics {
-	// We unmarshal this explicitly because of the insanity of the framework not
-	// supporting embedded structs
-	var data BaseHarnessResourceModel
-	req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory)
-	req.Plan.GetAttribute(ctx, path.Root("name"), &data.Name)
-	req.Plan.GetAttribute(ctx, path.Root("id"), &data.Id)
-	req.Plan.GetAttribute(ctx, path.Root("timeouts"), &data.Timeouts)
-
-	return r.do(ctx, data, harness)
+	return r.do(
+		ctx,
+		framework.CreateOrUpdateRequest{
+			Config:       req.Config,
+			Plan:         req.Plan,
+			ProviderMeta: req.ProviderMeta,
+		},
+		harness,
+	)
 }
 
-func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceModel, harness harness.Harness) diag.Diagnostics {
-	diags := make(diag.Diagnostics, 0)
+func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpdateRequest, harness harness.Harness) diag.Diagnostics {
+	var (
+		data  BaseHarnessResourceModel
+		diags diag.Diagnostics
+	)
+
+	diags.Append(framework.JoinDiagnostics(
+		req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory),
+		req.Plan.GetAttribute(ctx, path.Root("name"), &data.Name),
+		req.Plan.GetAttribute(ctx, path.Root("id"), &data.Id),
+	)...)
+
+	// TODO(aw): can't error check this because volume resource doesn't have timeouts
+	// field, adding it via BaseHarnessResource causes mismatch between struct and
+	// object errors for the field timeouts
+	req.Plan.GetAttribute(ctx, path.Root("timeouts"), &data.Timeouts)
+
+	if diags.HasError() {
+		return diags
+	}
 
 	if skip, reason := r.skip(ctx, data.Inventory, data.Id.ValueString()); skip {
 		return append(diags, diag.NewWarningDiagnostic(
 			"skipping harness",
-			fmt.Sprintf("id [%s] reason: %s", data.Id.ValueString(), reason),
+			fmt.Sprintf("%s reason: %s", data.Id.ValueString(), reason),
 		))
 	}
 
 	// NOTE: This is technically different for create/update, but we reuse the
 	// create timeouts everywhere
-	timeout, diags := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
-	if diags.HasError() {
+	timeout, d := data.Timeouts.Create(ctx, defaultHarnessCreateTimeout)
+	if d.HasError() {
 		log.Warn(ctx, fmt.Sprintf("failed to parse harness create timeout, using the default timeout of %s", defaultHarnessCreateTimeout), "error", diags)
-		diags = append(diags, diags...)
+		diags = append(diags, d...)
 		timeout = defaultHarnessCreateTimeout
 	}
 
@@ -229,34 +252,27 @@ func (r *BaseHarnessResource) do(ctx context.Context, data BaseHarnessResourceMo
 
 func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceModel, harnessId string) (bool, string) {
 	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(harnessId))
+	// TODO(aw): handle errors :innocent:
 	if err != nil {
 		return false, ""
 	}
 
-	if os.Getenv("IMAGETEST_SKIP_ALL") != "" {
-		return true, "IMAGETEST_SKIP_ALL is set"
+	// NOTE(aw): This should only happen when the inventory race occurs...
+	if len(feats) == 0 {
+		return true, "harness contains no features"
 	}
 
-	// skipping is only possible when labels are specified
-	if len(r.store.labels) == 0 {
-		return false, ""
-	}
-
+	// Individual features will use their own state to see if they are skipped, we
+	// want to know if this entire harness can be skipped because all features are
+	// skipped.
 	for _, feat := range feats {
-		for pk, pv := range r.store.labels {
-			fv, ok := feat.Labels[pk]
-			if ok && (fv != pv) {
-				// if the feature label exists but the value doesn't match, skip
-				return true, "feature labels do not match"
-			}
+		if feat.Skipped == "" {
+			return false, ""
 		}
 	}
-
-	return false, ""
-}
-
-// Delete implements resource.Resource. This is intentionally a no-op.
-func (r *BaseHarnessResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {
+	// Now we know all features were skipped and this harness can safely be
+	// skipped.
+	return true, "all features in this harness were skipped"
 }
 
 // ParseResources parses the ContainerResources object into a provider.ContainerResourcesRequest object.

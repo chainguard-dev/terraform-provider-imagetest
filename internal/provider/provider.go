@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -24,9 +25,9 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
-	Log       *ProviderLoggerModel           `tfsdk:"log"`
-	Harnesses *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
-	Labels    types.Map                      `tfsdk:"labels"`
+	Log           *ProviderLoggerModel           `tfsdk:"log"`
+	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
+	TestExecution *ProviderTestExecutionModel    `tfsdk:"test_execution"`
 }
 
 type ImageTestProviderHarnessModel struct {
@@ -66,6 +67,14 @@ type ProviderLoggerFileModel struct {
 	Format    types.String `tfsdk:"format"`
 }
 
+type ProviderTestExecutionModel struct {
+	SkipAll      types.Bool `tfsdk:"skip_all_tests"`
+	SkipTeardown types.Bool `tfsdk:"skip_teardown"`
+	Include      types.Map  `tfsdk:"include_by_label"`
+	Exclude      types.Map  `tfsdk:"exclude_by_label"`
+	// TODO: Global timeout, retry, etc
+}
+
 func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "imagetest"
 	resp.Version = p.version
@@ -74,9 +83,30 @@ func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataR
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"labels": schema.MapAttribute{
-				ElementType: types.StringType,
-				Optional:    true,
+			"test_execution": schema.SingleNestedAttribute{
+				Optional: true,
+				Attributes: map[string]schema.Attribute{
+					"skip_all_tests": schema.BoolAttribute{
+						Description:         "Skips all features and harnesses.",
+						MarkdownDescription: "Skips all features and harnesses. All tests can also be skipped by setting the environment variable `IMAGETEST_SKIP_ALL` to `true`.",
+						Optional:            true,
+					},
+					"include_by_label": schema.MapAttribute{
+						ElementType: types.StringType,
+						Description: "Run features with matching label values. Any tests which do not contain all of the provided labels will be skipped.",
+						Optional:    true,
+					},
+					"exclude_by_label": schema.MapAttribute{
+						ElementType: types.StringType,
+						Description: "Skip features with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.",
+						Optional:    true,
+					},
+					"skip_teardown": schema.BoolAttribute{
+						Description:         "Skips the teardown of test harnesses to allow debugging test failures",
+						MarkdownDescription: "Skips the teardown of test harnesses to allow debugging test failures. Harness teardown can also be skipped by setting the environment variable `IMAGETEST_SKIP_TEARDOWN` to `true`",
+						Optional:            true,
+					},
+				},
 			},
 			"log": schema.SingleNestedAttribute{
 				Optional: true,
@@ -261,17 +291,38 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
+	if data.TestExecution == nil {
+		data.TestExecution = &ProviderTestExecutionModel{
+			Include: types.MapNull(types.StringType),
+			Exclude: types.MapNull(types.StringType),
+		}
+	}
+
+	if v := os.Getenv("IMAGETEST_SKIP_ALL"); v == "true" {
+		data.TestExecution.SkipAll = basetypes.NewBoolValue(true)
+	}
+
+	if v := os.Getenv("IMAGETEST_SKIP_TEARDOWN"); v == "true" {
+		data.TestExecution.SkipTeardown = basetypes.NewBoolValue(true)
+	}
+
 	store := NewProviderStore()
 
-	labels := make(map[string]string)
-	if diag := data.Labels.ElementsAs(ctx, &labels, false); diag.HasError() {
+	store.skipAll = data.TestExecution.SkipAll.ValueBool()
+	store.skipTeardown = data.TestExecution.SkipTeardown.ValueBool()
+	if diag := data.TestExecution.Include.ElementsAs(ctx, &store.includeTests, true); diag.HasError() {
+		resp.Diagnostics.Append(diag...)
 		return
 	}
-	store.labels = labels
+	if diag := data.TestExecution.Exclude.ElementsAs(ctx, &store.excludeTests, true); diag.HasError() {
+		resp.Diagnostics.Append(diag...)
+		return
+	}
 
 	// Store any "global" provider configuration in the store
 	store.providerResourceData = data
 
+	// Make provider state available to any resources that implement Configure
 	resp.DataSourceData = store
 	resp.ResourceData = store
 }

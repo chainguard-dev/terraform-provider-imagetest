@@ -11,6 +11,8 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -31,11 +33,15 @@ const (
 var _ resource.ResourceWithModifyPlan = &FeatureResource{}
 
 func NewFeatureResource() resource.Resource {
-	return &FeatureResource{}
+	return &FeatureResource{WithTypeName: "feature"}
 }
 
 // FeatureResource defines the resource implementation.
 type FeatureResource struct {
+	framework.WithTypeName
+	framework.WithNoOpRead
+	framework.WithNoOpDelete
+
 	store *ProviderStore
 }
 
@@ -49,6 +55,7 @@ type FeatureResourceModel struct {
 	After       []FeatureStepModel `tfsdk:"after"`
 	Steps       []FeatureStepModel `tfsdk:"steps"`
 	Timeouts    timeouts.Value     `tfsdk:"timeouts"`
+	Skipped     types.String       `tfsdk:"skipped"`
 
 	Harness FeatureHarnessResourceModel `tfsdk:"harness"`
 }
@@ -64,10 +71,6 @@ type FeatureStepBackoffModel struct {
 	Attempts types.Int64   `tfsdk:"attempts"`
 	Delay    types.String  `tfsdk:"delay"`
 	Factor   types.Float64 `tfsdk:"factor"`
-}
-
-func (r *FeatureResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_feature"
 }
 
 func (r *FeatureResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -172,6 +175,10 @@ func (r *FeatureResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 				"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
 					Create: true,
 				}),
+				"skipped": schema.StringAttribute{
+					Description: "A computed value that indicates whether or not the feature was skipped. If the test is skipped, this field is populated wth the reason.",
+					Computed:    true,
+				},
 			},
 		),
 	}
@@ -192,7 +199,7 @@ func (r *FeatureResource) Configure(_ context.Context, req resource.ConfigureReq
 	r.store = store
 }
 
-// ModifyPlan implements resource.ResourceWithModifyPlan.
+// ModifyPlan implements [resource.ResourceWithModifyPlan].
 func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	// If we have state, and the plan for id is null, we're in a destroy so do nothing
 	if !req.State.Raw.IsNull() && req.Plan.Raw.IsNull() {
@@ -212,21 +219,26 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	// Set the "constants" we know during plan
-	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), id)...)
-	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("harness"), data.Harness)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
 	labels := make(map[string]string)
 	if diags := data.Labels.ElementsAs(ctx, &labels, false); diags.HasError() {
+		resp.Diagnostics.Append(diags...)
+		return
+	}
+	skipped := skippedValue(r.store, labels)
+
+	// Set the "constants" we know during plan
+	resp.Diagnostics.Append(framework.JoinDiagnostics(
+		resp.Plan.SetAttribute(ctx, path.Root("id"), id),
+		resp.Plan.SetAttribute(ctx, path.Root("harness"), data.Harness),
+		resp.Plan.SetAttribute(ctx, path.Root("skipped"), skipped),
+	)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	added, err := r.store.Inventory(data.Harness.Inventory).AddFeature(ctx, inventory.Feature{
 		Id:      id,
-		Labels:  labels,
+		Skipped: skipped,
 		Harness: inventory.Harness(data.Harness.Id.ValueString()),
 	})
 	if err != nil {
@@ -256,6 +268,13 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) diag.Diagnostics {
+	if data.Skipped.ValueString() != "" {
+		return []diag.Diagnostic{diag.NewWarningDiagnostic(
+			fmt.Sprintf("skipping feature %s [%s]", data.Name.ValueString(), data.Id.ValueString()),
+			data.Skipped.ValueString(),
+		)}
+	}
+
 	timeout, diags := data.Timeouts.Create(ctx, defaultFeatureCreateTimeout)
 	if diags.HasError() {
 		return diags
@@ -264,14 +283,18 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	harness, ok := r.store.harnesses.Get(data.Harness.Id.ValueString())
+	if !ok {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic(
+			"unexpected error: missing harness",
+			fmt.Sprintf("non-skipped feature %s [%s] failed to retrieve harness [%s]",
+				data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString()),
+		)}
+	}
+
 	ctx, err := r.store.Logger(ctx, data.Harness.Inventory, "feature_id", data.Id.ValueString(), "feature_name", data.Name.ValueString(), "harness_name", data.Harness.Id.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create logger", err.Error())}
-	}
-
-	harness, ok := r.store.harnesses.Get(data.Harness.Id.ValueString())
-	if !ok {
-		return []diag.Diagnostic{diag.NewWarningDiagnostic(fmt.Sprintf("skipping feature [%s] since harness was skipped", data.Id.ValueString()), "given provider runtime labels do not match feature labels")}
 	}
 
 	defer func() {
@@ -355,12 +378,6 @@ func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-}
-
-func (r *FeatureResource) Read(_ context.Context, _ resource.ReadRequest, _ *resource.ReadResponse) {
-}
-
-func (r *FeatureResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 }
 
 func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data FeatureStepModel, level features.Level) error {
@@ -473,4 +490,14 @@ func defaultFeatureHarnessResourceSchemaAttributes() map[string]schema.Attribute
 			},
 		},
 	}
+}
+
+// skipped returns the value for the computed 'skipped' field on the feature
+// resource.
+func skippedValue(s *ProviderStore, featLabels map[string]string) string {
+	if s.skipAll {
+		return "Provider is configured to skip all tests"
+	}
+	_, reason := skip.Skip(featLabels, s.includeTests, s.excludeTests)
+	return reason
 }

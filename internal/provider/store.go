@@ -23,7 +23,11 @@ import (
 type ProviderStore struct {
 	// harnesses stores a map of the available harnesses, keyed by their ID.
 	harnesses *mmap[string, harness.Harness]
-	labels    map[string]string
+	// test execution configuration
+	skipTeardown bool
+	skipAll      bool
+	includeTests map[string]string
+	excludeTests map[string]string
 	// providerResourceData stores the data for the provider resource.
 	// TODO: there's probably a way to do this without passing around the whole
 	// model
@@ -32,7 +36,8 @@ type ProviderStore struct {
 
 func NewProviderStore() *ProviderStore {
 	return &ProviderStore{
-		labels: make(map[string]string),
+		excludeTests: make(map[string]string),
+		includeTests: make(map[string]string),
 		harnesses: &mmap[string, harness.Harness]{
 			store: make(map[string]harness.Harness),
 			mu:    sync.Mutex{},
@@ -42,11 +47,6 @@ func NewProviderStore() *ProviderStore {
 
 func (s *ProviderStore) AddHarness(id string, harness harness.Harness) {
 	s.harnesses.Set(id, harness)
-}
-
-func (s *ProviderStore) GetHarness(id string) (harness.Harness, bool) {
-	h, ok := s.harnesses.Get(id)
-	return h, ok
 }
 
 func (s *ProviderStore) Encode(components ...string) (string, error) {
@@ -116,11 +116,9 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 	return ctx, nil
 }
 
-// SkipTeardown returns true if the IMAGETEST_SKIP_TEARDOWN environment
-// variable is declared.
+// SkipTeardown returns true if harnesses should skip teardown steps.
 func (s *ProviderStore) SkipTeardown() bool {
-	v := os.Getenv("IMAGETEST_SKIP_TEARDOWN")
-	return v != ""
+	return s.skipTeardown
 }
 
 func (s *ProviderStore) EnableDebugLogging() bool {
