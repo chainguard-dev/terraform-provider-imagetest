@@ -51,6 +51,7 @@ type Request struct {
 	Contents     []*Content
 	PortBindings nat.PortMap
 	ExtraHosts   []string
+	Volumes      map[string]struct{}
 }
 
 type ResourcesRequest struct {
@@ -137,6 +138,7 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 			Labels:       d.withDefaultLabels(req.Labels),
 			Healthcheck:  req.HealthCheck,
 			ExposedPorts: exposedPorts,
+			Volumes:      req.Volumes,
 		},
 		&container.HostConfig{
 			ExtraHosts: req.ExtraHosts,

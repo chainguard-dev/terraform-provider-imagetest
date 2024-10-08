@@ -5,19 +5,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-var _ harness.Harness = &docker{}
+var _ harness.Harness = &dind{}
 
 const DefaultDockerSocketPath = "/var/run/docker.sock"
 
-type docker struct {
+type dind struct {
 	Name       string
 	ImageRef   name.Reference
 	Networks   []client.NetworkAttachment
@@ -32,8 +34,8 @@ type docker struct {
 }
 
 func New(opts ...Option) (harness.Harness, error) {
-	h := &docker{
-		ImageRef: name.MustParseReference("cgr.dev/chainguard/docker-cli:latest-dev"),
+	h := &dind{
+		ImageRef: name.MustParseReference("docker:dind"), // NOTE: This will basically always be overridden by the bundled image
 		Resources: client.ResourcesRequest{
 			MemoryRequest: resource.MustParse("1Gi"),
 			MemoryLimit:   resource.MustParse("2Gi"),
@@ -54,13 +56,15 @@ func New(opts ...Option) (harness.Harness, error) {
 }
 
 // Create implements harness.Harness.
-func (h *docker) Create(ctx context.Context) error {
+func (h *dind) Create(ctx context.Context) error {
 	cli, err := client.New()
 	if err != nil {
 		return err
 	}
 
-	nw, err := cli.CreateNetwork(ctx, &client.NetworkRequest{})
+	nw, err := cli.CreateNetwork(ctx, &client.NetworkRequest{
+		Name: h.Name,
+	})
 	if err != nil {
 		return fmt.Errorf("creating network: %w", err)
 	}
@@ -76,15 +80,9 @@ func (h *docker) Create(ctx context.Context) error {
 		return fmt.Errorf("creating docker config json: %w", err)
 	}
 
-	mounts := append(h.Mounts, mount.Mount{
-		Type:   mount.TypeBind,
-		Source: "/var/run/docker.sock",
-		Target: "/var/run/docker.sock",
-	})
-
 	if len(h.Volumes) > 0 {
 		for _, vol := range h.Volumes {
-			mounts = append(mounts, mount.Mount{
+			h.Mounts = append(h.Mounts, mount.Mount{
 				Type:   mount.TypeVolume,
 				Source: vol.Name, // mount.Mount refers to "Source" as the name for a named volume
 				Target: vol.Target,
@@ -95,18 +93,28 @@ func (h *docker) Create(ctx context.Context) error {
 	resp, err := cli.Start(ctx, &client.Request{
 		Name:       h.Name,
 		Ref:        h.ImageRef,
-		Entrypoint: harness.DefaultEntrypoint(),
-		Cmd:        harness.DefaultCmd(),
+		Entrypoint: []string{"/usr/bin/dockerd-entrypoint.sh"},
+		Privileged: true,
+		Cmd:        []string{},
 		Networks:   h.Networks,
 		Resources:  h.Resources,
 		User:       "0:0",
-		Mounts:     mounts,
+		Mounts:     h.Mounts,
 		Env:        h.Envs,
 		Contents: []*client.Content{
 			client.NewContentFromString(string(dockerconfigjson), "/root/.docker/config.json"),
 		},
 		ExtraHosts: []string{
 			"host.docker.internal:host-gateway",
+		},
+		HealthCheck: &v1.HealthcheckConfig{
+			Test:     []string{"CMD", "/bin/sh", "-c", "docker info"},
+			Interval: 1 * time.Second,
+			Retries:  30,
+			Timeout:  1 * time.Minute,
+		},
+		Volumes: map[string]struct{}{
+			"/var/lib/docker": {},
 		},
 	})
 	if err != nil {
@@ -127,16 +135,11 @@ func (h *docker) Create(ctx context.Context) error {
 }
 
 // Run implements harness.Harness.
-func (h *docker) Run(ctx context.Context, cmd harness.Command) error {
+func (h *dind) Run(ctx context.Context, cmd harness.Command) error {
 	return h.runner(ctx, cmd)
 }
 
-func (h *docker) DebugLogCommand() string {
-	// TODO implement something here
-	return ""
-}
-
-func (h *docker) Destroy(ctx context.Context) error {
+func (h *dind) Destroy(ctx context.Context) error {
 	return h.stack.Teardown(ctx)
 }
 
