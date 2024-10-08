@@ -267,17 +267,19 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 }
 
-func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) diag.Diagnostics {
+func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds diag.Diagnostics) {
 	if data.Skipped.ValueString() != "" {
-		return []diag.Diagnostic{diag.NewWarningDiagnostic(
+		ds.AddWarning(
 			fmt.Sprintf("skipping feature %s [%s]", data.Name.ValueString(), data.Id.ValueString()),
 			data.Skipped.ValueString(),
-		)}
+		)
+		return ds
 	}
 
 	timeout, diags := data.Timeouts.Create(ctx, defaultFeatureCreateTimeout)
 	if diags.HasError() {
-		return diags
+		ds.Append(diags...)
+		return ds
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -285,46 +287,22 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 
 	harness, ok := r.store.harnesses.Get(data.Harness.Id.ValueString())
 	if !ok {
-		return []diag.Diagnostic{diag.NewErrorDiagnostic(
+		ds.AddError(
 			"unexpected error: missing harness",
 			fmt.Sprintf("non-skipped feature %s [%s] failed to retrieve harness [%s]",
 				data.Name.ValueString(), data.Id.ValueString(), data.Harness.Id.ValueString()),
-		)}
+		)
+		return ds
 	}
 
 	ctx, err := r.store.Logger(ctx, data.Harness.Inventory, "feature_id", data.Id.ValueString(), "feature_name", data.Name.ValueString(), "harness_name", data.Harness.Id.ValueString())
 	if err != nil {
-		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create logger", err.Error())}
+		ds.AddError("failed to create logger", err.Error())
+		return ds
 	}
 
 	defer func() {
-		remaining, err := r.store.Inventory(data.Harness.Inventory).RemoveFeature(ctx, inventory.Feature{
-			Id:      data.Id.ValueString(),
-			Harness: inventory.Harness(data.Harness.Id.ValueString()),
-		})
-		if err != nil {
-			diags = append(diags, diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error()))
-			return
-		}
-
-		if len(remaining) == 0 {
-			log.Debug(ctx, "no more features remain in inventory, removing harness")
-			if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
-				diags = append(diags, diag.NewErrorDiagnostic("failed to remove harness from inventory", err.Error()))
-				return
-			}
-
-			// Destroy the harness...
-			if r.store.SkipTeardown() {
-				diags = append(diags, diag.NewWarningDiagnostic(fmt.Sprintf("skipping harness [%s] teardown because IMAGETEST_SKIP_TEARDOWN is set", data.Harness.Id.ValueString()), "harness must be removed manually"))
-				return
-			}
-
-			if err := harness.Destroy(ctx); err != nil {
-				diags = append(diags, diag.NewWarningDiagnostic("failed to destroy harness", err.Error()))
-				return
-			}
-		}
+		ds.Append(r.teardown(ctx, data, harness)...)
 	}()
 
 	fopts := []features.Option{
@@ -335,33 +313,36 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) dia
 
 	for _, before := range data.Before {
 		if err := r.step(feat, harness, before, features.Before); err != nil {
-			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create before step", err.Error())}
+			ds.AddError("failed to create before step", err.Error())
+			return ds
 		}
 	}
 
 	for _, after := range data.After {
 		if err := r.step(feat, harness, after, features.After); err != nil {
-			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create after step", err.Error())}
+			ds.AddError("failed to create after step", err.Error())
+			return ds
 		}
 	}
 
 	for _, assess := range data.Steps {
 		if err := r.step(feat, harness, assess, features.Assessment); err != nil {
-			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create assessment step", err.Error())}
+			ds.AddError("failed to create assessment step", err.Error())
+			return ds
 		}
 	}
 
 	log.Info(ctx, "testing feature against harness")
 
 	if err := feat.Test(ctx); err != nil {
-		return []diag.Diagnostic{
-			diag.NewErrorDiagnostic(
-				fmt.Sprintf("failed to test feature: %s", feat.Name),
-				err.Error()),
-		}
+		ds.AddError(
+			fmt.Sprintf("failed to test feature: %s", feat.Name),
+			err.Error(),
+		)
+		return ds
 	}
 
-	return diags
+	return ds
 }
 
 func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -445,6 +426,50 @@ func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data F
 	}
 
 	return nil
+}
+
+func (r *FeatureResource) teardown(ctx context.Context, data FeatureResourceModel, h harness.Harness) diag.Diagnostics {
+	remaining, err := r.store.Inventory(data.Harness.Inventory).RemoveFeature(ctx, inventory.Feature{
+		Id:      data.Id.ValueString(),
+		Harness: inventory.Harness(data.Harness.Id.ValueString()),
+	})
+	if err != nil {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error())}
+	}
+
+	if len(remaining) == 0 {
+		log.Debug(ctx, "no more features remain in inventory, removing harness")
+		if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
+			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to remove harness from inventory", err.Error())}
+		}
+
+		// Destroy the harness...
+		if r.store.SkipTeardown() {
+			return []diag.Diagnostic{
+				diag.NewWarningDiagnostic(
+					fmt.Sprintf("teardown for harness [%s] is skipped because IMAGETEST_SKIP_TEARDOWN is set", data.Harness.Id.ValueString()),
+					fmt.Sprintf(`There are dangling resources that will require manual cleanup.
+
+To remove the resources specific to this harness, run the following:
+
+  docker rm -f $(docker ps -a -q --filter "name=^%[1]s*" --filter "label=dev.chainguard.imagetest=true")
+  docker network rm -f $(docker network ls -q --filter "name=^%[1]s*" --filter "label=dev.chainguard.imagetest=true")
+
+To cleanup all resources owned by imagetest, run the following:
+
+  docker rm -f $(docker ps -a -q --filter "label=dev.chainguard.imagetest=true")
+  docker system prune --volumes --all
+
+If you are regularly skipping the harness teardown, its recommended you run the imagetest cleanup regularly. Too many dangling resources *will* cause problems.`, data.Harness.Id.ValueString())),
+			}
+		}
+
+		if err := h.Destroy(ctx); err != nil {
+			return []diag.Diagnostic{diag.NewWarningDiagnostic("failed to destroy harness", err.Error())}
+		}
+	}
+
+	return diag.Diagnostics{}
 }
 
 func addFeatureStepBackoffSchemaAttributes() map[string]schema.Attribute {
