@@ -24,10 +24,14 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 
 - `envs` (Map of String) Environment variables to set on the container.
 - `image` (String) The full image reference to use for the container.
-- `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
+- `keyrings` (List of String) A list of keyrings to add to the container.
+- `layers` (Attributes List) The list of layers to add to the container. (see [below for nested schema](#nestedatt--layers))
+- `mounts` (Attributes List, Deprecated) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
+- `packages` (List of String) A list of packages to install in the container.
 - `privileged` (Boolean)
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--registries))
+- `repositories` (List of String) A list of repositories to use for the container.
 - `resources` (Attributes) (see [below for nested schema](#nestedatt--resources))
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 - `volumes` (Attributes List) The volumes this harness should mount. This is received as a mapping from imagetest_container_volume resources to destination folders. (see [below for nested schema](#nestedatt--volumes))
@@ -42,6 +46,15 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 Required:
 
 - `seed` (String)
+
+
+<a id="nestedatt--layers"></a>
+### Nested Schema for `layers`
+
+Required:
+
+- `destination` (String) The absolute path on the container to root the source directory in.
+- `source` (String) The relative or absolute path on the host to the source directory to create a layer from.
 
 
 <a id="nestedatt--mounts"></a>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -21,6 +22,9 @@ type ImageTestProvider struct {
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
+
+	// repo exists strictly for testing
+	repo string
 }
 
 // ImageTestProviderModel describes the provider data model.
@@ -28,6 +32,8 @@ type ImageTestProviderModel struct {
 	Log           *ProviderLoggerModel           `tfsdk:"log"`
 	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
 	TestExecution *ProviderTestExecutionModel    `tfsdk:"test_execution"`
+	Repo          types.String                   `tfsdk:"repo"`
+	Sandbox       *ProviderSandboxModel          `tfsdk:"sandbox"`
 }
 
 type ImageTestProviderHarnessModel struct {
@@ -37,17 +43,18 @@ type ImageTestProviderHarnessModel struct {
 }
 
 type ProviderHarnessK3sModel struct {
-	Networks   map[string]ContainerNetworkModel              `tfsdk:"networks"`
-	Registries map[string]RegistryResourceModel              `tfsdk:"registries"`
-	Sandbox    *ProviderHarnessContainerSandboxResourceModel `tfsdk:"sandbox"`
+	Networks   map[string]ContainerNetworkModel `tfsdk:"networks"`
+	Registries map[string]RegistryResourceModel `tfsdk:"registries"`
 }
 
 type ProviderHarnessClusterModel struct {
 	Kubeconfig *string `tfsdk:"kubeconfig"`
 }
 
-type ProviderHarnessContainerSandboxResourceModel struct {
-	Image types.String `tfsdk:"image"`
+type ProviderSandboxModel struct {
+	ExtraRepos    []string `tfsdk:"extra_repos"`
+	ExtraKeyrings []string `tfsdk:"extra_keyrings"`
+	ExtraPackages []string `tfsdk:"extra_packages"`
 }
 
 type ProviderHarnessDockerModel struct {
@@ -83,6 +90,10 @@ func (p *ImageTestProvider) Metadata(ctx context.Context, req provider.MetadataR
 func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"repo": schema.StringAttribute{
+				Optional:    true,
+				Description: "The target repository the provider will use for pushing/pulling dynamically built images.",
+			},
 			"test_execution": schema.SingleNestedAttribute{
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
@@ -124,6 +135,27 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 								Optional:    true,
 							},
 						},
+					},
+				},
+			},
+			"sandbox": schema.SingleNestedAttribute{
+				Description: "The optional configuration for all test sandboxes.",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"extra_repos": schema.ListAttribute{
+						Description: "A list of additional repositories to use for the sandbox.",
+						Optional:    true,
+						ElementType: types.StringType,
+					},
+					"extra_keyrings": schema.ListAttribute{
+						Description: "A list of additional keyrings to use for the sandbox.",
+						Optional:    true,
+						ElementType: types.StringType,
+					},
+					"extra_packages": schema.ListAttribute{
+						Description: "A list of additional packages to use for the sandbox.",
+						Optional:    true,
+						ElementType: types.StringType,
 					},
 				},
 			},
@@ -188,16 +220,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 												},
 											},
 										},
-									},
-								},
-							},
-							"sandbox": schema.SingleNestedAttribute{
-								Description: "A map of configuration for the sandbox container.",
-								Optional:    true,
-								Attributes: map[string]schema.Attribute{
-									"image": schema.StringAttribute{
-										Description: "The full image reference to use for the container.",
-										Optional:    true,
 									},
 								},
 							},
@@ -306,7 +328,38 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		data.TestExecution.SkipTeardown = basetypes.NewBoolValue(true)
 	}
 
-	store := NewProviderStore()
+	var repo name.Repository
+	if p.repo != "" {
+		r, err := name.NewRepository(p.repo)
+		if err != nil {
+			resp.Diagnostics.AddError("invalid repository", err.Error())
+			return
+		}
+		repo = r
+	}
+
+	if data.Repo.ValueString() != "" {
+		r, err := name.NewRepository(data.Repo.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("invalid repository", err.Error())
+			return
+		}
+		repo = r
+	}
+
+	if data.Sandbox == nil {
+		data.Sandbox = &ProviderSandboxModel{
+			ExtraRepos:    []string{},
+			ExtraKeyrings: []string{},
+			ExtraPackages: []string{},
+		}
+	}
+
+	store, err := NewProviderStore(repo)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to create provider store", err.Error())
+		return
+	}
 
 	store.skipAll = data.TestExecution.SkipAll.ValueBool()
 	store.skipTeardown = data.TestExecution.SkipTeardown.ValueBool()

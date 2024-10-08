@@ -7,6 +7,8 @@ import (
 )
 
 func TestAccHarnessPterraformResource(t *testing.T) {
+	t.Parallel()
+
 	testCases := map[string][]resource.TestStep{
 		"local docker connector": {
 			// Create testing

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -8,6 +9,8 @@ import (
 )
 
 func TestAccHarnessK3sResource(t *testing.T) {
+	t.Parallel()
+
 	testCases := map[string][]resource.TestStep{
 		"happy path": {
 			// Create testing
@@ -107,7 +110,7 @@ resource "imagetest_feature" "test" {
           `,
 			},
 		},
-		"sandbox config": {
+		"sandbox config with bundler": {
 			// Create testing
 			{
 				ExpectNonEmptyPlan: true,
@@ -119,8 +122,10 @@ resource "imagetest_harness_k3s" "test" {
   inventory = data.imagetest_inventory.this
   sandbox = {
     envs = {
-      "test": "value",
+      "test": "cgr.dev/chainguard/wolfi-base:latest",
     }
+    packages = ["crane"]
+    layers = [{ source = path.module, destination = "/src/bar/" }]
   }
 }
 
@@ -132,6 +137,48 @@ resource "imagetest_feature" "test" {
     {
       name = "Access cluster"
       cmd = "kubectl get po -A"
+    },
+    {
+      name = "use package"
+      cmd = "crane digest $test"
+    },
+    {
+        name = "check layer"
+        cmd = "cat /src/bar/harness_k3s_resource_test.go"
+    },
+  ]
+}
+          `,
+			},
+		},
+		"sandbox config with appender": {
+			// Create testing
+			{
+				ExpectNonEmptyPlan: true,
+				Config: `
+data "imagetest_inventory" "this" {}
+
+resource "imagetest_harness_k3s" "test" {
+  name = "test"
+  inventory = data.imagetest_inventory.this
+  sandbox = {
+    image = "cgr.dev/chainguard/wolfi-base:latest"
+    layers = [{ source = path.module, destination = "/src/bar/" }]
+  }
+}
+
+resource "imagetest_feature" "test" {
+  name = "Simple k3s based test"
+  description = "Test that we can spin up a k3s cluster and run some steps"
+  harness = imagetest_harness_k3s.test
+  steps = [
+    {
+        name = "check base"
+        cmd = "! kubectl --help" # should fail
+    },
+    {
+        name = "check layer"
+        cmd = "cat /src/bar/harness_k3s_resource_test.go"
     },
   ]
 }
@@ -336,7 +383,7 @@ resource "terraform_data" "registry_down" {
 			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 				Steps:                    tc,
 			})
 		})

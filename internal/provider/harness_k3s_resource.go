@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/bundler"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/k3s"
@@ -45,7 +46,7 @@ type HarnessK3sResourceModel struct {
 	DisableMetricsServer types.Bool                       `tfsdk:"disable_metrics_server"`
 	Registries           map[string]RegistryResourceModel `tfsdk:"registries"`
 	Networks             map[string]ContainerNetworkModel `tfsdk:"networks"`
-	Sandbox              types.Object                     `tfsdk:"sandbox"`
+	Sandbox              *HarnessK3sSandboxResourceModel  `tfsdk:"sandbox"`
 	Resources            *ContainerResources              `tfsdk:"resources"`
 	Hooks                *HarnessHooksModel               `tfsdk:"hooks"`
 	KubeletConfig        types.String                     `tfsdk:"kubelet_config"`
@@ -62,11 +63,15 @@ type RegistryResourceMirrorModel struct {
 }
 
 type HarnessK3sSandboxResourceModel struct {
-	Image      types.String                     `tfsdk:"image"`
-	Privileged types.Bool                       `tfsdk:"privileged"`
-	Envs       types.Map                        `tfsdk:"envs"`
-	Mounts     []ContainerMountModel            `tfsdk:"mounts"`
-	Networks   map[string]ContainerNetworkModel `tfsdk:"networks"`
+	Image        types.String                     `tfsdk:"image"`
+	Privileged   types.Bool                       `tfsdk:"privileged"`
+	Envs         map[string]string                `tfsdk:"envs"`
+	Mounts       []ContainerMountModel            `tfsdk:"mounts"`
+	Layers       []ContainerMountModel            `tfsdk:"layers"`
+	Networks     map[string]ContainerNetworkModel `tfsdk:"networks"`
+	Packages     []string                         `tfsdk:"packages"`
+	Repositories []string                         `tfsdk:"repositories"`
+	Keyrings     []string                         `tfsdk:"keyrings"`
 }
 
 func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -108,6 +113,11 @@ func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequ
 func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString())
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
+	}
+
 	kopts := append([]k3s.Option{
 		k3s.WithName(data.Id.ValueString()),
 		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
@@ -141,40 +151,24 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 					ID: v.Name.ValueString(),
 				})
 			}
-
-			if pc.Sandbox != nil {
-				if !pc.Sandbox.Image.IsNull() {
-					ref, err := name.ParseReference(pc.Sandbox.Image.ValueString())
-					if err != nil {
-						return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid sandbox image reference: %s", err))}
-					}
-					// will be overridden by resource specific sandbox images if specified
-					kopts = append(kopts, k3s.WithSandboxImageRef(ref))
-				}
-			}
 		}
 	}
 
-	if !data.Image.IsNull() {
-		ref, err := name.ParseReference(data.Image.ValueString())
-		if err != nil {
-			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
-		}
-		kopts = append(kopts, k3s.WithImageRef(ref))
+	b, err := r.bundler(data)
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
 	}
 
-	if !data.Sandbox.IsNull() {
-		sandbox := &HarnessK3sSandboxResourceModel{}
-		if diags := data.Sandbox.As(ctx, &sandbox, basetypes.ObjectAsOptions{}); diags.HasError() {
-			return nil, diags
-		}
+	var ls []bundler.Layerer
 
-		if !sandbox.Image.IsNull() {
-			ref, err := name.ParseReference(sandbox.Image.ValueString())
-			if err != nil {
-				return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid sandbox image reference: %s", err))}
-			}
-			kopts = append(kopts, k3s.WithSandboxImageRef(ref))
+	if sandbox := data.Sandbox; sandbox != nil {
+		log.Info(ctx, "parsing sandbox", "raw", sandbox)
+
+		for _, l := range sandbox.Layers {
+			ls = append(ls, bundler.NewFSLayer(
+				os.DirFS(l.Source.ValueString()),
+				l.Destination.ValueString(),
+			))
 		}
 
 		for _, m := range sandbox.Mounts {
@@ -196,12 +190,8 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			}))
 		}
 
-		envs := make(map[string]string)
-		if diags := sandbox.Envs.ElementsAs(ctx, &envs, false); diags.HasError() {
-			return nil, diags
-		}
 		envslist := make([]string, 0)
-		for k, v := range envs {
+		for k, v := range sandbox.Envs {
 			envslist = append(envslist, fmt.Sprintf("%s=%s", k, v))
 		}
 		kopts = append(kopts, k3s.WithSandboxEnv(envslist...))
@@ -224,8 +214,15 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			kopts = append(kopts, k3s.WithRegistryMirror(rname, endpoints...))
 		}
 	}
-
 	kopts = append(kopts, k3s.WithNetworks(networks...))
+
+	bref, err := b.Bundle(ctx, r.store.repo, ls...)
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to bundle image", err.Error())}
+	}
+
+	log.Info(ctx, "using sandbox image", "ref", bref.String())
+	kopts = append(kopts, k3s.WithSandboxImageRef(bref))
 
 	if res := data.Resources; res != nil {
 		rreq, err := ParseResources(res)
@@ -283,14 +280,84 @@ func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
 	return opts
 }
 
+func (r *HarnessK3sResource) bundler(data *HarnessK3sResourceModel) (bundler.Bundler, error) {
+	if data.Sandbox != nil && data.Sandbox.Image.ValueString() != "" {
+		// use the appender
+		ref, err := name.ParseReference(data.Sandbox.Image.ValueString())
+		if err != nil {
+			return nil, fmt.Errorf("invalid reference: %w", err)
+		}
+
+		return bundler.NewAppender(ref,
+			bundler.AppenderWithRemoteOptions(r.store.ropts...),
+		)
+	}
+
+	// for everything else, use some variation of the apko bundler
+	opts := []bundler.ApkoOpt{
+		bundler.ApkoWithPackages("kubectl", "helm"),
+		bundler.ApkoWithRemoteOptions(r.store.ropts...),
+	}
+
+	if s := data.Sandbox; s != nil {
+		opts = append(opts,
+			bundler.ApkoWithPackages(s.Packages...),
+			bundler.ApkoWithRepositories(s.Repositories...),
+			bundler.ApkoWithKeyrings(s.Keyrings...),
+		)
+	}
+
+	if p := r.store.providerResourceData.Sandbox; p != nil {
+		opts = append(opts,
+			bundler.ApkoWithPackages(p.ExtraPackages...),
+			bundler.ApkoWithRepositories(p.ExtraRepos...),
+			bundler.ApkoWithKeyrings(p.ExtraKeyrings...),
+		)
+	}
+
+	return bundler.NewApko(opts...)
+}
+
 func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	sandboxAttributes := mergeResourceSchemas(
 		r.containerSchemaAttributes(ctx),
 		map[string]schema.Attribute{
-			// Override the default image to use one with kubectl instead
+			// Override the base harness sandbox image with an empty value so the
+			// bundler is triggered
 			"image": schema.StringAttribute{
 				Description: "The full image reference to use for the container.",
 				Optional:    true,
+			},
+			"packages": schema.ListAttribute{
+				Description: "A list of packages to install in the sandbox container.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"repositories": schema.ListAttribute{
+				Description: "A list of repositories to add to the sandbox container.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"keyrings": schema.ListAttribute{
+				Description: "A list of keyrings to add to the sandbox container.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"layers": schema.ListNestedAttribute{
+				Description: "A list of layers to add to the sandbox container.",
+				Optional:    true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"source": schema.StringAttribute{
+							Description: "The relative or absolute path on the host to the source directory to mount.",
+							Required:    true,
+						},
+						"destination": schema.StringAttribute{
+							Description: "The absolute path on the container to mount the source directory.",
+							Required:    true,
+						},
+					},
+				},
 			},
 		},
 	)

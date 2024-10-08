@@ -133,4 +133,8 @@ jobs:
           direct {}
           EOF
 
+          cat <<EOF > main_override.tf
+          provider "imagetest" { repo = var.target_repository }
+          EOF
+
           terraform apply -target='module.${{ matrix.images }}' -auto-approve --parallelism=$(nproc)

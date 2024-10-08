@@ -50,6 +50,8 @@ provider "imagetest" {
 
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
 - `log` (Attributes) (see [below for nested schema](#nestedatt--log))
+- `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
+- `sandbox` (Attributes) The optional configuration for all test sandboxes. (see [below for nested schema](#nestedatt--sandbox))
 - `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
 
 <a id="nestedatt--harnesses"></a>
@@ -123,7 +125,6 @@ Optional:
 
 - `networks` (Attributes Map) A map of existing networks to attach the harness containers to. (see [below for nested schema](#nestedatt--harnesses--k3s--networks))
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--harnesses--k3s--registries))
-- `sandbox` (Attributes) A map of configuration for the sandbox container. (see [below for nested schema](#nestedatt--harnesses--k3s--sandbox))
 
 <a id="nestedatt--harnesses--k3s--networks"></a>
 ### Nested Schema for `harnesses.k3s.networks`
@@ -171,14 +172,6 @@ Optional:
 
 
 
-<a id="nestedatt--harnesses--k3s--sandbox"></a>
-### Nested Schema for `harnesses.k3s.sandbox`
-
-Optional:
-
-- `image` (String) The full image reference to use for the container.
-
-
 
 
 <a id="nestedatt--log"></a>
@@ -196,6 +189,16 @@ Optional:
 - `directory` (String) The directory to write the log file to.
 - `format` (String) The format of the log entries (text|json).
 
+
+
+<a id="nestedatt--sandbox"></a>
+### Nested Schema for `sandbox`
+
+Optional:
+
+- `extra_keyrings` (List of String) A list of additional keyrings to use for the sandbox.
+- `extra_packages` (List of String) A list of additional packages to use for the sandbox.
+- `extra_repos` (List of String) A list of additional repositories to use for the sandbox.
 
 
 <a id="nestedatt--test_execution"></a>
