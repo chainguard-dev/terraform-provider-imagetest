@@ -49,6 +49,7 @@ type HarnessDockerResourceModel struct {
 	Layers       []ContainerMountModel                  `tfsdk:"layers"`
 	Packages     []string                               `tfsdk:"packages"`
 	Repositories []string                               `tfsdk:"repositories"`
+	Keyrings     []string                               `tfsdk:"keyrings"`
 	Networks     map[string]ContainerNetworkModel       `tfsdk:"networks"`
 	Registries   map[string]DockerRegistryResourceModel `tfsdk:"registries"`
 	Resources    *ContainerResources                    `tfsdk:"resources"`
@@ -194,6 +195,11 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		}
 	}
 
+	b, err := r.bundler(data)
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
+	}
+
 	var layers []bundler.Layerer
 	for _, sl := range data.Layers {
 		layers = append(layers, bundler.NewFSLayer(
@@ -202,40 +208,10 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		))
 	}
 
-	var (
-		b   bundler.Bundler
-		err error
-	)
-	if data.Image.ValueString() != "" {
-		ref, err := name.ParseReference(data.Image.ValueString())
-		if err != nil {
-			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
-		}
-
-		b, err = bundler.NewAppender(ref)
-		if err != nil {
-			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
-		}
-	} else {
-		b, err = bundler.NewApko(
-			bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
-			bundler.ApkoWithRepositories(r.store.providerResourceData.Sandbox.ExtraRepos...),
-			bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
-			bundler.ApkoWithRemoteOptions(r.store.ropts...),
-			bundler.ApkoWithPackages("docker-cli"),
-			bundler.ApkoWithPackages(data.Packages...),
-			bundler.ApkoWithRepositories(data.Repositories...),
-		)
-		if err != nil {
-			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
-		}
-	}
-
 	bref, err := b.Bundle(ctx, r.store.repo, layers...)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to bundle image", err.Error())}
 	}
-
 	opts = append(opts, docker.WithImageRef(bref))
 
 	for _, m := range mounts {
@@ -263,6 +239,38 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 	return harness, diags
 }
 
+func (r *HarnessDockerResource) bundler(data *HarnessDockerResourceModel) (bundler.Bundler, error) {
+	if data.Image.ValueString() != "" {
+		ref, err := name.ParseReference(data.Image.ValueString())
+		if err != nil {
+			return nil, fmt.Errorf("invalid reference: %w", err)
+		}
+
+		return bundler.NewAppender(ref,
+			bundler.AppenderWithRemoteOptions(r.store.ropts...),
+		)
+	}
+
+	// for everything else, use some variation of the apko bundler
+	opts := []bundler.ApkoOpt{
+		bundler.ApkoWithPackages("docker", "docker-dind", "dockerd-oci-entrypoint"),
+		bundler.ApkoWithRemoteOptions(r.store.ropts...),
+		bundler.ApkoWithPackages(data.Packages...),
+		bundler.ApkoWithRepositories(data.Repositories...),
+		bundler.ApkoWithKeyrings(data.Keyrings...),
+	}
+
+	if p := r.store.providerResourceData.Sandbox; p != nil {
+		opts = append(opts,
+			bundler.ApkoWithPackages(p.ExtraPackages...),
+			bundler.ApkoWithRepositories(p.ExtraRepos...),
+			bundler.ApkoWithKeyrings(p.ExtraKeyrings...),
+		)
+	}
+
+	return bundler.NewApko(opts...)
+}
+
 func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: `A harness that runs steps in a sandbox container with access to a Docker daemon.`,
@@ -280,6 +288,11 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 				},
 				"repositories": schema.ListAttribute{
 					Description: "A list of repositories to use for the container.",
+					Optional:    true,
+					ElementType: types.StringType,
+				},
+				"keyrings": schema.ListAttribute{
+					Description: "A list of keyrings to add to the container.",
 					Optional:    true,
 					ElementType: types.StringType,
 				},

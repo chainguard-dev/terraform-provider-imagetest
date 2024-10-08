@@ -136,6 +136,7 @@ Optional:
 
 - `envs` (Map of String) Environment variables to set on the container.
 - `image` (String) The full image reference to use for the container.
+- `keyrings` (List of String) A list of keyrings to add to the sandbox container.
 - `layers` (Attributes List) A list of layers to add to the sandbox container. (see [below for nested schema](#nestedatt--sandbox--layers))
 - `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--sandbox--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--sandbox--networks))

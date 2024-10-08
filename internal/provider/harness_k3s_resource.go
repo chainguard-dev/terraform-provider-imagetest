@@ -71,6 +71,7 @@ type HarnessK3sSandboxResourceModel struct {
 	Networks     map[string]ContainerNetworkModel `tfsdk:"networks"`
 	Packages     []string                         `tfsdk:"packages"`
 	Repositories []string                         `tfsdk:"repositories"`
+	Keyrings     []string                         `tfsdk:"keyrings"`
 }
 
 func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -112,6 +113,11 @@ func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequ
 func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResourceModel) (harness.Harness, diag.Diagnostics) {
 	diags := make(diag.Diagnostics, 0)
 
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString())
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
+	}
+
 	kopts := append([]k3s.Option{
 		k3s.WithName(data.Id.ValueString()),
 		k3s.WithCniDisabled(data.DisableCni.ValueBool()),
@@ -145,74 +151,25 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 					ID: v.Name.ValueString(),
 				})
 			}
-
-			if pc.Sandbox != nil {
-				if !pc.Sandbox.Image.IsNull() {
-					ref, err := name.ParseReference(pc.Sandbox.Image.ValueString())
-					if err != nil {
-						return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid sandbox image reference: %s", err))}
-					}
-					// will be overridden by resource specific sandbox images if specified
-					kopts = append(kopts, k3s.WithSandboxImageRef(ref))
-				}
-			}
 		}
 	}
 
-	if !data.Image.IsNull() {
-		ref, err := name.ParseReference(data.Image.ValueString())
-		if err != nil {
-			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid image reference: %s", err))}
-		}
-		kopts = append(kopts, k3s.WithImageRef(ref))
+	b, err := r.bundler(data)
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
 	}
+
+	var ls []bundler.Layerer
 
 	if sandbox := data.Sandbox; sandbox != nil {
 		log.Info(ctx, "parsing sandbox", "raw", sandbox)
 
-		var ls []bundler.Layerer
 		for _, l := range sandbox.Layers {
 			ls = append(ls, bundler.NewFSLayer(
 				os.DirFS(l.Source.ValueString()),
 				l.Destination.ValueString(),
 			))
 		}
-
-		var (
-			b   bundler.Bundler
-			err error
-		)
-		if sandbox.Image.ValueString() != "" {
-			ref, err := name.ParseReference(sandbox.Image.ValueString())
-			if err != nil {
-				return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid resource input", fmt.Sprintf("invalid sandbox image reference: %s", err))}
-			}
-
-			b, err = bundler.NewAppender(ref)
-			if err != nil {
-				return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
-			}
-		} else {
-			b, err = bundler.NewApko(
-				bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
-				bundler.ApkoWithRepositories(r.store.providerResourceData.Sandbox.ExtraRepos...),
-				bundler.ApkoWithPackages(r.store.providerResourceData.Sandbox.ExtraPackages...),
-				bundler.ApkoWithRemoteOptions(r.store.ropts...),
-				bundler.ApkoWithPackages("kubectl", "helm"),
-				bundler.ApkoWithPackages(sandbox.Packages...),
-				bundler.ApkoWithRepositories(sandbox.Repositories...),
-			)
-			if err != nil {
-				return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
-			}
-		}
-
-		bref, err := b.Bundle(ctx, r.store.repo, ls...)
-		if err != nil {
-			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to bundle image", err.Error())}
-		}
-
-		kopts = append(kopts, k3s.WithSandboxImageRef(bref))
 
 		for _, m := range sandbox.Mounts {
 			src, err := filepath.Abs(m.Source.ValueString())
@@ -257,8 +214,15 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			kopts = append(kopts, k3s.WithRegistryMirror(rname, endpoints...))
 		}
 	}
-
 	kopts = append(kopts, k3s.WithNetworks(networks...))
+
+	bref, err := b.Bundle(ctx, r.store.repo, ls...)
+	if err != nil {
+		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to bundle image", err.Error())}
+	}
+
+	log.Info(ctx, "using sandbox image", "ref", bref.String())
+	kopts = append(kopts, k3s.WithSandboxImageRef(bref))
 
 	if res := data.Resources; res != nil {
 		rreq, err := ParseResources(res)
@@ -316,6 +280,44 @@ func (r *HarnessK3sResource) workstationOpts() []k3s.Option {
 	return opts
 }
 
+func (r *HarnessK3sResource) bundler(data *HarnessK3sResourceModel) (bundler.Bundler, error) {
+	if data.Sandbox != nil && data.Sandbox.Image.ValueString() != "" {
+		// use the appender
+		ref, err := name.ParseReference(data.Sandbox.Image.ValueString())
+		if err != nil {
+			return nil, fmt.Errorf("invalid reference: %w", err)
+		}
+
+		return bundler.NewAppender(ref,
+			bundler.AppenderWithRemoteOptions(r.store.ropts...),
+		)
+	}
+
+	// for everything else, use some variation of the apko bundler
+	opts := []bundler.ApkoOpt{
+		bundler.ApkoWithPackages("kubectl", "helm"),
+		bundler.ApkoWithRemoteOptions(r.store.ropts...),
+	}
+
+	if s := data.Sandbox; s != nil {
+		opts = append(opts,
+			bundler.ApkoWithPackages(s.Packages...),
+			bundler.ApkoWithRepositories(s.Repositories...),
+			bundler.ApkoWithKeyrings(s.Keyrings...),
+		)
+	}
+
+	if p := r.store.providerResourceData.Sandbox; p != nil {
+		opts = append(opts,
+			bundler.ApkoWithPackages(p.ExtraPackages...),
+			bundler.ApkoWithRepositories(p.ExtraRepos...),
+			bundler.ApkoWithKeyrings(p.ExtraKeyrings...),
+		)
+	}
+
+	return bundler.NewApko(opts...)
+}
+
 func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	sandboxAttributes := mergeResourceSchemas(
 		r.containerSchemaAttributes(ctx),
@@ -333,6 +335,11 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaReques
 			},
 			"repositories": schema.ListAttribute{
 				Description: "A list of repositories to add to the sandbox container.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"keyrings": schema.ListAttribute{
+				Description: "A list of keyrings to add to the sandbox container.",
 				Optional:    true,
 				ElementType: types.StringType,
 			},

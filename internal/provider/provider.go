@@ -43,9 +43,8 @@ type ImageTestProviderHarnessModel struct {
 }
 
 type ProviderHarnessK3sModel struct {
-	Networks   map[string]ContainerNetworkModel              `tfsdk:"networks"`
-	Registries map[string]RegistryResourceModel              `tfsdk:"registries"`
-	Sandbox    *ProviderHarnessContainerSandboxResourceModel `tfsdk:"sandbox"`
+	Networks   map[string]ContainerNetworkModel `tfsdk:"networks"`
+	Registries map[string]RegistryResourceModel `tfsdk:"registries"`
 }
 
 type ProviderHarnessClusterModel struct {
@@ -56,10 +55,6 @@ type ProviderSandboxModel struct {
 	ExtraRepos    []string `tfsdk:"extra_repos"`
 	ExtraKeyrings []string `tfsdk:"extra_keyrings"`
 	ExtraPackages []string `tfsdk:"extra_packages"`
-}
-
-type ProviderHarnessContainerSandboxResourceModel struct {
-	Image types.String `tfsdk:"image"`
 }
 
 type ProviderHarnessDockerModel struct {
@@ -225,16 +220,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 												},
 											},
 										},
-									},
-								},
-							},
-							"sandbox": schema.SingleNestedAttribute{
-								Description: "A map of configuration for the sandbox container.",
-								Optional:    true,
-								Attributes: map[string]schema.Attribute{
-									"image": schema.StringAttribute{
-										Description: "The full image reference to use for the container.",
-										Optional:    true,
 									},
 								},
 							},
