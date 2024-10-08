@@ -320,11 +320,11 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		}
 	}
 
-	if v := os.Getenv("IMAGETEST_SKIP_ALL"); v == "true" {
+	if v := os.Getenv("IMAGETEST_SKIP_ALL"); v != "" {
 		data.TestExecution.SkipAll = basetypes.NewBoolValue(true)
 	}
 
-	if v := os.Getenv("IMAGETEST_SKIP_TEARDOWN"); v == "true" {
+	if v := os.Getenv("IMAGETEST_SKIP_TEARDOWN"); v != "" {
 		data.TestExecution.SkipTeardown = basetypes.NewBoolValue(true)
 	}
 
