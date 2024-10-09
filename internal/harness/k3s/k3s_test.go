@@ -33,7 +33,7 @@ func TestK3s(t *testing.T) {
 		Args: "exit 1",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "command exited with non-zero exit code: 1")
+	require.Contains(t, err.Error(), "exit code 1")
 
 	// Destroy the harness
 	err = h.Destroy(ctx)

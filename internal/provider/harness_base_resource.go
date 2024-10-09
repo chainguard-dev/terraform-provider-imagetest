@@ -129,12 +129,12 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 	}
 
 	var (
-		inv  = InventoryDataSourceModel{}
+		invd = InventoryDataSourceModel{}
 		name string
 	)
 
 	resp.Diagnostics.Append(framework.JoinDiagnostics(
-		req.Config.GetAttribute(ctx, path.Root("inventory"), &inv),
+		req.Config.GetAttribute(ctx, path.Root("inventory"), &invd),
 		req.Config.GetAttribute(ctx, path.Root("name"), &name),
 	)...)
 	if resp.Diagnostics.HasError() {
@@ -144,7 +144,7 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 	// The ID is the {name}-{inventory-hash}. It's intentionally chose to be more
 	// user-friendly than just a hash, since it is prepended to resources the
 	// harnesses will create.
-	invEnc, err := r.store.Encode(inv.Seed.ValueString())
+	invEnc, err := r.store.Encode(invd.Seed.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"failed to add harness",
@@ -153,22 +153,29 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 		return
 	}
 
-	id := fmt.Sprintf("%s-%s", name, invEnc)
+	// The harness ID is the {name}-{inventory-hash}. Chosen because these are
+	// sometimes user facing and should be more user-friendly than just a long
+	// hash.
+	hid := fmt.Sprintf("%s-%s", name, invEnc)
 
 	// Set the "constants" we know during plan
-	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), id)...)
-	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("inventory"), inv)...)
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("id"), hid)...)
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("inventory"), invd)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	added, err := r.store.Inventory(inv).AddHarness(ctx, inventory.Harness(id))
+	// The harness ModifyPlan runs twice, once during plan and once during apply
+	inv, err := inventory.NewInventory(invd.Seed.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("failed to add harness", err.Error())
+		resp.Diagnostics.AddError("failed to create inventory", err.Error())
+		return
 	}
+	r.store.inv.Set(invd.Seed.ValueString(), inv)
 
-	if added {
-		log.Debug(ctx, fmt.Sprintf("Harness.ModifyPlan() | harness [%s] added to inventory", id))
+	if err := inv.AddHarness(ctx, hid); err != nil {
+		resp.Diagnostics.AddError("failed to add harness to inventory", err.Error())
+		return
 	}
 }
 
@@ -217,7 +224,18 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 		return diags
 	}
 
-	if skip, reason := r.skip(ctx, data.Inventory, data.Id.ValueString()); skip {
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
+	if err != nil {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
+	}
+
+	// At this point (update/create), we should have an inventory Set during ModifyPlan()
+	inv, ok := r.store.inv.Get(data.Inventory.Seed.ValueString())
+	if !ok {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to get inventory", err.Error())}
+	}
+
+	if skip, reason := r.skip(ctx, inv, data.Id.ValueString()); skip {
 		return append(diags, diag.NewWarningDiagnostic(
 			"skipping harness",
 			fmt.Sprintf("%s reason: %s", data.Id.ValueString(), reason),
@@ -236,12 +254,7 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	r.store.AddHarness(data.Id.ValueString(), harness)
-
-	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
-	if err != nil {
-		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
-	}
+	r.store.harnesses.Set(data.Id.ValueString(), harness)
 
 	if err := harness.Create(ctx); err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create harness", err.Error())}
@@ -250,16 +263,11 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 	return diags
 }
 
-func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceModel, harnessId string) (bool, string) {
-	feats, err := r.store.Inventory(inv).GetFeatures(ctx, inventory.Harness(harnessId))
+func (r *BaseHarnessResource) skip(ctx context.Context, inv *inventory.Inventory, harnessId string) (bool, string) {
 	// TODO(aw): handle errors :innocent:
+	feats, err := inv.GetFeatures(ctx, harnessId)
 	if err != nil {
 		return false, ""
-	}
-
-	// NOTE(aw): This should only happen when the inventory race occurs...
-	if len(feats) == 0 {
-		return true, "harness contains no features"
 	}
 
 	// Individual features will use their own state to see if they are skipped, we
@@ -270,6 +278,7 @@ func (r *BaseHarnessResource) skip(ctx context.Context, inv InventoryDataSourceM
 			return false, ""
 		}
 	}
+
 	// Now we know all features were skipped and this harness can safely be
 	// skipped.
 	return true, "all features in this harness were skipped"
