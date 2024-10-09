@@ -25,8 +25,11 @@ import (
 // uses this to look up the defined relationships between resources, and manage
 // shared external state.
 type ProviderStore struct {
-	// harnesses stores a map of the available harnesses, keyed by their ID.
+	// harnesses stores a map of the available harnesses, keyed by their ID. This
+	// is used for passing harness implementations between the providers various
+	// resources.
 	harnesses *mmap[string, harness.Harness]
+	inv       *mmap[string, *inventory.Inventory]
 	// test execution configuration
 	skipTeardown bool
 	skipAll      bool
@@ -54,6 +57,10 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 	ropts = append(ropts, remote.Reuse(pusher))
 
 	return &ProviderStore{
+		inv: &mmap[string, *inventory.Inventory]{
+			store: make(map[string]*inventory.Inventory),
+			mu:    sync.Mutex{},
+		},
 		excludeTests: make(map[string]string),
 		includeTests: make(map[string]string),
 		harnesses: &mmap[string, harness.Harness]{
@@ -63,10 +70,6 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 		repo:  repo,
 		ropts: ropts,
 	}, nil
-}
-
-func (s *ProviderStore) AddHarness(id string, harness harness.Harness) {
-	s.harnesses.Set(id, harness)
 }
 
 func (s *ProviderStore) Encode(components ...string) (string, error) {
@@ -83,12 +86,6 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 	// truncate it to some reasonable length, knowing these will mostly be used
 	// as suffixes and prefixes and conflict is unlikely
 	return hashint.Text(36)[:5], nil
-}
-
-// Inventory returns an instance of the inventory per inventory data source.
-func (s *ProviderStore) Inventory(data InventoryDataSourceModel) inventory.Inventory {
-	// TODO: More backends?
-	return inventory.NewFile(data.Seed.ValueString())
 }
 
 // Logger initializes the context logger for the given inventory.
@@ -139,27 +136,6 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 // SkipTeardown returns true if harnesses should skip teardown steps.
 func (s *ProviderStore) SkipTeardown() bool {
 	return s.skipTeardown
-}
-
-func (s *ProviderStore) EnableDebugLogging() bool {
-	const EnvTrue = "true"
-
-	ghaRunnerDebug, found := os.LookupEnv("ACTIONS_RUNNER_DEBUG")
-	if found {
-		return EnvTrue == ghaRunnerDebug
-	}
-
-	ghaStepDebug, found := os.LookupEnv("ACTIONS_STEP_DEBUG")
-	if found {
-		return EnvTrue == ghaStepDebug
-	}
-
-	localDebug, found := os.LookupEnv("IMAGETEST_DEBUG_OUTPUT")
-	if found {
-		return EnvTrue == localDebug
-	}
-
-	return false
 }
 
 // mmap is a generic thread-safe map implementation.

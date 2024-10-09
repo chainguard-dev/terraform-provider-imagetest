@@ -213,7 +213,7 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	// Create an ID that is a hash of the feature name
-	id, err := r.store.Encode(data.Name.ValueString())
+	fid, err := r.store.Encode(data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("failed to encode feature name", err.Error())
 		return
@@ -228,7 +228,7 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 	// Set the "constants" we know during plan
 	resp.Diagnostics.Append(framework.JoinDiagnostics(
-		resp.Plan.SetAttribute(ctx, path.Root("id"), id),
+		resp.Plan.SetAttribute(ctx, path.Root("id"), fid),
 		resp.Plan.SetAttribute(ctx, path.Root("harness"), data.Harness),
 		resp.Plan.SetAttribute(ctx, path.Root("skipped"), skipped),
 	)...)
@@ -236,18 +236,18 @@ func (r *FeatureResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	added, err := r.store.Inventory(data.Harness.Inventory).AddFeature(ctx, inventory.Feature{
-		Id:      id,
-		Skipped: skipped,
-		Harness: inventory.Harness(data.Harness.Id.ValueString()),
-	})
-	if err != nil {
-		resp.Diagnostics.AddError("failed to add feature to inventory", err.Error())
+	inv, ok := r.store.inv.Get(data.Harness.Inventory.Seed.ValueString())
+	if !ok {
+		resp.Diagnostics.AddError("failed to get inventory", err.Error())
 		return
 	}
 
-	if added {
-		log.Debug(ctx, fmt.Sprintf("Feature.ModifyPlan() | feature [%s] added to inventory", id), "inventory", data.Harness.Inventory.Seed.ValueString())
+	if err := inv.AddFeature(ctx, data.Harness.Id.ValueString(), inventory.Feature{
+		Id:      fid,
+		Skipped: skipped,
+	}); err != nil {
+		resp.Diagnostics.AddError("failed to add feature to inventory", err.Error())
+		return
 	}
 }
 
@@ -429,17 +429,24 @@ func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data F
 }
 
 func (r *FeatureResource) teardown(ctx context.Context, data FeatureResourceModel, h harness.Harness) diag.Diagnostics {
-	remaining, err := r.store.Inventory(data.Harness.Inventory).RemoveFeature(ctx, inventory.Feature{
-		Id:      data.Id.ValueString(),
-		Harness: inventory.Harness(data.Harness.Id.ValueString()),
-	})
-	if err != nil {
+	inv, ok := r.store.inv.Get(data.Harness.Inventory.Seed.ValueString())
+	if !ok {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to get inventory", fmt.Sprintf("inventory [%s] does not exist", data.Harness.Inventory.Seed.ValueString()))}
+	}
+
+	if err := inv.RemoveFeature(ctx, data.Harness.Id.ValueString(), data.Id.ValueString()); err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to remove feature from inventory", err.Error())}
+	}
+
+	remaining, err := inv.GetFeatures(ctx, data.Harness.Id.ValueString())
+	if err != nil {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to list features", err.Error())}
 	}
 
 	if len(remaining) == 0 {
 		log.Debug(ctx, "no more features remain in inventory, removing harness")
-		if err := r.store.Inventory(data.Harness.Inventory).RemoveHarness(ctx, inventory.Harness(data.Harness.Id.ValueString())); err != nil {
+
+		if err := inv.RemoveHarness(ctx, data.Harness.Id.ValueString()); err != nil {
 			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to remove harness from inventory", err.Error())}
 		}
 

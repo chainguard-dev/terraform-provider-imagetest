@@ -69,7 +69,7 @@ func TestDocker(t *testing.T) {
 
 	// Run a command that fails in the container
 	err = resp.Run(ctx, harness.Command{Args: "exit 1"})
-	require.ErrorContains(t, err, "command exited with non-zero exit code: 1")
+	require.ErrorContains(t, err, "exit code 1")
 
 	// Ensure the files were created
 	err = resp.Run(ctx, harness.Command{Args: "cat /test | grep test1"})
