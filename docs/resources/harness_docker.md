@@ -26,7 +26,7 @@ A harness that runs steps in a sandbox container with access to a Docker daemon.
 - `image` (String) The full image reference to use for the container.
 - `keyrings` (List of String) A list of keyrings to add to the container.
 - `layers` (Attributes List) The list of layers to add to the container. (see [below for nested schema](#nestedatt--layers))
-- `mounts` (Attributes List, Deprecated) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
+- `mounts` (Attributes List) The list of mounts to create on the container. (see [below for nested schema](#nestedatt--mounts))
 - `networks` (Attributes Map) A map of existing networks to attach the container to. (see [below for nested schema](#nestedatt--networks))
 - `packages` (List of String) A list of packages to install in the container.
 - `privileged` (Boolean)
