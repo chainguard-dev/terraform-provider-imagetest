@@ -319,9 +319,8 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 					},
 				},
 				"mounts": schema.ListNestedAttribute{
-					Description:        "The list of mounts to create on the container.",
-					DeprecationMessage: "These should only be used under specific circumstances. Use the layers attribute instead.",
-					Optional:           true,
+					Description: "The list of mounts to create on the container.",
+					Optional:    true,
 					NestedObject: schema.NestedAttributeObject{
 						Attributes: map[string]schema.Attribute{
 							"source": schema.StringAttribute{
