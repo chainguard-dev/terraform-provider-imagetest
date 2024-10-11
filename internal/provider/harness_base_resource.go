@@ -232,7 +232,7 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 	// At this point (update/create), we should have an inventory Set during ModifyPlan()
 	inv, ok := r.store.inv.Get(data.Inventory.Seed.ValueString())
 	if !ok {
-		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to get inventory", err.Error())}
+		return []diag.Diagnostic{diag.NewErrorDiagnostic(fmt.Sprintf("failed to get inventory [%s]", data.Inventory.Seed.ValueString()), fmt.Sprintf("harness [%s] does not exist", data.Id.ValueString()))}
 	}
 
 	if skip, reason := r.skip(ctx, inv, data.Id.ValueString()); skip {
@@ -267,6 +267,16 @@ func (r *BaseHarnessResource) skip(ctx context.Context, inv *inventory.Inventory
 	// TODO(aw): handle errors :innocent:
 	feats, err := inv.GetFeatures(ctx, harnessId)
 	if err != nil {
+		return false, ""
+	}
+
+	// TODO: this exclusively happens for harnesses with no features defined,
+	// which is only on the container_volume harness scheduled for deprecation.
+	// we can remove this once that is removed.
+	//
+	// this will capture other cases where the harness has no features, but for
+	// those rare (hopefully non-existent) cases we'll eat the cost of spinning up and down an unused harness
+	if len(feats) == 0 {
 		return false, ""
 	}
 
