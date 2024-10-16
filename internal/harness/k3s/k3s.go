@@ -3,6 +3,7 @@ package k3s
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -11,12 +12,16 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/docker/cli/cli/config/configfile"
+	dtypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -215,15 +220,6 @@ rules:
 		return nil, fmt.Errorf("adding k3s service teardown to stack: %w", err)
 	}
 
-	// Run the post start hooks
-	for _, hook := range h.Hooks.PostStart {
-		if err := resp.Run(ctx, harness.Command{
-			Args: hook,
-		}); err != nil {
-			return nil, fmt.Errorf("running post start hook: %w", err)
-		}
-	}
-
 	kcfg, err := h.kubeconfig(ctx, resp, func(cfg *api.Config) error {
 		if resp.NetworkSettings == nil && resp.NetworkSettings.Networks == nil {
 			return fmt.Errorf("no network settings found")
@@ -255,6 +251,20 @@ rules:
 	h.kcli, err = kubernetes.NewForConfig(h.kcfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating kubernetes client: %w", err)
+	}
+
+	// Add the registries auth as a secret to the cluster
+	if err := h.registrySecret(ctx); err != nil {
+		return nil, fmt.Errorf("adding registry secret: %w", err)
+	}
+
+	// Run the post start hooks after we're all done with the cluster setup
+	for _, hook := range h.Hooks.PostStart {
+		if err := resp.Run(ctx, harness.Command{
+			Args: hook,
+		}); err != nil {
+			return nil, fmt.Errorf("running post start hook: %w", err)
+		}
 	}
 
 	return resp, nil
@@ -410,6 +420,43 @@ func (h *k3s) kubeconfig(ctx context.Context, resp *docker.Response, config func
 	}
 
 	return clientcmd.Write(*kcfg)
+}
+
+func (h *k3s) registrySecret(ctx context.Context) error {
+	dockerconfig := configfile.ConfigFile{
+		AuthConfigs: make(map[string]dtypes.AuthConfig),
+	}
+
+	for name, reg := range h.Service.Registries {
+		dockerconfig.AuthConfigs[name] = dtypes.AuthConfig{
+			Username: reg.Auth.Username,
+			Password: reg.Auth.Password,
+			Auth:     reg.Auth.Auth,
+		}
+	}
+
+	dockerConfigJSON, err := json.Marshal(dockerconfig)
+	if err != nil {
+		return fmt.Errorf("marshaling docker config: %w", err)
+	}
+
+	ns := "kube-system"
+
+	_, err = h.kcli.CoreV1().Secrets(ns).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "imagetest-registry-auth",
+			Namespace: ns,
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			".dockerconfigjson": dockerConfigJSON,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("creating registry secret: %w", err)
+	}
+
+	return nil
 }
 
 func tmpl(tpl string, data interface{}) (string, error) {

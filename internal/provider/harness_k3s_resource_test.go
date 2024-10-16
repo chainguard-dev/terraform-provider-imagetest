@@ -245,6 +245,15 @@ resource "imagetest_harness_k3s" "test" {
   name = "test"
   inventory = data.imagetest_inventory.this
 
+  registries = {
+    "foo" = {
+      auth = {
+        username = "testuser"
+        password = "testpass"
+      }
+    }
+  }
+
   hooks = {
     post_start = [
       "echo 'post' > /tmp/hi",
@@ -254,6 +263,7 @@ resource "imagetest_harness_k3s" "test" {
   provisioner "local-exec" {
     command = <<EOF
 docker exec ${self.id} sh -c "cat /tmp/hi"
+docker exec ${self.id} sh -c "kubectl get secret -n kube-system imagetest-registry-auth -o json"
       EOF
   }
 }
