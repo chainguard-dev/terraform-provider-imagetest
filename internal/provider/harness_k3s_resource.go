@@ -178,9 +178,10 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 			}
 
 			kopts = append(kopts, k3s.WithSandboxMounts(mount.Mount{
-				Type:   mount.TypeBind,
-				Source: src,
-				Target: m.Destination.ValueString(),
+				Type:     mount.TypeBind,
+				Source:   src,
+				Target:   m.Destination.ValueString(),
+				ReadOnly: m.ReadOnly.ValueBool(),
 			}))
 		}
 
@@ -355,6 +356,13 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaReques
 						"destination": schema.StringAttribute{
 							Description: "The absolute path on the container to mount the source directory.",
 							Required:    true,
+						},
+						"read_only": schema.BoolAttribute{
+							Description:        "Whether the mount should be read-only.",
+							DeprecationMessage: "This is invalid for layers and will be removed in a future release.",
+							Optional:           true,
+							Computed:           true,
+							Default:            booldefault.StaticBool(false),
 						},
 					},
 				},

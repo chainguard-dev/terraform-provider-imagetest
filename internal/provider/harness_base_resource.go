@@ -93,6 +93,7 @@ type ContainerCpuResources struct {
 type ContainerMountModel struct {
 	Source      types.String `tfsdk:"source"`
 	Destination types.String `tfsdk:"destination"`
+	ReadOnly    types.Bool   `tfsdk:"read_only"`
 }
 
 type ContainerNetworkModel struct {
@@ -412,6 +413,12 @@ func (r *BaseHarnessResource) containerSchemaAttributes(_ context.Context) map[s
 					"destination": schema.StringAttribute{
 						Description: "The absolute path on the container to mount the source directory.",
 						Required:    true,
+					},
+					"read_only": schema.BoolAttribute{
+						Description: "Whether the mount should be read-only.",
+						Optional:    true,
+						Computed:    true,
+						Default:     booldefault.StaticBool(false),
 					},
 				},
 			},

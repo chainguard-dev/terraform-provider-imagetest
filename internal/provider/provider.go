@@ -388,6 +388,8 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 		NewHarnessK3sResource,
 		NewHarnessDockerResource,
 		NewHarnessPterraformResource,
+		// Tests
+		NewTestDockerRunResource,
 	}
 }
 
