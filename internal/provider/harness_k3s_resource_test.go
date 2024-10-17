@@ -125,7 +125,7 @@ resource "imagetest_harness_k3s" "test" {
       "test": "cgr.dev/chainguard/wolfi-base:latest",
     }
     packages = ["crane"]
-    layers = [{ source = path.module, destination = "/src/bar/" }]
+    layers = [{ source = path.module, target = "/src/bar/" }]
   }
 }
 
@@ -163,7 +163,7 @@ resource "imagetest_harness_k3s" "test" {
   inventory = data.imagetest_inventory.this
   sandbox = {
     image = "cgr.dev/chainguard/wolfi-base:latest"
-    layers = [{ source = path.module, destination = "/src/bar/" }]
+    layers = [{ source = path.module, target = "/src/bar/" }]
   }
 }
 

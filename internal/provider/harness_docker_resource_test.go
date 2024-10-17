@@ -341,7 +341,7 @@ resource "imagetest_harness_docker" "test" {
   inventory = data.imagetest_inventory.this
 
   # this is called via go test, so path.module is relative to the test directory
-  layers = [{ source = path.module, destination = "/src/bar/" }]
+  layers = [{ source = path.module, target = "/src/bar/" }]
 
   packages = ["crane"]
 }
