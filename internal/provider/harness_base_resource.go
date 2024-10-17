@@ -96,6 +96,11 @@ type ContainerMountModel struct {
 	ReadOnly    types.Bool   `tfsdk:"read_only"`
 }
 
+type ContainerLayerModel struct {
+	Source types.String `tfsdk:"source"`
+	Target types.String `tfsdk:"target"`
+}
+
 type ContainerNetworkModel struct {
 	Name types.String `tfsdk:"name"`
 }
