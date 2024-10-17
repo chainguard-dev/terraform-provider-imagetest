@@ -51,6 +51,7 @@ type Request struct {
 	Contents     []*Content
 	PortBindings nat.PortMap
 	ExtraHosts   []string
+	Logger       io.Writer
 }
 
 type ResourcesRequest struct {
@@ -90,99 +91,70 @@ func New(opts ...Option) (*Client, error) {
 	return d, nil
 }
 
+func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
+	cid, err := d.start(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("starting container: %w", err)
+	}
+
+	statusCh, errCh := d.cli.ContainerWait(ctx, cid, container.WaitConditionNotRunning)
+
+	// TODO: This is specific to Run() and not in Start() because Run() has a
+	// clearly defined exit condition. In the future we may want to consider
+	// adding this to Start(), but its unclear how useful those logs would be,
+	// and how to even surface them without being overly verbose.
+	if req.Logger != nil {
+		defer func() {
+			logs, err := d.cli.ContainerLogs(ctx, cid, container.LogsOptions{
+				ShowStdout: true,
+				ShowStderr: true,
+				Follow:     true,
+			})
+			if err != nil {
+				fmt.Fprintf(req.Logger, "failed to get logs: %v\n", err)
+				return
+			}
+			defer logs.Close()
+
+			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
+			if err != nil {
+				fmt.Fprintf(req.Logger, "error copying logs: %v", err)
+			}
+		}()
+	}
+
+	select {
+	case <-ctx.Done():
+		return "", fmt.Errorf("context cancelled while waiting for container to exit: %w", ctx.Err())
+
+	case err := <-errCh:
+		return "", fmt.Errorf("waiting for container to exit: %w", err)
+
+	case status := <-statusCh:
+		if status.Error != nil {
+			return "", fmt.Errorf("container exited with error: %s", status.Error.Message)
+		}
+
+		if status.StatusCode != 0 {
+			return "", fmt.Errorf("container exited with non-zero status code: %d", status.StatusCode)
+		}
+	}
+
+	return cid, nil
+}
+
 // Start starts a container with the given request.
 func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
-	endpointSettings := make(map[string]*network.EndpointSettings)
-	for _, nw := range req.Networks {
-		endpointSettings[nw.Name] = &network.EndpointSettings{
-			NetworkID: nw.ID,
-		}
-	}
-
-	if req.Labels == nil {
-		req.Labels = make(map[string]string)
-	}
-
-	if req.Timeout == 0 {
-		req.Timeout = 5 * time.Minute
-	}
-
-	if req.Ref == nil {
-		return nil, fmt.Errorf("no image reference provided")
-	}
-
-	if req.PortBindings == nil {
-		req.PortBindings = make(nat.PortMap)
-	}
-
-	exposedPorts := make(nat.PortSet)
-	for port := range req.PortBindings {
-		exposedPorts[port] = struct{}{}
-	}
-
-	// Pull the image if it doesn't already exist
-	if err := d.pull(ctx, req.Ref); err != nil {
-		return nil, fmt.Errorf("pulling image: %w", err)
-	}
-
-	cresp, err := d.cli.ContainerCreate(ctx,
-		&container.Config{
-			Image:        req.Ref.String(),
-			Entrypoint:   req.Entrypoint,
-			User:         req.User,
-			Env:          req.Env,
-			Cmd:          req.Cmd,
-			AttachStdout: true,
-			AttachStderr: true,
-			Labels:       d.withDefaultLabels(req.Labels),
-			Healthcheck:  req.HealthCheck,
-			ExposedPorts: exposedPorts,
-		},
-		&container.HostConfig{
-			ExtraHosts: req.ExtraHosts,
-			Privileged: req.Privileged,
-			RestartPolicy: container.RestartPolicy{
-				// Never restart
-				Name: container.RestartPolicyDisabled,
-			},
-			Resources: container.Resources{
-				Memory:            req.Resources.MemoryLimit.Value(),
-				MemoryReservation: req.Resources.MemoryRequest.Value(),
-				// mirroring what's done in Docker CLI: https://github.com/docker/cli/blob/0ad1d55b02910f4b40462c0d01aac2934eb0f061/cli/command/container/update.go#L117
-				NanoCPUs: req.Resources.CpuRequest.Value(),
-			},
-			Mounts:       req.Mounts,
-			PortBindings: req.PortBindings,
-		},
-		&network.NetworkingConfig{
-			EndpointsConfig: endpointSettings,
-		},
-		nil, req.Name)
+	cid, err := d.start(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("creating container: %w", err)
-	}
-
-	if cresp.ID == "" {
-		return nil, fmt.Errorf("failed to create container, ID is empty")
-	}
-
-	for _, content := range req.Contents {
-		// `content` is a tar with the full path to the file inside the container,
-		// so we always copy to "/"
-		if err := d.cli.CopyToContainer(ctx, cresp.ID, "/", content, container.CopyToContainerOptions{}); err != nil {
-			return nil, fmt.Errorf("copying content to container: %w", err)
-		}
-	}
-
-	if err := d.cli.ContainerStart(ctx, cresp.ID, container.StartOptions{}); err != nil {
-		return nil, fmt.Errorf("starting container: %w", err)
+		return nil, err
 	}
 
 	// Block until the container is running
 	cname := ""
 	var cjson types.ContainerJSON
 	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, req.Timeout, true, func(ctx context.Context) (bool, error) {
-		inspect, err := d.cli.ContainerInspect(ctx, cresp.ID)
+		inspect, err := d.cli.ContainerInspect(ctx, cid)
 		if err != nil {
 			// We always want to retry within the timeout, so ignore the error.
 			//lint:ignore nilerr reason
@@ -220,10 +192,100 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 
 	return &Response{
 		ContainerJSON: cjson,
-		ID:            cresp.ID,
+		ID:            cid,
 		Name:          cname,
 		cli:           d.cli,
 	}, nil
+}
+
+// start will create and start a container, returning the container ID or
+// error. It should be called by public methods that need to start a container
+// (like Start() or Run()).
+func (d *Client) start(ctx context.Context, req *Request) (string, error) {
+	endpointSettings := make(map[string]*network.EndpointSettings)
+	for _, nw := range req.Networks {
+		endpointSettings[nw.Name] = &network.EndpointSettings{
+			NetworkID: nw.ID,
+		}
+	}
+
+	if req.Labels == nil {
+		req.Labels = make(map[string]string)
+	}
+
+	if req.Timeout == 0 {
+		req.Timeout = 5 * time.Minute
+	}
+
+	if req.Ref == nil {
+		return "", fmt.Errorf("no image reference provided")
+	}
+
+	if req.PortBindings == nil {
+		req.PortBindings = make(nat.PortMap)
+	}
+
+	exposedPorts := make(nat.PortSet)
+	for port := range req.PortBindings {
+		exposedPorts[port] = struct{}{}
+	}
+
+	// Pull the image if it doesn't already exist
+	if err := d.pull(ctx, req.Ref); err != nil {
+		return "", fmt.Errorf("pulling image: %w", err)
+	}
+
+	cresp, err := d.cli.ContainerCreate(ctx,
+		&container.Config{
+			Image:        req.Ref.String(),
+			Entrypoint:   req.Entrypoint,
+			User:         req.User,
+			Env:          req.Env,
+			Cmd:          req.Cmd,
+			AttachStdout: true,
+			AttachStderr: true,
+			Labels:       d.withDefaultLabels(req.Labels),
+			Healthcheck:  req.HealthCheck,
+			ExposedPorts: exposedPorts,
+		},
+		&container.HostConfig{
+			ExtraHosts: req.ExtraHosts,
+			Privileged: req.Privileged,
+			RestartPolicy: container.RestartPolicy{
+				// Never restart
+				Name: container.RestartPolicyDisabled,
+			},
+			Resources: container.Resources{
+				Memory:            req.Resources.MemoryLimit.Value(),
+				MemoryReservation: req.Resources.MemoryRequest.Value(),
+				NanoCPUs:          req.Resources.CpuRequest.Value(),
+			},
+			Mounts:       req.Mounts,
+			PortBindings: req.PortBindings,
+		},
+		&network.NetworkingConfig{
+			EndpointsConfig: endpointSettings,
+		},
+		nil, req.Name)
+	if err != nil {
+		return "", fmt.Errorf("creating container: %w", err)
+	}
+
+	if cresp.ID == "" {
+		return "", fmt.Errorf("failed to create container, ID is empty")
+	}
+
+	for _, content := range req.Contents {
+		if err := d.cli.CopyToContainer(ctx, cresp.ID, "/", content, container.CopyToContainerOptions{}); err != nil {
+			return "", fmt.Errorf("copying content to container: %w", err)
+		}
+	}
+
+	if err := d.cli.ContainerStart(ctx, cresp.ID, container.StartOptions{}); err != nil {
+		return "", fmt.Errorf("starting container: %w", err)
+	}
+
+	return cresp.ID, nil
 }
 
 // Connect returns a response for a container that is already running.

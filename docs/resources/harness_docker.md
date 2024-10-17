@@ -56,6 +56,10 @@ Required:
 - `destination` (String) The absolute path on the container to root the source directory in.
 - `source` (String) The relative or absolute path on the host to the source directory to create a layer from.
 
+Optional:
+
+- `read_only` (Boolean, Deprecated) Whether the mount should be read-only.
+
 
 <a id="nestedatt--mounts"></a>
 ### Nested Schema for `mounts`
@@ -64,6 +68,10 @@ Required:
 
 - `destination` (String) The absolute path on the container to mount the source directory.
 - `source` (String) The relative or absolute path on the host to the source directory to mount.
+
+Optional:
+
+- `read_only` (Boolean) Whether the mount should be read-only.
 
 
 <a id="nestedatt--networks"></a>

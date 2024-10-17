@@ -221,9 +221,10 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		}
 
 		opts = append(opts, docker.WithMounts(mount.Mount{
-			Type:   mount.TypeBind,
-			Source: src,
-			Target: m.Destination.ValueString(),
+			Type:     mount.TypeBind,
+			Source:   src,
+			Target:   m.Destination.ValueString(),
+			ReadOnly: m.ReadOnly.ValueBool(),
 		}))
 	}
 
@@ -331,6 +332,12 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 								Description: "The absolute path on the container to mount the source directory.",
 								Required:    true,
 							},
+							"read_only": schema.BoolAttribute{
+								Description: "Whether the mount should be read-only.",
+								Optional:    true,
+								Computed:    true,
+								Default:     booldefault.StaticBool(false),
+							},
 						},
 					},
 				},
@@ -346,6 +353,13 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 							"destination": schema.StringAttribute{
 								Description: "The absolute path on the container to root the source directory in.",
 								Required:    true,
+							},
+							"read_only": schema.BoolAttribute{
+								Description:        "Whether the mount should be read-only.",
+								DeprecationMessage: "This is invalid for layers and will be removed in a future release.",
+								Optional:           true,
+								Computed:           true,
+								Default:            booldefault.StaticBool(false),
 							},
 						},
 					},

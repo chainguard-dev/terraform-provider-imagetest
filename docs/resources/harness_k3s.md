@@ -152,6 +152,10 @@ Required:
 - `destination` (String) The absolute path on the container to mount the source directory.
 - `source` (String) The relative or absolute path on the host to the source directory to mount.
 
+Optional:
+
+- `read_only` (Boolean, Deprecated) Whether the mount should be read-only.
+
 
 <a id="nestedatt--sandbox--mounts"></a>
 ### Nested Schema for `sandbox.mounts`
@@ -160,6 +164,10 @@ Required:
 
 - `destination` (String) The absolute path on the container to mount the source directory.
 - `source` (String) The relative or absolute path on the host to the source directory to mount.
+
+Optional:
+
+- `read_only` (Boolean) Whether the mount should be read-only.
 
 
 <a id="nestedatt--sandbox--networks"></a>
