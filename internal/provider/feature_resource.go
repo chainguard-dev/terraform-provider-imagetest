@@ -56,6 +56,7 @@ type FeatureResourceModel struct {
 	Steps       []FeatureStepModel `tfsdk:"steps"`
 	Timeouts    timeouts.Value     `tfsdk:"timeouts"`
 	Skipped     types.String       `tfsdk:"skipped"`
+	Passed      types.Bool         `tfsdk:"passed"`
 
 	Harness FeatureHarnessResourceModel `tfsdk:"harness"`
 }
@@ -179,6 +180,10 @@ func (r *FeatureResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 					Description: "A computed value that indicates whether or not the feature was skipped. If the test is skipped, this field is populated wth the reason.",
 					Computed:    true,
 				},
+				"passed": schema.BoolAttribute{
+					Description: "Indicates whether or not the feature passed.",
+					Computed:    true,
+				},
 			},
 		),
 	}
@@ -258,16 +263,16 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	// TODO: Move this around if/when we start storing test output in the state
+	resp.Diagnostics.Append(r.do(ctx, &data)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-
-	resp.Diagnostics.Append(r.do(ctx, data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 }
 
-func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds diag.Diagnostics) {
+func (r *FeatureResource) do(ctx context.Context, data *FeatureResourceModel) (ds diag.Diagnostics) {
+	data.Passed = types.BoolValue(false)
+
 	if data.Skipped.ValueString() != "" {
 		ds.AddWarning(
 			fmt.Sprintf("skipping feature %s [%s]", data.Name.ValueString(), data.Id.ValueString()),
@@ -342,6 +347,8 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds
 		return ds
 	}
 
+	data.Passed = types.BoolValue(true)
+
 	return ds
 }
 
@@ -352,10 +359,8 @@ func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	// TODO: Move this around if/when we start storing test output in the state
+	resp.Diagnostics.Append(r.do(ctx, &data)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-
-	resp.Diagnostics.Append(r.do(ctx, data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -428,7 +433,7 @@ func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data F
 	return nil
 }
 
-func (r *FeatureResource) teardown(ctx context.Context, data FeatureResourceModel, h harness.Harness) diag.Diagnostics {
+func (r *FeatureResource) teardown(ctx context.Context, data *FeatureResourceModel, h harness.Harness) diag.Diagnostics {
 	inv, ok := r.store.inv.Get(data.Harness.Inventory.Seed.ValueString())
 	if !ok {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to get inventory", fmt.Sprintf("inventory [%s] does not exist", data.Harness.Inventory.Seed.ValueString()))}
