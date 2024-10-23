@@ -67,7 +67,7 @@ type HarnessK3sSandboxResourceModel struct {
 	Privileged   types.Bool                       `tfsdk:"privileged"`
 	Envs         map[string]string                `tfsdk:"envs"`
 	Mounts       []ContainerMountModel            `tfsdk:"mounts"`
-	Layers       []ContainerMountModel            `tfsdk:"layers"`
+	Layers       []ContainerLayerModel            `tfsdk:"layers"`
 	Networks     map[string]ContainerNetworkModel `tfsdk:"networks"`
 	Packages     []string                         `tfsdk:"packages"`
 	Repositories []string                         `tfsdk:"repositories"`
@@ -167,7 +167,7 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 		for _, l := range sandbox.Layers {
 			ls = append(ls, bundler.NewFSLayer(
 				os.DirFS(l.Source.ValueString()),
-				l.Destination.ValueString(),
+				l.Target.ValueString(),
 			))
 		}
 
@@ -353,16 +353,9 @@ func (r *HarnessK3sResource) Schema(ctx context.Context, _ resource.SchemaReques
 							Description: "The relative or absolute path on the host to the source directory to mount.",
 							Required:    true,
 						},
-						"destination": schema.StringAttribute{
+						"target": schema.StringAttribute{
 							Description: "The absolute path on the container to mount the source directory.",
 							Required:    true,
-						},
-						"read_only": schema.BoolAttribute{
-							Description:        "Whether the mount should be read-only.",
-							DeprecationMessage: "This is invalid for layers and will be removed in a future release.",
-							Optional:           true,
-							Computed:           true,
-							Default:            booldefault.StaticBool(false),
 						},
 					},
 				},

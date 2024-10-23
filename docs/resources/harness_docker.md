@@ -53,12 +53,8 @@ Required:
 
 Required:
 
-- `destination` (String) The absolute path on the container to root the source directory in.
 - `source` (String) The relative or absolute path on the host to the source directory to create a layer from.
-
-Optional:
-
-- `read_only` (Boolean, Deprecated) Whether the mount should be read-only.
+- `target` (String) The absolute path on the container to root the source directory in.
 
 
 <a id="nestedatt--mounts"></a>

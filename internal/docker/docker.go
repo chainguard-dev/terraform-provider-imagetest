@@ -51,6 +51,7 @@ type Request struct {
 	Contents     []*Content
 	PortBindings nat.PortMap
 	ExtraHosts   []string
+	AutoRemove   bool
 	Logger       io.Writer
 }
 
@@ -92,6 +93,7 @@ func New(opts ...Option) (*Client, error) {
 }
 
 func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
+	req.AutoRemove = true
 	cid, err := d.start(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
@@ -262,6 +264,7 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 			},
 			Mounts:       req.Mounts,
 			PortBindings: req.PortBindings,
+			AutoRemove:   req.AutoRemove,
 		},
 		&network.NetworkingConfig{
 			EndpointsConfig: endpointSettings,

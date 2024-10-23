@@ -46,7 +46,7 @@ type HarnessDockerResourceModel struct {
 	Privileged   types.Bool                             `tfsdk:"privileged"`
 	Envs         *HarnessContainerEnvs                  `tfsdk:"envs"`
 	Mounts       []ContainerMountModel                  `tfsdk:"mounts"`
-	Layers       []ContainerMountModel                  `tfsdk:"layers"`
+	Layers       []ContainerLayerModel                  `tfsdk:"layers"`
 	Packages     []string                               `tfsdk:"packages"`
 	Repositories []string                               `tfsdk:"repositories"`
 	Keyrings     []string                               `tfsdk:"keyrings"`
@@ -204,7 +204,7 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 	for _, sl := range data.Layers {
 		layers = append(layers, bundler.NewFSLayer(
 			os.DirFS(sl.Source.ValueString()),
-			sl.Destination.ValueString(),
+			sl.Target.ValueString(),
 		))
 	}
 
@@ -350,16 +350,9 @@ func (r *HarnessDockerResource) Schema(ctx context.Context, _ resource.SchemaReq
 								Description: "The relative or absolute path on the host to the source directory to create a layer from.",
 								Required:    true,
 							},
-							"destination": schema.StringAttribute{
+							"target": schema.StringAttribute{
 								Description: "The absolute path on the container to root the source directory in.",
 								Required:    true,
-							},
-							"read_only": schema.BoolAttribute{
-								Description:        "Whether the mount should be read-only.",
-								DeprecationMessage: "This is invalid for layers and will be removed in a future release.",
-								Optional:           true,
-								Computed:           true,
-								Default:            booldefault.StaticBool(false),
 							},
 						},
 					},
