@@ -12,6 +12,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox/k8s"
 	"github.com/docker/cli/cli/config/configfile"
 	dtypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/api/types/container"
@@ -117,8 +118,17 @@ func (h *k3s) Destroy(ctx context.Context) error {
 	return h.stack.Teardown(ctx)
 }
 
-// Run implements harness.Harness.
-func (h *k3s) Run(ctx context.Context, cmd harness.Command) error {
+func (h *k3s) Run(ctx context.Context, ref name.Reference) error {
+	sandbox, err := k8s.NewFromConfig(h.kcfg, k8s.WithImageRef(ref))
+	if err != nil {
+		return fmt.Errorf("creating sandbox: %w", err)
+	}
+
+	return sandbox.Run(ctx)
+}
+
+// Exec implements harness.Harness.
+func (h *k3s) Exec(ctx context.Context, cmd harness.Command) error {
 	return h.runner(ctx, cmd)
 }
 

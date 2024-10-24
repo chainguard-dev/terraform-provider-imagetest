@@ -6,6 +6,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 var _ harness.Harness = &volume{}
@@ -28,6 +29,10 @@ func New(opts ...Option) harness.Harness {
 	}
 
 	return v
+}
+
+func (v *volume) Run(context.Context, name.Reference) error {
+	panic("implement me")
 }
 
 // Create implements harness.Harness.
@@ -59,8 +64,8 @@ func (v *volume) Destroy(ctx context.Context) error {
 	return v.stack.Teardown(ctx)
 }
 
-// Run implements harness.Harness.
-func (v *volume) Run(context.Context, harness.Command) error {
+// Exec implements harness.Harness.
+func (v *volume) Exec(context.Context, harness.Command) error {
 	// "running" a volume is a no-op
 	return nil
 }

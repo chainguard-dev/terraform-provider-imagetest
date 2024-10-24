@@ -8,6 +8,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
 	"github.com/google/go-containerregistry/pkg/name"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -78,13 +79,101 @@ func NewFromKubeconfig(kubeconfig []byte, opts ...Option) (*k8s, error) {
 	return NewFromConfig(config, opts...)
 }
 
+func (k *k8s) Run(ctx context.Context) error {
+	sa, _, err := k.preflight(ctx)
+	if err != nil {
+		return fmt.Errorf("preflight checks failed: %w", err)
+	}
+
+	template := k.createPodTemplateSpec(sa.Name)
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.request.Name,
+			Namespace: sa.Namespace,
+			Labels:    k.request.Labels,
+		},
+		Spec: batchv1.JobSpec{
+			Template:     *template,
+			BackoffLimit: new(int32), // Don't retry on failure
+		},
+	}
+
+	job.Spec.Template.Spec.Containers[0].Command = []string{}
+
+	obj, err := k.cli.BatchV1().Jobs(sa.Namespace).Create(ctx, job, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("creating job: %w", err)
+	}
+
+	if err := k.stack.Add(func(ctx context.Context) error {
+		return k.cli.BatchV1().Jobs(obj.Namespace).Delete(ctx, obj.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: &k.gracePeriod,
+		})
+	}); err != nil {
+		return fmt.Errorf("adding job teardown to stack: %w", err)
+	}
+
+	watcher, err := k.cli.BatchV1().Jobs(obj.Namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", obj.Name),
+	})
+	if err != nil {
+		return fmt.Errorf("watching job: %w", err)
+	}
+	defer watcher.Stop()
+
+	for event := range watcher.ResultChan() {
+		switch event.Type {
+		case watch.Modified:
+			job, ok := event.Object.(*batchv1.Job)
+			if !ok {
+				return fmt.Errorf("unexpected object type in watch event")
+			}
+			if job.Status.Succeeded > 0 {
+				return nil
+			}
+			if job.Status.Failed > 0 {
+				return fmt.Errorf("job failed")
+			}
+		case watch.Error:
+			return fmt.Errorf("watch error: %v", event.Object)
+		}
+	}
+
+	return fmt.Errorf("job watch ended without completion")
+}
+
 // Start implements sandbox.Sandbox.
 func (k *k8s) Start(ctx context.Context) (sandbox.Runner, error) {
-	pod, err := k.setupPod(ctx)
+	sa, _, err := k.preflight(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("setting up test sandbox pod: %w", err)
+		return nil, fmt.Errorf("preflight checks failed: %w", err)
+	}
+
+	template := k.createPodTemplateSpec(sa.Name)
+	pod := &corev1.Pod{
+		ObjectMeta: template.ObjectMeta,
+		Spec:       template.Spec,
+	}
+
+	// Now create the stupidly privileged pod that we'll use to run the steps
+	obj, err := k.cli.CoreV1().Pods(pod.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("creating pod: %w", err)
 	}
 	k.pod = pod
+
+	if err := k.stack.Add(func(ctx context.Context) error {
+		return k.cli.CoreV1().Pods(obj.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: &k.gracePeriod,
+		})
+	}); err != nil {
+		return nil, fmt.Errorf("adding pod teardown to stack: %w", err)
+	}
+
+	if err := waitForPod(ctx, k.cli, pod); err != nil {
+		return nil, fmt.Errorf("waiting for pod to be running: %w", err)
+	}
 
 	return &response{
 		cmd: func(ctx context.Context, cmd harness.Command) error {
@@ -135,139 +224,24 @@ func (r *response) Run(ctx context.Context, cmd harness.Command) error {
 	return r.cmd(ctx, cmd)
 }
 
-func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
-	resp, err := k.cli.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, &authorizationv1.SelfSubjectAccessReview{
-		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-			ResourceAttributes: &authorizationv1.ResourceAttributes{
-				Namespace: k.request.Namespace,
-				Verb:      "create",
-				Group:     "apps",
-				Resource:  "pods",
-			},
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("validating user permissions: %w", err)
-	}
-
-	if !resp.Status.Allowed {
-		return nil, fmt.Errorf("user does not have permission to create pods")
-	}
-
-	// Create the namespace only if it doesn't already exist
-	ns, err := k.cli.CoreV1().Namespaces().Get(ctx, k.request.Namespace, metav1.GetOptions{})
-	if err != nil {
-		// if the namespace doesn't exist, create it
-		if errors.IsNotFound(err) {
-			ns, err = k.cli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: k.request.Namespace,
-					Labels: map[string]string{
-						"dev.chainguard.imagetest": "true",
-					},
-				},
-			}, metav1.CreateOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("creating imagetest namespace: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("getting imagetest namespace: %w", err)
-		}
-
-		// Add it to our teardown stack if we've created it
-		if err := k.stack.Add(func(ctx context.Context) error {
-			return k.cli.CoreV1().Namespaces().Delete(ctx, ns.Name, metav1.DeleteOptions{
-				GracePeriodSeconds: &k.gracePeriod,
-			})
-		}); err != nil {
-			return nil, fmt.Errorf("adding namespace teardown to stack: %w", err)
-		}
-	}
-
-	if k.request.Name == "" {
-		dryns, err := k.cli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "imagetest-",
-			},
-		}, metav1.CreateOptions{
-			DryRun: []string{"All"},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating dryrun namespace: %w", err)
-		}
-		k.request.Name = dryns.Name
-	}
-
-	// Create the laundry list of namespace scoped RBAC related resources
-	sa, err := k.cli.CoreV1().ServiceAccounts(ns.Name).Create(ctx, &corev1.ServiceAccount{
+func (k *k8s) createPodTemplateSpec(saName string) *corev1.PodTemplateSpec {
+	template := &corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      k.request.Name,
-			Namespace: ns.Name,
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("creating service account: %w", err)
-	}
-
-	if err := k.stack.Add(func(ctx context.Context) error {
-		return k.cli.CoreV1().ServiceAccounts(ns.Name).Delete(ctx, sa.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: &k.gracePeriod,
-		})
-	}); err != nil {
-		return nil, fmt.Errorf("adding service account teardown to stack: %w", err)
-	}
-
-	// Finally, create the role binding
-	rb, err := k.cli.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.request.Name,
-			Namespace: ns.Name,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      sa.Name,
-				Namespace: sa.Namespace,
-			},
-		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: rbacv1.GroupName,
-			Kind:     "ClusterRole",
-			Name:     "cluster-admin",
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("creating role binding: %w", err)
-	}
-
-	if err := k.stack.Add(func(ctx context.Context) error {
-		return k.cli.RbacV1().ClusterRoleBindings().Delete(ctx, rb.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: &k.gracePeriod,
-		})
-	}); err != nil {
-		return nil, fmt.Errorf("adding role binding teardown to stack: %w", err)
-	}
-
-	preq := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.request.Name,
-			Namespace: ns.Name,
+			Namespace: k.request.Namespace,
+			Labels:    k.request.Labels,
 		},
 		Spec: corev1.PodSpec{
-			ServiceAccountName: sa.Name,
+			ServiceAccountName: saName,
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser:  &k.request.User,
 				RunAsGroup: &k.request.Group,
 			},
+			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
 					Name:  "sandbox",
 					Image: k.request.Ref.String(),
-					Command: []string{
-						"tail",
-						"-f",
-						"/dev/null",
-					},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "IMAGETEST",
@@ -330,57 +304,156 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	envs := make([]corev1.EnvVar, 0, len(k.request.Env))
-	for k, v := range k.request.Env {
+	for key, val := range k.request.Env {
 		envs = append(envs, corev1.EnvVar{
-			Name:  k,
-			Value: v,
+			Name:  key,
+			Value: val,
 		})
 	}
-	preq.Spec.Containers[0].Env = append(preq.Spec.Containers[0].Env, envs...)
+	template.Spec.Containers[0].Env = append(template.Spec.Containers[0].Env, envs...)
 
 	if k.request.Entrypoint != nil {
-		preq.Spec.Containers[0].Command = k.request.Entrypoint
+		template.Spec.Containers[0].Command = k.request.Entrypoint
 	}
 
 	if k.request.Cmd != nil {
-		preq.Spec.Containers[0].Args = k.request.Cmd
+		template.Spec.Containers[0].Args = k.request.Cmd
 	}
 
 	if k.request.Resources.Limits != nil {
-		// TODO:
-		preq.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+		template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
 	}
 
 	if k.request.Resources.Requests != nil {
-		// TODO:
-		preq.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
+		template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
 	}
 
-	for k, v := range k.request.Labels {
-		preq.Labels[k] = v
-	}
+	return template
+}
 
-	// Now create the stupidly privileged pod that we'll use to run the steps
-	pod, err := k.cli.CoreV1().Pods(ns.Name).Create(ctx, preq, metav1.CreateOptions{})
+func (k *k8s) preflight(ctx context.Context) (*corev1.ServiceAccount, *rbacv1.ClusterRoleBinding, error) {
+	resp, err := k.cli.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Namespace: k.request.Namespace,
+				Verb:      "create",
+				Group:     "apps",
+				Resource:  "pods",
+			},
+		},
+	}, metav1.CreateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("creating pod: %w", err)
+		return nil, nil, fmt.Errorf("validating user permissions: %w", err)
+	}
+
+	if !resp.Status.Allowed {
+		return nil, nil, fmt.Errorf("user does not have permission to create pods")
+	}
+
+	// Create the namespace only if it doesn't already exist
+	ns, err := k.cli.CoreV1().Namespaces().Get(ctx, k.request.Namespace, metav1.GetOptions{})
+	if err != nil {
+		// if the namespace doesn't exist, create it
+		if errors.IsNotFound(err) {
+			ns, err = k.cli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: k.request.Namespace,
+					Labels: map[string]string{
+						"dev.chainguard.imagetest": "true",
+					},
+				},
+			}, metav1.CreateOptions{})
+			if err != nil {
+				return nil, nil, fmt.Errorf("creating imagetest namespace: %w", err)
+			}
+
+			if err := k.stack.Add(func(ctx context.Context) error {
+				return k.cli.CoreV1().Namespaces().Delete(ctx, ns.Name, metav1.DeleteOptions{
+					GracePeriodSeconds: &k.gracePeriod,
+				})
+			}); err != nil {
+				return nil, nil, fmt.Errorf("adding namespace teardown to stack: %w", err)
+			}
+		} else {
+			return nil, nil, fmt.Errorf("getting imagetest namespace: %w", err)
+		}
+	}
+
+	if k.request.Name == "" {
+		dryns, err := k.cli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "imagetest-",
+			},
+		}, metav1.CreateOptions{
+			DryRun: []string{"All"},
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating dryrun namespace: %w", err)
+		}
+		k.request.Name = dryns.Name
+	}
+
+	// Create the service account
+	sa, err := k.cli.CoreV1().ServiceAccounts(ns.Name).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.request.Name,
+			Namespace: ns.Name,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating service account: %w", err)
 	}
 
 	if err := k.stack.Add(func(ctx context.Context) error {
-		return k.cli.CoreV1().Pods(ns.Name).Delete(ctx, pod.Name, metav1.DeleteOptions{
+		return k.cli.CoreV1().ServiceAccounts(ns.Name).Delete(ctx, sa.Name, metav1.DeleteOptions{
 			GracePeriodSeconds: &k.gracePeriod,
 		})
 	}); err != nil {
-		return nil, fmt.Errorf("adding pod teardown to stack: %w", err)
+		return nil, nil, fmt.Errorf("adding service account teardown to stack: %w", err)
 	}
 
+	// Create the role binding
+	rb, err := k.cli.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      k.request.Name,
+			Namespace: ns.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      sa.Name,
+				Namespace: sa.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "ClusterRole",
+			Name:     "cluster-admin",
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating role binding: %w", err)
+	}
+
+	if err := k.stack.Add(func(ctx context.Context) error {
+		return k.cli.RbacV1().ClusterRoleBindings().Delete(ctx, rb.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: &k.gracePeriod,
+		})
+	}); err != nil {
+		return nil, nil, fmt.Errorf("adding role binding teardown to stack: %w", err)
+	}
+
+	return sa, rb, nil
+}
+
+func waitForPod(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) error {
 	// Block until the pod is running
-	watcher, err := k.cli.CoreV1().Pods(ns.Name).Watch(ctx, metav1.ListOptions{
+	watcher, err := cli.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{
 		Watch:         true,
 		FieldSelector: "metadata.name=" + pod.Name,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating pod: %w", err)
+		return fmt.Errorf("creating pod: %w", err)
 	}
 	defer watcher.Stop()
 
@@ -388,24 +461,24 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case event, ok := <-ch:
 			if !ok {
-				return nil, fmt.Errorf("channel closed")
+				return fmt.Errorf("channel closed")
 			}
 			switch event.Type {
 			case watch.Added, watch.Modified:
 				pod, ok := event.Object.(*corev1.Pod)
 				if !ok {
-					return nil, fmt.Errorf("failed to cast event object to pod")
+					return fmt.Errorf("failed to cast event object to pod")
 				}
 				if pod.Status.Phase == corev1.PodRunning {
-					return pod, nil
+					return nil
 				}
 			case watch.Deleted:
-				return nil, fmt.Errorf("pod was deleted")
+				return fmt.Errorf("pod was deleted")
 			case watch.Error:
-				return nil, fmt.Errorf("watch error: %v", event.Object)
+				return fmt.Errorf("watch error: %v", event.Object)
 			}
 		}
 	}

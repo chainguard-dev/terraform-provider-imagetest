@@ -28,8 +28,8 @@ func (h *host) Create(context.Context) error {
 	return nil
 }
 
-// Run implements harness.Harness.
-func (h *host) Run(ctx context.Context, cmd harness.Command) error {
+// Exec implements harness.Harness.
+func (h *host) Exec(ctx context.Context, cmd harness.Command) error {
 	if _, err := h.exec(ctx, []string{"sh", "-c", cmd.Args}); err != nil {
 		return fmt.Errorf("running step on host: %w", err)
 	}

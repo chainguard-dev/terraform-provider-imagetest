@@ -16,6 +16,8 @@ import (
 type appender struct {
 	base  name.Reference
 	ropts []remote.Option
+	// envs is a list of extra environment variables to set on the image
+	envs []string
 }
 
 type AppenderOpt func(*appender) error
@@ -70,6 +72,18 @@ func (a *appender) Bundle(ctx context.Context, repo name.Repository, layers ...L
 				if err != nil {
 					return nil, err
 				}
+			}
+
+			cf, err := mutated.ConfigFile()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get config file: %w", err)
+			}
+
+			cf.Config.Env = append(cf.Config.Env, a.envs...)
+
+			mutated, err = mutate.ConfigFile(mutated, cf)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set config file: %w", err)
 			}
 
 			mdig, err := mutated.Digest()
@@ -145,6 +159,28 @@ func (a *appender) Bundle(ctx context.Context, repo name.Repository, layers ...L
 func AppenderWithRemoteOptions(opts ...remote.Option) AppenderOpt {
 	return func(a *appender) error {
 		a.ropts = append(a.ropts, opts...)
+		return nil
+	}
+}
+
+func AppenderWithEnvsSlice(envs ...string) AppenderOpt {
+	return func(a *appender) error {
+		if a.envs == nil {
+			a.envs = make([]string, 0)
+		}
+		a.envs = append(a.envs, envs...)
+		return nil
+	}
+}
+
+func AppenderWithEnvs(envs map[string]string) AppenderOpt {
+	return func(a *appender) error {
+		if a.envs == nil {
+			a.envs = make([]string, 0)
+		}
+		for k, v := range envs {
+			a.envs = append(a.envs, fmt.Sprintf("%s=%s", k, v))
+		}
 		return nil
 	}
 }
