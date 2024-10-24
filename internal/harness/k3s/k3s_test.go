@@ -23,13 +23,13 @@ func TestK3s(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure we can use kubectl
-	err = h.Run(ctx, harness.Command{
+	err = h.Exec(ctx, harness.Command{
 		Args: "kubectl get po -A",
 	})
 	require.NoError(t, err)
 
 	// Run a command that should fail
-	err = h.Run(ctx, harness.Command{
+	err = h.Exec(ctx, harness.Command{
 		Args: "exit 1",
 	})
 	require.Error(t, err)
