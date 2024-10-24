@@ -33,6 +33,14 @@ resource "imagetest_feature" "test" {
       name = "Access cluster"
       cmd = "kubectl get po -A"
     },
+    {
+      name = "step 1"
+      cmd = "cat /root/.profile"
+    },
+    {
+      name = "Access cluster using alias"
+      cmd = "k get po -A"
+    },
   ]
 }
           `,

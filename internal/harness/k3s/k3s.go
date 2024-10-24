@@ -74,6 +74,9 @@ func New(opts ...Option) (*k3s, error) {
 				"IMAGETEST=true",
 				"KUBECONFIG=/k3s-config/k3s.yaml",
 			},
+			Contents: []*docker.Content{
+				docker.NewContentFromString("alias k=kubectl", "/root/.profile"),
+			},
 			Networks: make([]docker.NetworkAttachment, 0),
 			ExtraHosts: []string{
 				"host.docker.internal:host-gateway",
