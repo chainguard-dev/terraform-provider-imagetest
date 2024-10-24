@@ -33,6 +33,7 @@ Feature resource, used to evaluate the steps of a given test
 
 - `id` (String) ID is an encoded hash of the feature name and harness ID. It is used as a computed unique identifier of the feature within a given harness.
 - `skipped` (String) A computed value that indicates whether or not the feature was skipped. If the test is skipped, this field is populated wth the reason.
+- `warn_on_failure` (Boolean) Whether to warn on failure.
 
 <a id="nestedatt--harness"></a>
 ### Nested Schema for `harness`

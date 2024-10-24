@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/float64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -47,15 +48,16 @@ type FeatureResource struct {
 
 // FeatureResourceModel describes the resource data model.
 type FeatureResourceModel struct {
-	Id          types.String       `tfsdk:"id"`
-	Name        types.String       `tfsdk:"name"`
-	Description types.String       `tfsdk:"description"`
-	Labels      types.Map          `tfsdk:"labels"`
-	Before      []FeatureStepModel `tfsdk:"before"`
-	After       []FeatureStepModel `tfsdk:"after"`
-	Steps       []FeatureStepModel `tfsdk:"steps"`
-	Timeouts    timeouts.Value     `tfsdk:"timeouts"`
-	Skipped     types.String       `tfsdk:"skipped"`
+	Id            types.String       `tfsdk:"id"`
+	Name          types.String       `tfsdk:"name"`
+	Description   types.String       `tfsdk:"description"`
+	Labels        types.Map          `tfsdk:"labels"`
+	Before        []FeatureStepModel `tfsdk:"before"`
+	After         []FeatureStepModel `tfsdk:"after"`
+	Steps         []FeatureStepModel `tfsdk:"steps"`
+	Timeouts      timeouts.Value     `tfsdk:"timeouts"`
+	Skipped       types.String       `tfsdk:"skipped"`
+	WarnOnFailure types.Bool         `tfsdk:"warn_on_failure"`
 
 	Harness FeatureHarnessResourceModel `tfsdk:"harness"`
 }
@@ -178,6 +180,11 @@ func (r *FeatureResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 				"skipped": schema.StringAttribute{
 					Description: "A computed value that indicates whether or not the feature was skipped. If the test is skipped, this field is populated wth the reason.",
 					Computed:    true,
+				},
+				"warn_on_failure": schema.BoolAttribute{
+					Description: "Whether to warn on failure.",
+					Computed:    true,
+					Default:     booldefault.StaticBool(false),
 				},
 			},
 		),
@@ -334,12 +341,19 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds
 
 	log.Info(ctx, "testing feature against harness")
 
-	if err := feat.Test(ctx); err != nil {
-		ds.AddError(
-			fmt.Sprintf("failed to test feature: %s", feat.Name),
-			err.Error(),
-		)
-		return ds
+	if err = feat.Test(ctx); err != nil {
+		if data.WarnOnFailure.ValueBool() {
+			ds.AddWarning(
+				fmt.Sprintf("failed to test feature: %s", feat.Name),
+				err.Error(),
+			)
+		} else {
+			ds.AddError(
+				fmt.Sprintf("failed to test feature: %s", feat.Name),
+				err.Error(),
+			)
+			return ds
+		}
 	}
 
 	return ds
