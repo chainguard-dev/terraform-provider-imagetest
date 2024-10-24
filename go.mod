@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-testing v1.10.0
 	github.com/moby/docker-image-spec v1.3.1
-	github.com/samber/slog-multi v1.2.2
+	github.com/samber/slog-multi v1.2.3
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/sync v0.8.0
 	k8s.io/api v0.31.2
@@ -126,7 +126,7 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/psanford/memfs v0.0.0-20230130182539-4dbf7e3e865e // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/samber/lo v1.39.0 // indirect
+	github.com/samber/lo v1.47.0 // indirect
 	github.com/sassoftware/relic v7.2.1+incompatible // indirect
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
