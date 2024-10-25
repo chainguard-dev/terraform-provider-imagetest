@@ -73,6 +73,10 @@ func New(opts ...Option) (*k3s, error) {
 			Env: []string{
 				"IMAGETEST=true",
 				"KUBECONFIG=/k3s-config/k3s.yaml",
+				"ENV=/root/.ashrc",
+			},
+			Contents: []*docker.Content{
+				docker.NewContentFromString("alias k=kubectl", "/root/.ashrc"),
 			},
 			Networks: make([]docker.NetworkAttachment, 0),
 			ExtraHosts: []string{
@@ -301,9 +305,10 @@ func (h *k3s) startSandbox(ctx context.Context, cli *docker.Client, resp *docker
 
 	h.Sandbox.Name = resp.Name + "-sandbox"
 
-	h.Sandbox.Contents = []*docker.Content{
+	h.Sandbox.Contents = append(
+		h.Sandbox.Contents,
 		docker.NewContentFromString(string(skcfg), "/k3s-config/k3s.yaml"),
-	}
+	)
 
 	sandbox, err := cli.Start(ctx, h.Sandbox)
 	if err != nil {
