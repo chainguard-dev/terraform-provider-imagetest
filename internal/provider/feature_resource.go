@@ -183,6 +183,7 @@ func (r *FeatureResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 				},
 				"warn_on_failure": schema.BoolAttribute{
 					Description: "Whether to warn on failure.",
+					Optional:    true,
 					Computed:    true,
 					Default:     booldefault.StaticBool(false),
 				},
