@@ -28,12 +28,12 @@ Feature resource, used to evaluate the steps of a given test
 - `labels` (Map of String) A set of labels used to optionally filter execution of the feature
 - `steps` (Attributes List) Actions to run against the harness. (see [below for nested schema](#nestedatt--steps))
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
+- `warn_on_failure` (Boolean) Whether to warn on failure.
 
 ### Read-Only
 
 - `id` (String) ID is an encoded hash of the feature name and harness ID. It is used as a computed unique identifier of the feature within a given harness.
 - `skipped` (String) A computed value that indicates whether or not the feature was skipped. If the test is skipped, this field is populated wth the reason.
-- `warn_on_failure` (Boolean) Whether to warn on failure.
 
 <a id="nestedatt--harness"></a>
 ### Nested Schema for `harness`
