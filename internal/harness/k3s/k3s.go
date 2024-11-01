@@ -82,6 +82,7 @@ func New(opts ...Option) (*k3s, error) {
 			ExtraHosts: []string{
 				"host.docker.internal:host-gateway",
 			},
+			Init: true,
 		},
 		stack: harness.NewStack(),
 	}

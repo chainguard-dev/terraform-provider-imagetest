@@ -88,8 +88,8 @@ func TestDocker(t *testing.T) {
 	require.Equal(t, "test1", string(data))
 
 	// Fail to get a file that doesn't exist from the container
-	_, err = resp.GetFile(ctx, "/doesnt/exist/tmp/test")
-	require.ErrorContains(t, err, "requested file")
+	_, err = resp.GetFile(ctx, "/really/doesnt/exist/tmp/test")
+	require.ErrorContains(t, err, "not find the file")
 
 	// Fail to get a relative file from the container
 	_, err = resp.GetFile(ctx, "test")

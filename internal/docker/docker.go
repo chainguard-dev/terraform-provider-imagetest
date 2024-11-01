@@ -53,6 +53,7 @@ type Request struct {
 	ExtraHosts   []string
 	AutoRemove   bool
 	Logger       io.Writer
+	Init         bool
 }
 
 type ResourcesRequest struct {
@@ -265,6 +266,7 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 			Mounts:       req.Mounts,
 			PortBindings: req.PortBindings,
 			AutoRemove:   req.AutoRemove,
+			Init:         &req.Init,
 		},
 		&network.NetworkingConfig{
 			EndpointsConfig: endpointSettings,
