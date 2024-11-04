@@ -154,6 +154,14 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 		}
 	}
 
+	if data.Image.ValueString() != "" {
+		ref, err := name.ParseReference(data.Image.ValueString())
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid k3s image ref", fmt.Sprintf("invalid image reference: %s", err))}
+		}
+		kopts = append(kopts, k3s.WithImageRef(ref))
+	}
+
 	b, err := r.bundler(data)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
