@@ -195,6 +195,16 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		}
 	}
 
+	// always ensure the provider scoped repository plumbs credentials through
+	if r.store.providerResourceData.Repo.ValueString() != "" {
+		ref, err := name.ParseReference(r.store.providerResourceData.Repo.ValueString())
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid repository reference", fmt.Sprintf("invalid repository reference: %s", err))}
+		}
+
+		opts = append(opts, docker.WithAuthFromKeychain(ref.Context().RegistryStr()))
+	}
+
 	b, err := r.bundler(data)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}

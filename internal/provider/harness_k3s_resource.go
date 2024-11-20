@@ -225,6 +225,16 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 	}
 	kopts = append(kopts, k3s.WithNetworks(networks...))
 
+	// always ensure the provider scoped repository plumbs credentials through
+	if r.store.providerResourceData.Repo.ValueString() != "" {
+		ref, err := name.ParseReference(r.store.providerResourceData.Repo.ValueString())
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("invalid repository reference", fmt.Sprintf("invalid repository reference: %s", err))}
+		}
+
+		kopts = append(kopts, k3s.WithAuthFromKeychain(ref.Context().RegistryStr()))
+	}
+
 	bref, err := b.Bundle(ctx, r.store.repo, ls...)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to bundle image", err.Error())}
