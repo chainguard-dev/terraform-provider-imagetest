@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-testing v1.11.0
 	github.com/moby/docker-image-spec v1.3.1
-	github.com/samber/slog-multi v1.2.4
+	github.com/samber/slog-multi v1.3.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/sync v0.10.0
 	k8s.io/api v0.32.0
