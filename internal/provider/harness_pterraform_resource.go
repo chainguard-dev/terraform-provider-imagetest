@@ -81,7 +81,7 @@ func (r *HarnessPterraformResource) Update(ctx context.Context, req resource.Upd
 	}
 }
 
-func (r *HarnessPterraformResource) harness(_ context.Context, data *HarnessPterraformResourceModel) (harness.Harness, diag.Diagnostics) {
+func (r *HarnessPterraformResource) harness(ctx context.Context, data *HarnessPterraformResourceModel) (harness.Harness, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	popts := []pterraform.Option{}
@@ -117,6 +117,7 @@ This will only work as intended if all harnesses are named uniquely across ALL i
 	}
 
 	harness, err := pterraform.New(
+		ctx,
 		os.DirFS(data.Path.ValueString()),
 		popts...,
 	)

@@ -39,7 +39,7 @@ type pterraform struct {
 	runner sandbox.Runner
 }
 
-func New(source fs.FS, opts ...Option) (*pterraform, error) {
+func New(ctx context.Context, source fs.FS, opts ...Option) (*pterraform, error) {
 	p := &pterraform{
 		source: source,
 		stack:  harness.NewStack(),
@@ -83,6 +83,18 @@ func New(source fs.FS, opts ...Option) (*pterraform, error) {
 		}
 		envs[parts[0]] = parts[1]
 	}
+
+	// The TF_VAR_ above isn't enough, for example we are failing on:
+	//
+	// > setting environment variables: manual setting of env var "TF_LOG_PROVIDER" detected
+	//
+	// We'll keep the TF_VAR_ filtering just to make the warning less noisy, but also drop
+	// and warn about any other prohibited environment variables.
+	for _, prohibited := range tfexec.ProhibitedEnv(envs) {
+		log.Warn(ctx, "removing prohibited env", "env", prohibited)
+		delete(envs, prohibited)
+	}
+
 	if err := p.tf.SetEnv(envs); err != nil {
 		return nil, fmt.Errorf("setting environment variables: %w", err)
 	}

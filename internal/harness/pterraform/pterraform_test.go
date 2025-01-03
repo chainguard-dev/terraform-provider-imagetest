@@ -111,6 +111,7 @@ output "connection" {
 			envVars: map[string]string{
 				"IMAGETEST_TF_VAR_foo": "foo",
 				"TF_VAR_foo":           "bar",
+				"TF_LOG_PROVIDER":      "info",
 			},
 		},
 	}
@@ -131,7 +132,7 @@ output "connection" {
 				}
 			}()
 
-			p, err := New(sourceFs(t, tt.content))
+			p, err := New(ctx, sourceFs(t, tt.content))
 			if err != nil {
 				t.Fatalf("unexpected error creating new pterraform: %v", err)
 			}
