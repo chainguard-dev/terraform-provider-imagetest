@@ -25,6 +25,8 @@ type apko struct {
 type ApkoOpt func(*apko) error
 
 func NewApko(opts ...ApkoOpt) (Bundler, error) {
+	gid := uint32(65532)
+
 	a := &apko{
 		arch: apko_types.ParseArchitecture(runtime.GOARCH),
 		apkoConfig: apko_types.ImageConfiguration{
@@ -54,7 +56,7 @@ func NewApko(opts ...ApkoOpt) (Bundler, error) {
 					{
 						UserName: "nonroot",
 						UID:      65532,
-						GID:      65532,
+						GID:      apko_types.GID(&gid),
 					},
 				},
 				Groups: []apko_types.Group{
