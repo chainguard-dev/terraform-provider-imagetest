@@ -6,12 +6,15 @@ import (
 	"io"
 	"strings"
 	"sync"
+
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 type Harness interface {
 	Create(context.Context) error
 	Destroy(context.Context) error
-	Run(context.Context, Command) error
+	Exec(context.Context, Command) error
+	Run(context.Context, name.Reference) error
 }
 
 type Command struct {
