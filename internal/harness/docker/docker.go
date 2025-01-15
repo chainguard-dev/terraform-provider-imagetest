@@ -53,6 +53,10 @@ func New(opts ...Option) (harness.Harness, error) {
 	return h, nil
 }
 
+func (h *docker) Run(ctx context.Context, ref name.Reference) error {
+	panic("implement me")
+}
+
 // Create implements harness.Harness.
 func (h *docker) Create(ctx context.Context) error {
 	cli, err := client.New()
@@ -126,8 +130,8 @@ func (h *docker) Create(ctx context.Context) error {
 	return nil
 }
 
-// Run implements harness.Harness.
-func (h *docker) Run(ctx context.Context, cmd harness.Command) error {
+// Exec implements harness.Harness.
+func (h *docker) Exec(ctx context.Context, cmd harness.Command) error {
 	return h.runner(ctx, cmd)
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -100,6 +101,10 @@ func New(ctx context.Context, source fs.FS, opts ...Option) (*pterraform, error)
 	}
 
 	return p, nil
+}
+
+func (p *pterraform) Run(ctx context.Context, ref name.Reference) error {
+	panic("implement me")
 }
 
 // Create implements harness.Harness.
@@ -340,8 +345,8 @@ func (p *pterraform) Create(ctx context.Context) error {
 	return nil
 }
 
-// Run implements harness.Harness.
-func (p *pterraform) Run(ctx context.Context, cmd harness.Command) error {
+// Exec implements harness.Harness.
+func (p *pterraform) Exec(ctx context.Context, cmd harness.Command) error {
 	return p.runner.Run(ctx, cmd)
 }
 
