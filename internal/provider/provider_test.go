@@ -48,7 +48,7 @@ func testRegistry(t *testing.T, ctx context.Context) string {
 		PortBindings: nat.PortMap{
 			nat.Port("5000"): []nat.PortBinding{
 				{
-					HostIP:   "127.0.0.1",
+					HostIP:   "0.0.0.0",
 					HostPort: "",
 				},
 			},
@@ -62,6 +62,7 @@ func testRegistry(t *testing.T, ctx context.Context) string {
 		Labels: map[string]string{
 			"dev.chainguard.imagetest": "true",
 		},
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 	})
 	if err != nil {
 		t.Fatal(err)

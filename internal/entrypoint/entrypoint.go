@@ -2,7 +2,7 @@ package entrypoint
 
 // ImageRef is replaced at provider build time (ldflag) with the :tag@digest of
 // the ./cmd/entrypoint binary.
-var ImageRef = "gcr.io/wolf-chainguard/entrypoint@sha256:d0d087f258b646f8d52edd6aecd9c72a99f38ab75ff1994799a427a30206f89e"
+var ImageRef = "ghcr.io/chainguard-dev/terraform-provider-imagetest/entrypoint:latest"
 
 const (
 	BinaryPath  = "/ko-app/entrypoint"
