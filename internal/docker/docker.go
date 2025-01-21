@@ -50,6 +50,8 @@ type Request struct {
 	HealthCheck  *container.HealthConfig
 	Contents     []*Content
 	PortBindings nat.PortMap
+	CgroupnsMode container.CgroupnsMode
+	PidMode      string
 	ExtraHosts   []string
 	AutoRemove   bool
 	Logger       io.Writer
@@ -477,6 +479,21 @@ func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) 
 	}
 
 	return tr, nil
+}
+
+// ReadFile is a helper method over GetFile() that returns the raw contents.
+func (r *Response) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	rdr, err := r.GetFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(rdr)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func (d *Client) withDefaultLabels(labels map[string]string) map[string]string {
