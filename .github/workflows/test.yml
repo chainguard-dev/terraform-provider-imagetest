@@ -62,7 +62,7 @@ jobs:
           cache: true
       - run: go test -v -cover ./cmd/entrypoint
       - uses: ko-build/setup-ko@d982fec422852203cfb2053a8ec6ad302280d04d # v0.8
-      - run: ko build --push=false ./cmd/entrypoint
+      - run: ko build --base-import-paths --push=false ./cmd/entrypoint
 
   # Run acceptance tests in a matrix with Terraform CLI versions
   test:
