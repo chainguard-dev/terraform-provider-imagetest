@@ -14,6 +14,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
+	ggcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -210,12 +211,16 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
 	}
 
-	var layers []bundler.Layerer
+	var layers []ggcrv1.Layer
 	for _, sl := range data.Layers {
-		layers = append(layers, bundler.NewFSLayer(
+		layer, err := bundler.NewLayerFromFS(
 			os.DirFS(sl.Source.ValueString()),
 			sl.Target.ValueString(),
-		))
+		)
+		if err != nil {
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create layer", err.Error())}
+		}
+		layers = append(layers, layer)
 	}
 
 	bref, err := b.Bundle(ctx, r.store.repo, layers...)

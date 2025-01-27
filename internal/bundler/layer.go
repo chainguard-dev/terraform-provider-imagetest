@@ -4,32 +4,16 @@ import (
 	"archive/tar"
 	"io"
 	"io/fs"
-	"path/filepath"
+	"os"
+	"path"
 
+	"chainguard.dev/apko/pkg/tarfs"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 )
 
-type Layerer interface {
-	Layer() (v1.Layer, error)
-}
-
-var _ Layerer = &fsl{}
-
-type fsl struct {
-	source fs.FS
-	target string
-}
-
-func NewFSLayer(source fs.FS, target string) Layerer {
-	return &fsl{
-		source: source,
-		target: target,
-	}
-}
-
-func (l *fsl) Layer() (v1.Layer, error) {
+// NewLayerFromFS creates a v1.Layer from a filesystem and target path.
+func NewLayerFromFS(source fs.FS, target string) (v1.Layer, error) {
 	return tarball.LayerFromOpener(func() (io.ReadCloser, error) {
 		pr, pw := io.Pipe()
 
@@ -38,7 +22,7 @@ func (l *fsl) Layer() (v1.Layer, error) {
 			defer tw.Close()
 			defer pw.Close()
 
-			if err := fs.WalkDir(l.source, ".", func(path string, d fs.DirEntry, err error) error {
+			if err := fs.WalkDir(source, ".", func(p string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return err
 				}
@@ -53,14 +37,14 @@ func (l *fsl) Layer() (v1.Layer, error) {
 					return err
 				}
 
-				hdr.Name = filepath.Join(l.target, path)
+				hdr.Name = path.Join(target, p)
 
 				if err := tw.WriteHeader(hdr); err != nil {
 					return err
 				}
 
 				if !d.IsDir() {
-					f, err := l.source.Open(path)
+					f, err := source.Open(p)
 					if err != nil {
 						return err
 					}
@@ -82,19 +66,27 @@ func (l *fsl) Layer() (v1.Layer, error) {
 	})
 }
 
-func appendLayers(img v1.Image, layers ...Layerer) (v1.Image, error) {
-	mutated := img
-
-	for _, l := range layers {
-		layer, err := l.Layer()
-		if err != nil {
-			return nil, err
-		}
-
-		mutated, err = mutate.AppendLayers(mutated, layer)
-		if err != nil {
-			return nil, err
-		}
+// NewLayerFromPath creates a v1.Layer from a local path.
+func NewLayerFromPath(source string, target string) (v1.Layer, error) {
+	pi, err := os.Stat(source)
+	if err != nil {
+		return nil, err
 	}
-	return mutated, nil
+
+	if pi.IsDir() {
+		return NewLayerFromFS(os.DirFS(source), target)
+	}
+
+	// Handle single file
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return nil, err
+	}
+
+	tfs := tarfs.New()
+	if err := tfs.WriteFile(pi.Name(), data, pi.Mode()); err != nil {
+		return nil, err
+	}
+
+	return NewLayerFromFS(tfs, target)
 }

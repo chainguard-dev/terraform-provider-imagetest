@@ -14,6 +14,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
+	ggcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -167,16 +168,17 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 		return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create bundler", err.Error())}
 	}
 
-	var ls []bundler.Layerer
+	var ls []ggcrv1.Layer
 
 	if sandbox := data.Sandbox; sandbox != nil {
 		log.Info(ctx, "parsing sandbox", "raw", sandbox)
 
 		for _, l := range sandbox.Layers {
-			ls = append(ls, bundler.NewFSLayer(
-				os.DirFS(l.Source.ValueString()),
-				l.Target.ValueString(),
-			))
+			layer, err := bundler.NewLayerFromPath(l.Source.ValueString(), l.Target.ValueString())
+			if err != nil {
+				return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create layer", err.Error())}
+			}
+			ls = append(ls, layer)
 		}
 
 		for _, m := range sandbox.Mounts {

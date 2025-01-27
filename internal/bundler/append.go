@@ -13,12 +13,16 @@ import (
 
 type AppendOpts struct {
 	RemoteOptions []remote.Option
-	Layers        []Layerer
+	Layers        []v1.Layer
 	Envs          map[string]string
+	Cmd           string
+	Entrypoint    []string
 }
 
-func Append(ctx context.Context, source name.Reference, target name.Repository, opts AppendOpts) (name.Reference, error) {
-	desc, err := remote.Get(source, opts.RemoteOptions...)
+// Append mutates the source Image or ImageIndex with the provided append
+// options, and pushes it to the target repository via its digest.
+func Append(ctx context.Context, base name.Reference, target name.Repository, opts AppendOpts) (name.Reference, error) {
+	desc, err := remote.Get(base, opts.RemoteOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
@@ -42,12 +46,7 @@ func Append(ctx context.Context, source name.Reference, target name.Repository, 
 				return nil, fmt.Errorf("failed to load image: %w", err)
 			}
 
-			mutated, err := appendLayers(baseimg, opts.Layers...)
-			if err != nil {
-				return nil, err
-			}
-
-			mutated, err = mutateConfig(mutated, opts.Envs)
+			mutated, err := appendToImage(ctx, baseimg, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -86,17 +85,12 @@ func Append(ctx context.Context, source name.Reference, target name.Repository, 
 		return ref, nil
 
 	} else if desc.MediaType.IsImage() {
-		baseimg, err := remote.Image(source, opts.RemoteOptions...)
+		baseimg, err := remote.Image(base, opts.RemoteOptions...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get image: %w", err)
 		}
 
-		mutated, err := appendLayers(baseimg, opts.Layers...)
-		if err != nil {
-			return nil, err
-		}
-
-		mutated, err = mutateConfig(mutated, opts.Envs)
+		mutated, err := appendToImage(ctx, baseimg, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +111,21 @@ func Append(ctx context.Context, source name.Reference, target name.Repository, 
 	return nil, fmt.Errorf("unsupported media type: %s", desc.MediaType)
 }
 
-func mutateConfig(img v1.Image, envs map[string]string) (v1.Image, error) {
+func appendToImage(_ context.Context, img v1.Image, opts AppendOpts) (v1.Image, error) {
+	mutated, err := mutate.AppendLayers(img, opts.Layers...)
+	if err != nil {
+		return nil, err
+	}
+
+	mutated, err = mutateConfig(mutated, opts.Envs, opts.Entrypoint, opts.Cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	return mutated, nil
+}
+
+func mutateConfig(img v1.Image, envs map[string]string, entrypoint []string, cmd string) (v1.Image, error) {
 	cfg, err := img.ConfigFile()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config file: %w", err)
@@ -125,6 +133,14 @@ func mutateConfig(img v1.Image, envs map[string]string) (v1.Image, error) {
 
 	for k, v := range envs {
 		cfg.Config.Env = append(cfg.Config.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	if cmd != "" {
+		cfg.Config.Cmd = []string{cmd}
+	}
+
+	if len(entrypoint) > 0 {
+		cfg.Config.Entrypoint = entrypoint
 	}
 
 	return mutate.ConfigFile(img, cfg)
