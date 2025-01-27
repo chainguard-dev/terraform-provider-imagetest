@@ -8,6 +8,7 @@ jobs:
   entrypoint:
     permissions:
       contents: write # To publish the release.
+      packages: write # To publish the release.
 
     runs-on: ubuntu-latest
     steps:
