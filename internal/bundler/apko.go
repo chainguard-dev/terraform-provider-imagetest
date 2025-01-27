@@ -10,7 +10,9 @@ import (
 	apko_types "chainguard.dev/apko/pkg/build/types"
 	"chainguard.dev/apko/pkg/tarfs"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
@@ -78,7 +80,7 @@ func NewApko(opts ...ApkoOpt) (Bundler, error) {
 	return a, nil
 }
 
-func (a *apko) Bundle(ctx context.Context, repo name.Repository, layers ...Layerer) (name.Reference, error) {
+func (a *apko) Bundle(ctx context.Context, repo name.Repository, layers ...v1.Layer) (name.Reference, error) {
 	bopts := []apko_build.Option{
 		apko_build.WithImageConfiguration(a.apkoConfig),
 		apko_build.WithArch(a.arch),
@@ -105,7 +107,7 @@ func (a *apko) Bundle(ctx context.Context, repo name.Repository, layers ...Layer
 		return nil, fmt.Errorf("failed to build image: %w", err)
 	}
 
-	img, err := appendLayers(base, layers...)
+	img, err := mutate.AppendLayers(base, layers...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to append layers: %w", err)
 	}

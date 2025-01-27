@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
@@ -30,7 +31,7 @@ func NewAppender(base name.Reference, opts ...AppenderOpt) (Bundler, error) {
 	return a, nil
 }
 
-func (a *appender) Bundle(ctx context.Context, repo name.Repository, layers ...Layerer) (name.Reference, error) {
+func (a *appender) Bundle(ctx context.Context, repo name.Repository, layers ...v1.Layer) (name.Reference, error) {
 	opts := AppendOpts{
 		RemoteOptions: a.ropts,
 		Layers:        layers,
