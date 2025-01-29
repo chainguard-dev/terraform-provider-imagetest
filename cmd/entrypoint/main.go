@@ -30,8 +30,6 @@ import (
 const (
 	DefaultTimeout = 60 * time.Minute
 	GracePeriod    = 15 * time.Second
-
-	DefaultHealthCheckSocket = "/tmp/imagetest.health.sock"
 )
 
 type opts struct {
@@ -72,7 +70,7 @@ func main() {
 
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		// Run the binary as a health check
-		conn, err := net.Dial("unix", DefaultHealthCheckSocket)
+		conn, err := net.Dial("unix", entrypoint.DefaultHealthCheckSocket)
 		if err != nil {
 			clog.ErrorContextf(ctx, "failed to connect to health socket: %v", err)
 			os.Exit(entrypoint.InternalErrorCode)
@@ -87,13 +85,13 @@ func main() {
 
 		switch status.State {
 		case healthRunning:
-			clog.InfoContext(ctx, "health check passed")
+			clog.InfoContext(ctx, status.Message)
 			os.Exit(0)
 		case healthPaused:
-			clog.InfoContext(ctx, "health check paused")
+			clog.InfoContext(ctx, status.Message)
 			os.Exit(entrypoint.ProcessPausedErrorCode)
 		case healthFailed:
-			clog.InfoContext(ctx, "health check failed")
+			clog.InfoContext(ctx, status.Message)
 			os.Exit(entrypoint.InternalErrorCode)
 		}
 
@@ -110,6 +108,7 @@ func (o *opts) Run(ctx context.Context) int {
 	if err != nil {
 		clog.ErrorContextf(ctx, "Error executing wrapped process: %v", err)
 		o.healthStatus.update(healthFailed, err.Error())
+
 		return code
 	}
 
@@ -126,7 +125,9 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	}
 	defer healthCleanup()
 
-	w := io.Writer(os.Stdout)
+	stdoutw := io.Writer(os.Stdout)
+	stderrw := io.Writer(os.Stderr)
+
 	if o.ProcessLogPath != "" {
 		if err := os.MkdirAll(filepath.Dir(o.ProcessLogPath), 0755); err != nil {
 			return entrypoint.InternalErrorCode, fmt.Errorf("failed to create process log directory: %w", err)
@@ -137,8 +138,18 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 			return entrypoint.InternalErrorCode, fmt.Errorf("failed to create process log file: %w", err)
 		}
 		defer plf.Close()
-		w = io.MultiWriter(w, plf)
+
+		// Write both stdout and stderr to the process log
+		stdoutw = io.MultiWriter(stdoutw, plf)
+		stderrw = io.MultiWriter(stderrw, plf)
 	}
+
+	ef, err := os.Create(entrypoint.DefaultStderrLogPath)
+	if err != nil {
+		clog.ErrorContextf(ctx, "Error writing stderr log: %v", err)
+	}
+	defer ef.Close()
+	stderrw = io.MultiWriter(stderrw, ef)
 
 	if len(o.args) == 0 {
 		return entrypoint.InternalErrorCode, fmt.Errorf("no command provided")
@@ -146,8 +157,8 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	cmdName, cmdArgs := o.args[0], o.args[1:]
 
 	cmd := exec.Command(cmdName, cmdArgs...)
-	cmd.Stdout = w
-	cmd.Stderr = w
+	cmd.Stdout = stdoutw
+	cmd.Stderr = stderrw
 	cmd.Env = append(os.Environ(), "IMAGETEST=true")
 
 	// Block until we are probed
@@ -190,8 +201,19 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		var exitErr *exec.ExitError
 
 		if errors.As(waitErr, &exitErr) {
+			// grab stderr from the file
+			errdata, err := os.ReadFile(entrypoint.DefaultStderrLogPath)
+			if err != nil {
+				clog.ErrorContextf(ctx, "Error reading stderr log: %v", err)
+			}
+
+			errmsg := fmt.Sprintf("%s (exit code %d)",
+				errdata,
+				exitErr.ExitCode(),
+			)
+
 			if os.Getenv("IMAGETEST_PAUSE_ON_ERROR") != "" {
-				o.healthStatus.update(healthPaused, fmt.Sprintf("exit code %d", exitErr.ExitCode()))
+				o.healthStatus.update(healthPaused, errmsg)
 				if err := pause(ctx, exitErr.ExitCode()); err != nil {
 					return entrypoint.InternalErrorCode, err
 				}
@@ -201,7 +223,7 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 			}
 
 			// wrapped process exiting with an error, just surface it
-			return exitErr.ExitCode(), exitErr
+			return exitErr.ExitCode(), fmt.Errorf("%s", errmsg)
 		}
 
 		// we got an error while force killing
@@ -242,7 +264,7 @@ func gracefullyTerminate(ctx context.Context, cmd *exec.Cmd, gracePeriod time.Du
 
 func pause(parentCtx context.Context, exitCode int) error {
 	fifoPath := "/tmp/imagetest.unpause"
-	clog.InfoContext(parentCtx, "wrapped process failed, attempting to pause for debugging", "fifo_path", fifoPath, "exit_code", exitCode)
+	clog.ErrorContext(parentCtx, "wrapped process failed, attempting to pause for debugging", "fifo_path", fifoPath, "exit_code", exitCode)
 
 	// create a new context to avoid exiting early if the parent context is cancelled
 	pauseCtx, cancel := context.WithCancel(context.Background())
@@ -338,11 +360,11 @@ func (h *healthStatus) update(state healthState, message string) {
 }
 
 func (h *healthStatus) startSocket() (func(), error) {
-	if err := os.Remove(DefaultHealthCheckSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(entrypoint.DefaultHealthCheckSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("failed to remove health socket: %w", err)
 	}
 
-	listener, err := net.Listen("unix", DefaultHealthCheckSocket)
+	listener, err := net.Listen("unix", entrypoint.DefaultHealthCheckSocket)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create health socket: %w", err)
 	}
@@ -369,7 +391,7 @@ func (h *healthStatus) startSocket() (func(), error) {
 
 	return func() {
 		listener.Close()
-		os.Remove(DefaultHealthCheckSocket)
+		os.Remove(entrypoint.DefaultHealthCheckSocket)
 	}, nil
 }
 

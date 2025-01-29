@@ -64,8 +64,7 @@ init_docker_in_docker() {
   fi
 
   # Execute test script with strict shell options
-  set -eux
-  exec /bin/sh -c ". $test_script"
+  exec /bin/sh -euxc ". $test_script"
 }
 
 # Initialize and manage a K3s-in-Docker environment.
@@ -87,8 +86,7 @@ init_k3s_in_docker() {
   fi
 
   # Execute test script with strict shell options
-  set -eux
-  exec /bin/sh -c ". $test_script"
+  exec /bin/sh -euxc ". $test_script"
 }
 
 # Validate command-line arguments
