@@ -96,7 +96,6 @@ func New(opts ...Option) (*Client, error) {
 }
 
 func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
-	req.AutoRemove = true
 	cid, err := d.start(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
@@ -109,21 +108,49 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	// adding this to Start(), but its unclear how useful those logs would be,
 	// and how to even surface them without being overly verbose.
 	if req.Logger != nil {
-		defer func() {
-			logs, err := d.cli.ContainerLogs(ctx, cid, container.LogsOptions{
-				ShowStdout: true,
-				ShowStderr: true,
-				Follow:     true,
-			})
-			if err != nil {
-				fmt.Fprintf(req.Logger, "failed to get logs: %v\n", err)
-				return
-			}
-			defer logs.Close()
+		logs, err := d.cli.ContainerLogs(ctx, cid, container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Follow:     true,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to get logs: %w", err)
+		}
+		defer logs.Close()
 
+		go func() {
+			defer logs.Close()
 			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
 			if err != nil {
 				fmt.Fprintf(req.Logger, "error copying logs: %v", err)
+			}
+		}()
+	}
+
+	// If a health check is present, set up a poller to poll on health status
+	unhealthyCh := make(chan error)
+	if req.HealthCheck != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					inspect, err := d.cli.ContainerInspect(ctx, cid)
+					if err != nil {
+						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
+						return
+					}
+
+					if inspect.State != nil && inspect.State.Health != nil {
+						if inspect.State.Health.Status == "unhealthy" {
+							status := inspect.State.Health.Log[len(inspect.State.Health.Log)-1].Output
+							unhealthyCh <- fmt.Errorf("container became unhealthy, last status: %s", status)
+							return
+						}
+					}
+					time.Sleep(time.Second)
+				}
 			}
 		}()
 	}
@@ -143,6 +170,9 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		if status.StatusCode != 0 {
 			return "", fmt.Errorf("container exited with non-zero status code: %d", status.StatusCode)
 		}
+
+	case err := <-unhealthyCh:
+		return "", err
 	}
 
 	return cid, nil

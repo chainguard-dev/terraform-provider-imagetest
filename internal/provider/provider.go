@@ -302,6 +302,7 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					},
 				},
 			},
+			// "drivers": DriverProviderSchema(ctx),
 		},
 	}
 }
@@ -390,6 +391,9 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 		NewHarnessPterraformResource,
 		// Tests
 		NewTestDockerRunResource,
+
+		// Tests Resources
+		NewTestsResource,
 	}
 }
 

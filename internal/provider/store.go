@@ -11,11 +11,13 @@ import (
 	"sync"
 
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	ilog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/google"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	slogmulti "github.com/samber/slog-multi"
@@ -41,6 +43,7 @@ type ProviderStore struct {
 	providerResourceData ImageTestProviderModel
 	repo                 name.Repository
 	ropts                []remote.Option
+	entrypointLayers     map[string][]v1.Layer
 }
 
 func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
@@ -56,6 +59,11 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 	}
 	ropts = append(ropts, remote.Reuse(pusher))
 
+	el, err := getEntrypointLayers(ropts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entrypoint layers: %w", err)
+	}
+
 	return &ProviderStore{
 		inv: &mmap[string, *inventory.Inventory]{
 			store: make(map[string]*inventory.Inventory),
@@ -67,8 +75,9 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 			store: make(map[string]harness.Harness),
 			mu:    sync.Mutex{},
 		},
-		repo:  repo,
-		ropts: ropts,
+		repo:             repo,
+		ropts:            ropts,
+		entrypointLayers: el,
 	}, nil
 }
 
@@ -136,6 +145,44 @@ func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel
 // SkipTeardown returns true if harnesses should skip teardown steps.
 func (s *ProviderStore) SkipTeardown() bool {
 	return s.skipTeardown
+}
+
+func getEntrypointLayers(opts ...remote.Option) (map[string][]v1.Layer, error) {
+	eref, err := name.ParseReference(entrypoint.ImageRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse entrypoint reference: %w", err)
+	}
+
+	eidx, err := remote.Index(eref, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entrypoint index: %w", err)
+	}
+
+	emfst, err := eidx.IndexManifest()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entrypoint index manifest: %w", err)
+	}
+
+	players := make(map[string][]v1.Layer)
+	for _, m := range emfst.Manifests {
+		img, err := eidx.Image(m.Digest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load entrypoint image: %w", err)
+		}
+
+		l, err := img.Layers()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get entrypoint layers: %w", err)
+		}
+
+		players[m.Platform.Architecture] = l
+	}
+
+	if len(players) == 0 {
+		return nil, fmt.Errorf("no entrypoint layers found")
+	}
+
+	return players, nil
 }
 
 // mmap is a generic thread-safe map implementation.
