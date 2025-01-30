@@ -75,6 +75,7 @@ func (k *driver) Teardown(ctx context.Context) error {
 	if err := k.eksctl(ctx, "delete", "cluster", "--name", clusterName(ctx)); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
+	return nil
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) error {
