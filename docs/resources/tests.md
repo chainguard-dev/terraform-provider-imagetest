@@ -37,6 +37,7 @@ description: |-
 Optional:
 
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
+- `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
 
 <a id="nestedatt--drivers--docker_in_docker"></a>
@@ -45,6 +46,10 @@ Optional:
 Optional:
 
 - `image` (String) The image reference to use for the docker-in-docker driver
+
+
+<a id="nestedatt--drivers--eks_with_eksctl"></a>
+### Nested Schema for `drivers.eks_with_eksctl`
 
 
 <a id="nestedatt--drivers--k3s_in_docker"></a>

@@ -133,10 +133,13 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		return dockerindocker.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
-		cfg := drivers.EKSWithEksctl
-		if cfg == nil {
-			cfg = &EKSWithEksctlDriverResourceModel{}
-		}
+		/*
+			cfg := drivers.EKSWithEksctl
+			if cfg == nil {
+				cfg = &EKSWithEksctlDriverResourceModel{}
+			}
+			opts = append(opts, ekswitheksctl.WithFoo(cfg.Foo.ValueString()))
+		*/
 
 		return ekswitheksctl.NewDriver(id)
 	default:
