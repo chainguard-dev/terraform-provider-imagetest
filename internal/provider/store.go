@@ -148,7 +148,13 @@ func (s *ProviderStore) SkipTeardown() bool {
 }
 
 func getEntrypointLayers(opts ...remote.Option) (map[string][]v1.Layer, error) {
-	eref, err := name.ParseReference(entrypoint.ImageRef)
+	rawRef := entrypoint.ImageRef
+	// Allow for runtimes to override
+	if o := os.Getenv("IMAGETEST_ENTRYPOINT_REF"); o != "" {
+		rawRef = o
+	}
+
+	eref, err := name.ParseReference(rawRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse entrypoint reference: %w", err)
 	}
