@@ -5,30 +5,13 @@ on:
       - 'v*'
 
 jobs:
-  entrypoint:
-    permissions:
-      contents: write # To publish the release.
-      packages: write # To publish the release.
-
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      - run: git fetch --prune --unshallow
-      - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
-        with:
-          go-version-file: 'go.mod'
-          cache: false
-      - run: go test -v -cover ./cmd/entrypoint
-      - uses: ko-build/setup-ko@d982fec422852203cfb2053a8ec6ad302280d04d # v0.8
-      - run: ko build --base-import-paths ./cmd/entrypoint
-
   goreleaser:
     permissions:
       contents: write # To publish the release.
       id-token: write # To federate for the GPG key.
+      packages: write # To publish the entrypoint image
 
     runs-on: ubuntu-latest
-    needs: entrypoint
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - run: git fetch --prune --unshallow
@@ -36,6 +19,12 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: false
+
+      - uses: ko-build/setup-ko@d982fec422852203cfb2053a8ec6ad302280d04d # v0.8
+      - id: entrypoint-build
+        run: |
+          ref=$(ko build --base-import-paths ./cmd/entrypoint)
+          echo "entrypoint_ref=${ref}" >> $GITHUB_OUTPUT
 
       # This is provisioned here: https://github.com/chainguard-dev/secrets/blob/main/terraform-provider-imagetest.tf
       - uses: google-github-actions/auth@a6e2e39c0a0331da29f7fd2c2a20a427e8d3ad1f # v2.1.1
@@ -64,3 +53,4 @@ jobs:
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGETEST_ENTRYPOINT_REF: ${{ steps.entrypoint-build.outputs.entrypoint_ref }}
