@@ -337,6 +337,8 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 					}
 					envs["IMAGES"] = string(imgsResolvedData)
 					envs["IMAGETEST_DRIVER"] = string(data.Driver)
+					envs["IMAGETEST_REGISTRY"] = t.repo.RegistryStr()
+					envs["IMAGETEST_REPO"] = t.repo.String()
 
 					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" || os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
 						envs["IMAGETEST_PAUSE_ON_ERROR"] = "true"
