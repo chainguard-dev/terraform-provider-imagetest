@@ -76,16 +76,6 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	return nil
 }
 
-func (k *driver) getClusterName() string {
-	if k.clusterName != "" {
-		return k.clusterName
-	}
-	uid := "imagetest-" + uuid.New().String()
-	log.Infof("Using random cluster name: %s", uid)
-	k.clusterName = uid
-	return uid
-}
-
 func (k *driver) Setup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
