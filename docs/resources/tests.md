@@ -23,7 +23,9 @@ description: |-
 ### Optional
 
 - `drivers` (Attributes) The resource specific driver configuration. This is merged with the provider scoped drivers configuration. (see [below for nested schema](#nestedatt--drivers))
+- `labels` (Map of String) Metadata to attach to the tests resource. Used for filtering and grouping.
 - `name` (String) The name of the test. If one is not provided, a random name will be generated.
+- `skipped` (Boolean) Whether or not the tests were skipped. This is set to true if the tests were skipped, and false otherwise.
 - `tests` (Attributes List) An ordered list of test suites to run (see [below for nested schema](#nestedatt--tests))
 - `timeout` (String) The maximum amount of time to wait for all tests to complete. This includes the time it takes to start and destroy the driver.
 

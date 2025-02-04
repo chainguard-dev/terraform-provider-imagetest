@@ -14,6 +14,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -45,6 +46,8 @@ type TestsResource struct {
 	repo             name.Repository
 	ropts            []remote.Option
 	entrypointLayers map[string][]v1.Layer
+	includeTests     map[string]string
+	excludeTests     map[string]string
 }
 
 type TestsResourceModel struct {
@@ -55,6 +58,8 @@ type TestsResourceModel struct {
 	Images  TestsImageResource         `tfsdk:"images"`
 	Tests   []TestResourceModel        `tfsdk:"tests"`
 	Timeout types.String               `tfsdk:"timeout"`
+	Labels  map[string]string          `tfsdk:"labels"`
+	Skipped types.Bool                 `tfsdk:"skipped"`
 }
 
 type TestsImageResource map[string]string
@@ -172,6 +177,16 @@ func (t *TestsResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				Computed:    true,
 				Default:     stringdefault.StaticString(TestsResourceDefaultTimeout),
 			},
+			"labels": schema.MapAttribute{
+				Description: "Metadata to attach to the tests resource. Used for filtering and grouping.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
+			"skipped": schema.BoolAttribute{
+				Description: "Whether or not the tests were skipped. This is set to true if the tests were skipped, and false otherwise.",
+				Optional:    true,
+				Computed:    true,
+			},
 		},
 	}
 }
@@ -190,6 +205,8 @@ func (t *TestsResource) Configure(ctx context.Context, req resource.ConfigureReq
 	t.repo = store.repo
 	t.ropts = store.ropts
 	t.entrypointLayers = store.entrypointLayers
+	t.includeTests = store.includeTests
+	t.excludeTests = store.excludeTests
 }
 
 func (t *TestsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -217,6 +234,30 @@ func (t *TestsResource) Update(ctx context.Context, req resource.UpdateRequest, 
 func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds diag.Diagnostics) {
 	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
 
+	// lightly sanitize the name, this likely needs some revision
+	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
+	data.Id = types.StringValue(id)
+
+	l := clog.FromContext(ctx).With(
+		"test_id", id,
+		"driver_name", data.Driver,
+	)
+
+	_skip, reason := skip.Skip(data.Labels, t.includeTests, t.excludeTests)
+	if v := os.Getenv("IMAGETEST_SKIP_ALL"); v != "" {
+		_skip = true
+		reason = "IMAGETEST_SKIP_ALL is set"
+	}
+	data.Skipped = types.BoolValue(_skip)
+
+	if data.Skipped.ValueBool() {
+		return []diag.Diagnostic{
+			diag.NewWarningDiagnostic(
+				fmt.Sprintf("skipping tests [%s]", id),
+				fmt.Sprintf("test is skipped: %s", reason)),
+		}
+	}
+
 	timeout, err := time.ParseDuration(data.Timeout.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse timeout", err.Error())}
@@ -226,15 +267,6 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	defer cancel()
 
 	t.ropts = append(t.ropts, remote.WithContext(ctx))
-
-	// lightly sanitize the name, this likely needs some revision
-	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
-	data.Id = types.StringValue(id)
-
-	l := clog.FromContext(ctx).With(
-		"test_id", id,
-		"driver_name", data.Driver,
-	)
 
 	imgsResolved, err := data.Images.Resolve()
 	if err != nil {
@@ -436,7 +468,7 @@ func (t *TestsResource) maybeTeardown(ctx context.Context, d drivers.Tester, fai
 	}
 
 	if err := d.Teardown(ctx); err != nil {
-		return diag.NewErrorDiagnostic("failed to teardown test driver", err.Error())
+		return diag.NewWarningDiagnostic("failed to teardown test driver", err.Error())
 	}
 
 	return nil
