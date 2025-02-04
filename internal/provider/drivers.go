@@ -8,6 +8,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
+	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -18,11 +19,13 @@ type DriverResourceModel string
 const (
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
+	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
 )
 
 type TestsDriversResourceModel struct {
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
+	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -44,6 +47,9 @@ type K3sInDockerDriverRegistriesMirrorResourceModel struct {
 
 type DockerInDockerDriverResourceModel struct {
 	Image types.String `tfsdk:"image"`
+}
+
+type EKSWithEksctlDriverResourceModel struct {
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -125,6 +131,17 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		}
 
 		return dockerindocker.NewDriver(id, opts...)
+
+	case DriverEKSWithEksctl:
+		/*
+			cfg := drivers.EKSWithEksctl
+			if cfg == nil {
+				cfg = &EKSWithEksctlDriverResourceModel{}
+			}
+			opts = append(opts, ekswitheksctl.WithFoo(cfg.Foo.ValueString()))
+		*/
+
+		return ekswitheksctl.NewDriver(id)
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
@@ -187,6 +204,13 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Description: "The image reference to use for the docker-in-docker driver",
 						Optional:    true,
 					},
+				},
+			},
+			"eks_with_eksctl": schema.SingleNestedAttribute{
+				Description: "The eks_with_eksctl driver",
+				Optional:    true,
+				Attributes:  map[string]schema.Attribute{
+					// TODO: attributes
 				},
 			},
 		},
