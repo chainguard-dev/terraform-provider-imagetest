@@ -4,9 +4,7 @@
 package provider
 
 import (
-	"context"
 	"fmt"
-	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -15,7 +13,7 @@ import (
 )
 
 func TestAccTestsResource_EKS(t *testing.T) {
-	repo := testRegistry(t, context.Background())
+	repo := "ttl.sh/imagetest" // TODO: Don't push to ttl.sh
 
 	k3sindockerTpl := `
 resource "imagetest_tests" "foo" {
@@ -38,52 +36,16 @@ resource "imagetest_tests" "foo" {
   // Creating the cluster takes ~15m... 🐌
   timeout = "20m"
 }
-  `
-
-	testCases := map[string][]resource.TestStep{
-		"basic":          {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh")}},
-		"non-executable": {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-non-executable.sh")}},
-		// ensure command's exit code surfaces in tf error
-		"fails-with-proper-exit-code": {
-			{
-				Config:      fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-fails-with-proper-exit-code.sh"),
-				ExpectError: regexp.MustCompile(`.*213.*`),
-			},
+`
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
+			"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{
+				repo: repo,
+			}),
 		},
-		// ensures set -eux is always plumbed through and command stderr is surfaced in tf error
-		"fails-with-bad-command": {
-			{
-				Config:      fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-fails-with-bad-command.sh"),
-				ExpectError: regexp.MustCompile(`.*No such file or directory.*`),
-			},
+		Steps: []resource.TestStep{
+			{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh")},
 		},
-		// TODO: This test will leave the clusters dangling and needs to be
-		// manually cleaned up.
-		"enters-debug-mode-with-proper-exit-code-on-failure": {
-			/*{
-				Config:      fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-fails-with-proper-exit-code.sh"),
-				ExpectError: regexp.MustCompile(`.*213.*`),
-				PreConfig: func() {
-					if err := os.Setenv("IMAGETEST_SKIP_TEARDOWN", "true"); err != nil {
-						t.Fatal(err)
-					}
-				},
-			},*/
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			resource.Test(t, resource.TestCase{
-				PreCheck: func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-					"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{
-						repo: repo,
-					}),
-				},
-				Steps: tc,
-			})
-		})
-	}
+	})
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/log"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	authv1 "k8s.io/api/authorization/v1"
@@ -20,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
@@ -34,8 +34,10 @@ type driver struct {
 	// - NumNodes (default is 2)
 	// - Region (default is us-west-2)
 
-	name string
-	kcli kubernetes.Interface
+	name        string
+	clusterName string
+	kubeconfig  string
+	kcli        kubernetes.Interface
 }
 
 type DriverOpts func(*driver) error
@@ -67,6 +69,7 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	clog.FromContext(ctx).Infof("eksctl %v", args)
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
 	cmd.Env = os.Environ() // TODO: add more?
+	cmd.Env = append(cmd.Env, "KUBECONFIG="+k.kubeconfig)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("eksctl %v: %v: %s", args, err, out)
@@ -74,22 +77,40 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	return nil
 }
 
-func clusterName(ctx context.Context) string {
+func (k *driver) getClusterName(ctx context.Context) string {
+	if k.clusterName != "" {
+		return k.clusterName
+	}
 	if n, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
 		clog.FromContext(ctx).Infof("Using cluster name from IMAGETEST_EKS_CLUSTER: %s", n)
+		k.clusterName = n
 		return n
 	}
 	uid := "imagetest-" + uuid.New().String()
 	clog.FromContext(ctx).Infof("Using random cluster name: %s", uid)
+	k.clusterName = uid
 	return uid
 }
 
 func (k *driver) Setup(ctx context.Context) error {
-	if err := k.eksctl(ctx, "create", "cluster", "--name", clusterName(ctx)); err != nil {
+	name := k.getClusterName(ctx)
+	cfg, err := os.Create(filepath.Join(os.TempDir(), name))
+	if err != nil {
+		return fmt.Errorf("creating temp dir: %w", err)
+	}
+	log.Infof("Using kubeconfig: %s", cfg.Name())
+	k.kubeconfig = cfg.Name()
+
+	if err := k.eksctl(ctx, "create", "cluster",
+		"--node-private-networking=false",
+		"--vpc-nat-mode=Disable",
+		"--kubeconfig="+k.kubeconfig,
+		"--name="+name,
+	); err != nil {
 		return fmt.Errorf("eksctl create cluster: %w", err)
 	}
 
-	config, err := clientcmd.BuildConfigFromFlags("", filepath.Join(homedir.HomeDir(), ".kube", "config"))
+	config, err := clientcmd.BuildConfigFromFlags("", k.kubeconfig)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -108,7 +129,7 @@ func (k *driver) Teardown(ctx context.Context) error {
 		clog.FromContext(ctx).Info("Skipping EKS teardown due to IMAGETEST_EKS_SKIP_TEARDOWN=true")
 		return nil
 	}
-	if err := k.eksctl(ctx, "delete", "cluster", "--name", clusterName(ctx)); err != nil {
+	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.getClusterName(ctx)); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
 	return nil
