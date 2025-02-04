@@ -34,7 +34,7 @@ resource "imagetest_tests" "foo" {
   ]
 
   // Creating the cluster takes ~15m... 🐌
-  timeout = "20m"
+  timeout = "30m"
 }
 `
 	resource.Test(t, resource.TestCase{
