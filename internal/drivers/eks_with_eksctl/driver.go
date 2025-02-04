@@ -17,6 +17,7 @@ import (
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -75,15 +76,9 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	return nil
 }
 
-func (k *driver) getClusterName(ctx context.Context) string {
-	log := clog.FromContext(ctx)
+func (k *driver) getClusterName() string {
 	if k.clusterName != "" {
 		return k.clusterName
-	}
-	if n, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
-		log.Infof("Using cluster name from IMAGETEST_EKS_CLUSTER: %s", n)
-		k.clusterName = n
-		return n
 	}
 	uid := "imagetest-" + uuid.New().String()
 	log.Infof("Using random cluster name: %s", uid)
@@ -92,26 +87,43 @@ func (k *driver) getClusterName(ctx context.Context) string {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
-	name := k.getClusterName(ctx)
-	cfg, err := os.Create(filepath.Join(os.TempDir(), name))
+	log := clog.FromContext(ctx)
+
+	if n, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
+		log.Infof("Using cluster name from IMAGETEST_EKS_CLUSTER: %s", n)
+		k.clusterName = n
+	} else {
+		uid := "imagetest-" + uuid.New().String()
+		log.Infof("Using random cluster name: %s", uid)
+		k.clusterName = uid
+	}
+
+	cfg, err := os.Create(filepath.Join(os.TempDir(), k.clusterName))
 	if err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)
 	}
 	log.Infof("Using kubeconfig: %s", cfg.Name())
 	k.kubeconfig = cfg.Name()
 
-	if err := k.eksctl(ctx, "create", "cluster",
-		"--node-private-networking=false",
-		"--vpc-nat-mode=Disable",
-		"--kubeconfig="+k.kubeconfig,
-		"--name="+name,
-	); err != nil {
-		return fmt.Errorf("eksctl create cluster: %w", err)
+	if _, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
+		if err := k.eksctl(ctx, "utils", "write-kubeconfig", "--cluster", k.clusterName, "--kubeconfig", k.kubeconfig); err != nil {
+			return fmt.Errorf("eksctl utils write-kubeconfig: %w", err)
+		}
+	} else {
+		if err := k.eksctl(ctx, "create", "cluster",
+			"--node-private-networking=false",
+			"--vpc-nat-mode=Disable",
+			"--kubeconfig="+k.kubeconfig,
+			"--name="+k.clusterName,
+		); err != nil {
+			return fmt.Errorf("eksctl create cluster: %w", err)
+		}
+		log.Infof("Created cluster %s", k.clusterName)
 	}
 
 	config, err := clientcmd.BuildConfigFromFlags("", k.kubeconfig)
 	if err != nil {
-		panic(err.Error())
+		return fmt.Errorf("building kubeconfig: %w", err)
 	}
 
 	kcli, err := kubernetes.NewForConfig(config)
@@ -128,7 +140,7 @@ func (k *driver) Teardown(ctx context.Context) error {
 		clog.FromContext(ctx).Info("Skipping EKS teardown due to IMAGETEST_EKS_SKIP_TEARDOWN=true")
 		return nil
 	}
-	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.getClusterName(ctx)); err != nil {
+	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.clusterName); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
 	return nil
@@ -389,44 +401,47 @@ func (k *driver) preflight(ctx context.Context) error {
 	}
 
 	// Create the namespace
-	ns, err := k.kcli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+	if _, err := k.kcli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: k.namespace,
 		},
-	}, metav1.CreateOptions{})
-	if err != nil {
+	}, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		log.Infof("Namespace %q already exists", k.namespace)
+	} else if err != nil {
 		return fmt.Errorf("failed to create namespace: %w", err)
 	}
 
 	// Create the relevant rbac
-	sa, err := k.kcli.CoreV1().ServiceAccounts(ns.Name).Create(ctx, &corev1.ServiceAccount{
+	if _, err := k.kcli.CoreV1().ServiceAccounts(k.namespace).Create(ctx, &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "imagetest",
-			Namespace: ns.Name,
+			Name:      k.namespace,
+			Namespace: k.namespace,
 		},
-	}, metav1.CreateOptions{})
-	if err != nil {
+	}, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		log.Infof("ServiceAccount %q already exists", k.namespace)
+	} else if err != nil {
 		return fmt.Errorf("failed to create service account: %w", err)
 	}
 
 	// Create the role binding
-	_, err = k.kcli.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
+	if _, err := k.kcli.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "imagetest",
-			Namespace: ns.Name,
+			Name:      k.namespace,
+			Namespace: k.namespace,
 		},
 		Subjects: []rbacv1.Subject{{
 			Kind:      rbacv1.ServiceAccountKind,
-			Name:      sa.Name,
-			Namespace: sa.Namespace,
+			Name:      k.namespace,
+			Namespace: k.namespace,
 		}},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: rbacv1.GroupName,
 			Kind:     "ClusterRole",
 			Name:     "cluster-admin",
 		},
-	}, metav1.CreateOptions{})
-	if err != nil {
+	}, metav1.CreateOptions{}); k8serrors.IsAlreadyExists(err) {
+		log.Infof("ClusterRoleBinding %s already exists", "imagetest")
+	} else if err != nil {
 		return fmt.Errorf("failed to create role binding: %w", err)
 	}
 

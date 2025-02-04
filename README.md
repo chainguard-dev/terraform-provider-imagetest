@@ -44,3 +44,7 @@ eksctl delete cluster --name=imagetest-<uid>
 ```
 
 You can also find the cluster in the AWS Console: https://us-west-2.console.aws.amazon.com/eks/home
+
+To reuse the cluster instead of creating a new one each time, you can run the tests with `IMAGETEST_EKS_SKIP_TEARDOWN=true`.
+
+Then, the next time you run the test, find the cluster that the last test created, and add `IMAGETEST_EKS_CLUSTER=imagetest-<uid>` to reuse the cluster.
