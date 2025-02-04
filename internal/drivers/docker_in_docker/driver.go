@@ -34,7 +34,7 @@ type driver struct {
 
 func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 	d := &driver{
-		ImageRef: name.MustParseReference("docker:dind"),
+		ImageRef: name.MustParseReference("cgr.dev/chainguard/docker-dind:latest"),
 		name:     n,
 		stack:    harness.NewStack(),
 		ropts: []remote.Option{

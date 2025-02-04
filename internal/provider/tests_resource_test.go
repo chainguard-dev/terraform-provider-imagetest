@@ -86,3 +86,76 @@ resource "imagetest_tests" "foo" {
 		})
 	}
 }
+
+func TestAccTestsResource_skips(t *testing.T) {
+	repo := testRegistry(t, context.Background())
+	t.Logf("serving ephemeral test registry at %s", repo)
+
+	tpl := `
+provider "imagetest" {
+  test_execution = {
+    include_by_label = %[3]s
+    exclude_by_label = %[4]s
+  }
+}
+
+resource "imagetest_tests" "foo" {
+  name   = "foo"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:98fa8044785ff59248ec9e5747bff259c6fe4b526ebb77d95d8a98ad958847dd"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev@sha256:1d8c1f0c437628aafa1bca52c41ff310aea449423cce9b2feae2767ac53c336f"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "/imagetest/%[1]s"
+    }
+  ]
+
+  labels = %[2]s
+
+  // Something before GHA timeouts
+  timeout = "5m"
+}
+  `
+
+	testCases := map[string][]resource.TestStep{
+		"skipped-via-include": {
+			{
+				Config: fmt.Sprintf(tpl, "docker-in-docker-fails.sh", `{"foo":"bar"}`, `{"foo":"baz"}`, `{}`),
+				Check:  resource.TestCheckResourceAttr("imagetest_tests.foo", "skipped", "true"),
+			},
+		},
+		"skipped-via-exclude": {
+			{
+				Config: fmt.Sprintf(tpl, "docker-in-docker-fails.sh", `{"foo":"bar"}`, `{}`, `{"foo":"bar"}`),
+				Check:  resource.TestCheckResourceAttr("imagetest_tests.foo", "skipped", "true"),
+			},
+		},
+		"included-via-label": {
+			{
+				Config: fmt.Sprintf(tpl, "docker-in-docker-basic.sh", `{"foo":"bar"}`, `{"foo":"bar"}`, `{}`),
+				Check:  resource.TestCheckResourceAttr("imagetest_tests.foo", "skipped", "false"),
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resource.Test(t, resource.TestCase{
+				PreCheck: func() { testAccPreCheck(t) },
+				ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
+					"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{
+						repo: repo,
+					}),
+				},
+				Steps: tc,
+			})
+		})
+	}
+}
