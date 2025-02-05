@@ -29,7 +29,6 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
-	Log           *ProviderLoggerModel           `tfsdk:"log"`
 	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
 	TestExecution *ProviderTestExecutionModel    `tfsdk:"test_execution"`
 	Repo          types.String                   `tfsdk:"repo"`
@@ -63,15 +62,6 @@ type ProviderHarnessDockerModel struct {
 	Envs           *HarnessContainerEnvs                  `tfsdk:"envs"`
 	Mounts         []ContainerMountModel                  `tfsdk:"mounts"`
 	Registries     map[string]DockerRegistryResourceModel `tfsdk:"registries"`
-}
-
-type ProviderLoggerModel struct {
-	File *ProviderLoggerFileModel `tfsdk:"file"`
-}
-
-type ProviderLoggerFileModel struct {
-	Directory types.String `tfsdk:"directory"`
-	Format    types.String `tfsdk:"format"`
 }
 
 type ProviderTestExecutionModel struct {
@@ -116,25 +106,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 						Description:         "Skips the teardown of test harnesses to allow debugging test failures",
 						MarkdownDescription: "Skips the teardown of test harnesses to allow debugging test failures. Harness teardown can also be skipped by setting the environment variable `IMAGETEST_SKIP_TEARDOWN` to `true`",
 						Optional:            true,
-					},
-				},
-			},
-			"log": schema.SingleNestedAttribute{
-				Optional: true,
-				Attributes: map[string]schema.Attribute{
-					"file": schema.SingleNestedAttribute{
-						Description: "Output logs to a file.",
-						Optional:    true,
-						Attributes: map[string]schema.Attribute{
-							"format": schema.StringAttribute{
-								Description: "The format of the log entries (text|json).",
-								Optional:    true,
-							},
-							"directory": schema.StringAttribute{
-								Description: "The directory to write the log file to.",
-								Optional:    true,
-							},
-						},
 					},
 				},
 			},

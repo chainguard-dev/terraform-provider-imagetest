@@ -12,7 +12,6 @@ import (
 	log2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	slogmulti "github.com/samber/slog-multi"
 )
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
@@ -56,10 +55,7 @@ func main() {
 
 // setupLog sets up the default logging configuration.
 func setupLog(ctx context.Context) context.Context {
-	logger := clog.New(slogmulti.Fanout(
-		&log2.TFHandler{},
-	))
-	ctx = clog.WithLogger(ctx, logger)
-	slog.SetDefault(&logger.Logger)
-	return ctx
+	slog.SetDefault(slog.New(&log2.TFHandler{}))
+	log := clog.New(slog.Default().Handler())
+	return clog.WithLogger(ctx, log)
 }

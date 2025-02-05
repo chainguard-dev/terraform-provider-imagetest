@@ -4,23 +4,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"os"
-	"path"
 	"sync"
 
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
-	ilog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/google"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	slogmulti "github.com/samber/slog-multi"
 )
 
 // ProviderStore manages the global runtime state of the provider. The provider
@@ -101,44 +97,6 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel, withs ...any) (context.Context, error) {
 	logger := clog.FromContext(ctx).With(withs...)
 	ctx = clog.WithLogger(ctx, logger)
-
-	plog := s.providerResourceData.Log
-
-	if plog != nil && plog.File != nil {
-		ihash, err := s.Encode(inv.Seed.ValueString())
-		if err != nil {
-			return ctx, fmt.Errorf("failed to encode inventory hash: %w", err)
-		}
-		logpath := fmt.Sprintf("%s.log", ihash)
-
-		if dir := plog.File.Directory.ValueString(); dir != "" {
-			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-				return ctx, fmt.Errorf("failed to create log directory: %w", err)
-			}
-			logpath = path.Join(dir, logpath)
-		}
-
-		f, err := os.OpenFile(logpath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			return ctx, fmt.Errorf("failed to create logfile: %w", err)
-		}
-
-		var fhandler slog.Handler
-		switch plog.File.Format.ValueString() {
-		case "text":
-			fhandler = slog.NewTextHandler(f, &slog.HandlerOptions{})
-		default:
-			fhandler = slog.NewJSONHandler(f, &slog.HandlerOptions{})
-		}
-
-		logger := clog.New(slogmulti.Fanout(
-			&ilog.TFHandler{},
-			fhandler,
-		)).With("inventory", ihash)
-
-		ctx = clog.WithLogger(ctx, logger)
-	}
-
 	return ctx, nil
 }
 
