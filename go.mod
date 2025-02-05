@@ -5,6 +5,7 @@ go 1.23.4
 require (
 	chainguard.dev/apko v0.24.0
 	github.com/chainguard-dev/clog v1.6.1
+	github.com/charmbracelet/log v0.4.0
 	github.com/docker/cli v27.5.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.3
@@ -18,7 +19,7 @@ require (
 	github.com/moby/docker-image-spec v1.3.1
 	github.com/samber/slog-multi v1.3.3
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sync v0.10.0
+	golang.org/x/sync v0.11.0
 	k8s.io/api v0.32.1
 	k8s.io/apimachinery v0.32.1
 	k8s.io/client-go v0.32.1
@@ -44,7 +45,6 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.7.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/lipgloss v0.10.0 // indirect
-	github.com/charmbracelet/log v0.4.0 // indirect
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.16.3 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20231011164504-785e29786b46 // indirect
