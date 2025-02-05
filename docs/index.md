@@ -49,7 +49,6 @@ provider "imagetest" {
 ### Optional
 
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
-- `log` (Attributes) (see [below for nested schema](#nestedatt--log))
 - `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
 - `sandbox` (Attributes) The optional configuration for all test sandboxes. (see [below for nested schema](#nestedatt--sandbox))
 - `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
@@ -171,23 +170,6 @@ Optional:
 - `key_file` (String)
 
 
-
-
-
-<a id="nestedatt--log"></a>
-### Nested Schema for `log`
-
-Optional:
-
-- `file` (Attributes) Output logs to a file. (see [below for nested schema](#nestedatt--log--file))
-
-<a id="nestedatt--log--file"></a>
-### Nested Schema for `log.file`
-
-Optional:
-
-- `directory` (String) The directory to write the log file to.
-- `format` (String) The format of the log entries (text|json).
 
 
 

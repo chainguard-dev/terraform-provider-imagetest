@@ -23,11 +23,14 @@ func (h *TFHandler) Enabled(_ context.Context, _ slog.Level) bool {
 
 // Handle implements slog.Handler.
 func (h *TFHandler) Handle(ctx context.Context, record slog.Record) error {
-	ctx = tflog.NewSubsystem(
-		ctx,
-		subsystem,
-		tflog.WithAdditionalLocationOffset(3),
-		tflog.WithLevelFromEnv("TF_LOG_PROVIDER", subsystem))
+	// This is a bit of a hack, but it's the only way to get the correct
+	// source location for the log message.
+	//
+	// This creates a new tflog subsystem for logging, with the location
+	// offset set to 4, which is the number of frames between this function
+	// and the actual logging call site. Then we use this subsystem below to log
+	// the message to TF's logger.
+	ctx = tflog.NewSubsystem(ctx, subsystem, tflog.WithAdditionalLocationOffset(4))
 
 	attrs := make(map[string]any)
 	for _, attr := range h.attrs {
