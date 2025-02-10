@@ -2,6 +2,7 @@ package dockerindocker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -140,6 +141,10 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 	r, w := io.Pipe()
 	defer w.Close()
 
+	// collect container output for better error messages
+	stw := bytes.NewBuffer(nil)
+	mw := io.MultiWriter(w, stw)
+
 	go func() {
 		defer r.Close()
 		scanner := bufio.NewScanner(r)
@@ -168,10 +173,10 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		Contents:   content,
-		Logger:     w,
+		Logger:     mw,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
 	}
 
 	if err := d.stack.Add(func(ctx context.Context) error {

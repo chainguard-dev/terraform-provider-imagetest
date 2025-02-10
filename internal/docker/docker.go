@@ -144,8 +144,8 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 
 					if inspect.State != nil && inspect.State.Health != nil {
 						if inspect.State.Health.Status == "unhealthy" {
-							status := inspect.State.Health.Log[len(inspect.State.Health.Log)-1].Output
-							unhealthyCh <- fmt.Errorf("container became unhealthy, last status: %s", status)
+							code := inspect.State.Health.Log[len(inspect.State.Health.Log)-1].ExitCode
+							unhealthyCh <- fmt.Errorf("container became unhealthy with exit code: %d", code)
 							return
 						}
 					}
@@ -164,11 +164,11 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 
 	case status := <-statusCh:
 		if status.Error != nil {
-			return "", fmt.Errorf("container exited with error: %s", status.Error.Message)
+			return "", fmt.Errorf("container exited with error (%d): %s", status.StatusCode, status.Error.Message)
 		}
 
 		if status.StatusCode != 0 {
-			return "", fmt.Errorf("container exited with non-zero status code: %d", status.StatusCode)
+			return "", fmt.Errorf("container exited with non-zero exit code: %v", status.StatusCode)
 		}
 
 	case err := <-unhealthyCh:
