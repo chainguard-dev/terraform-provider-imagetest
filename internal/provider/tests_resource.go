@@ -90,13 +90,12 @@ func (t TestsImageResource) Resolve() (map[string]TestsImagesParsed, error) {
 }
 
 type TestResourceModel struct {
-	Name         types.String               `tfsdk:"name"`
-	Image        types.String               `tfsdk:"image"`
-	Content      []TestContentResourceModel `tfsdk:"content"`
-	Envs         map[string]string          `tfsdk:"envs"`
-	Cmd          types.String               `tfsdk:"cmd"`
-	Timeout      types.String               `tfsdk:"timeout"`
-	RepoOverride types.String               `tfsdk:"repo"`
+	Name    types.String               `tfsdk:"name"`
+	Image   types.String               `tfsdk:"image"`
+	Content []TestContentResourceModel `tfsdk:"content"`
+	Envs    map[string]string          `tfsdk:"envs"`
+	Cmd     types.String               `tfsdk:"cmd"`
+	Timeout types.String               `tfsdk:"timeout"`
 }
 
 type TestContentResourceModel struct {
