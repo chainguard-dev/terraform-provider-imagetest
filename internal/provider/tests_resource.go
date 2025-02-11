@@ -51,15 +51,16 @@ type TestsResource struct {
 }
 
 type TestsResourceModel struct {
-	Id      types.String               `tfsdk:"id"`
-	Name    types.String               `tfsdk:"name"`
-	Driver  DriverResourceModel        `tfsdk:"driver"`
-	Drivers *TestsDriversResourceModel `tfsdk:"drivers"`
-	Images  TestsImageResource         `tfsdk:"images"`
-	Tests   []TestResourceModel        `tfsdk:"tests"`
-	Timeout types.String               `tfsdk:"timeout"`
-	Labels  map[string]string          `tfsdk:"labels"`
-	Skipped types.Bool                 `tfsdk:"skipped"`
+	Id           types.String               `tfsdk:"id"`
+	Name         types.String               `tfsdk:"name"`
+	Driver       DriverResourceModel        `tfsdk:"driver"`
+	Drivers      *TestsDriversResourceModel `tfsdk:"drivers"`
+	Images       TestsImageResource         `tfsdk:"images"`
+	Tests        []TestResourceModel        `tfsdk:"tests"`
+	Timeout      types.String               `tfsdk:"timeout"`
+	Labels       map[string]string          `tfsdk:"labels"`
+	Skipped      types.Bool                 `tfsdk:"skipped"`
+	RepoOverride types.String               `tfsdk:"repo"`
 }
 
 type TestsImageResource map[string]string
@@ -119,6 +120,10 @@ func (t *TestsResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 			"driver": schema.StringAttribute{
 				Description: "The driver to use for the test suite. Only one driver can be used at a time.",
 				Required:    true,
+			},
+			"repo": schema.StringAttribute{
+				Optional:    true,
+				Description: "The target repository the provider will use for pushing/pulling dynamically built images, overriding provider config.",
 			},
 			"drivers": DriverResourceSchema(ctx),
 			"images": schema.MapAttribute{
@@ -284,7 +289,17 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("invalid entrypoint image provided", "")}
 	}
 
-	trepo, err := name.NewRepository(fmt.Sprintf("%s/%s", t.repo.String(), "imagetest"))
+	repo := t.repo
+	if data.RepoOverride.ValueString() != "" {
+		l.InfoContextf(ctx, "using repository override %q", data.RepoOverride.String())
+		var err error
+		repo, err = name.NewRepository(data.RepoOverride.ValueString())
+		if err != nil {
+			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse repo override", err.Error())}
+		}
+	}
+
+	trepo, err := name.NewRepository(fmt.Sprintf("%s/%s", repo.String(), "imagetest"))
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create target repository", err.Error())}
 	}
@@ -369,8 +384,8 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 					}
 					envs["IMAGES"] = string(imgsResolvedData)
 					envs["IMAGETEST_DRIVER"] = string(data.Driver)
-					envs["IMAGETEST_REGISTRY"] = t.repo.RegistryStr()
-					envs["IMAGETEST_REPO"] = t.repo.String()
+					envs["IMAGETEST_REGISTRY"] = trepo.RegistryStr()
+					envs["IMAGETEST_REPO"] = trepo.String()
 
 					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" || os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
 						envs["IMAGETEST_PAUSE_ON_ERROR"] = "true"
