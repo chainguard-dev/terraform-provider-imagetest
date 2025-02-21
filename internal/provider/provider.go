@@ -32,6 +32,7 @@ type ImageTestProviderModel struct {
 	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
 	TestExecution *ProviderTestExecutionModel    `tfsdk:"test_execution"`
 	Repo          types.String                   `tfsdk:"repo"`
+	ExtraRepos    []string                       `tfsdk:"extra_repos"`
 	Sandbox       *ProviderSandboxModel          `tfsdk:"sandbox"`
 }
 
@@ -83,6 +84,11 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 			"repo": schema.StringAttribute{
 				Optional:    true,
 				Description: "The target repository the provider will use for pushing/pulling dynamically built images.",
+			},
+			"extra_repos": schema.ListAttribute{
+				Optional:    true,
+				ElementType: types.StringType,
+				Description: "An optional list of extra oci registries to wire in auth credentials for.",
 			},
 			"test_execution": schema.SingleNestedAttribute{
 				Optional: true,
@@ -273,7 +279,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					},
 				},
 			},
-			// "drivers": DriverProviderSchema(ctx),
 		},
 	}
 }
@@ -331,6 +336,15 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	if err != nil {
 		resp.Diagnostics.AddError("failed to create provider store", err.Error())
 		return
+	}
+
+	for _, repo := range data.ExtraRepos {
+		r, err := name.NewRepository(repo)
+		if err != nil {
+			resp.Diagnostics.AddError("invalid extra repository", err.Error())
+			return
+		}
+		store.extraRepos = append(store.extraRepos, r)
 	}
 
 	store.skipAll = data.TestExecution.SkipAll.ValueBool()
