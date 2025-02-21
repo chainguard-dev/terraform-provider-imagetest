@@ -48,6 +48,7 @@ provider "imagetest" {
 
 ### Optional
 
+- `extra_repos` (List of String) An optional list of extra oci registries to wire in auth credentials for.
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
 - `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
 - `sandbox` (Attributes) The optional configuration for all test sandboxes. (see [below for nested schema](#nestedatt--sandbox))

@@ -49,8 +49,7 @@ type DockerInDockerDriverResourceModel struct {
 	Image types.String `tfsdk:"image"`
 }
 
-type EKSWithEksctlDriverResourceModel struct {
-}
+type EKSWithEksctlDriverResourceModel struct{}
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
 	if drivers == nil {
@@ -66,6 +65,10 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 
 		opts := []k3sindocker.DriverOpts{
 			k3sindocker.WithRegistry(t.repo.RegistryStr()),
+		}
+
+		for _, repo := range t.extraRepos {
+			opts = append(opts, k3sindocker.WithRegistry(repo.RegistryStr()))
 		}
 
 		tf, err := os.CreateTemp("", "imagetest-k3s-in-docker")

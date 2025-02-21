@@ -43,7 +43,8 @@ type TestsResource struct {
 	framework.WithNoOpDelete
 	framework.WithNoOpRead
 
-	repo             name.Repository
+	repo             name.Repository   // The primary target_repository used for publishing test sandboxes
+	extraRepos       []name.Repository // Extra repositories to wire auth creds into drivers
 	ropts            []remote.Option
 	entrypointLayers map[string][]v1.Layer
 	includeTests     map[string]string
@@ -208,6 +209,7 @@ func (t *TestsResource) Configure(ctx context.Context, req resource.ConfigureReq
 	}
 
 	t.repo = store.repo
+	t.extraRepos = store.extraRepos
 	t.ropts = store.ropts
 	t.entrypointLayers = store.entrypointLayers
 	t.includeTests = store.includeTests

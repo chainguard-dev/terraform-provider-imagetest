@@ -38,6 +38,7 @@ type ProviderStore struct {
 	// model
 	providerResourceData ImageTestProviderModel
 	repo                 name.Repository
+	extraRepos           []name.Repository
 	ropts                []remote.Option
 	entrypointLayers     map[string][]v1.Layer
 }
