@@ -16,7 +16,10 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
+	corev1apply "k8s.io/client-go/applyconfigurations/core/v1"
+	rbacv1apply "k8s.io/client-go/applyconfigurations/rbac/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
 )
 
 type opts struct {
@@ -190,48 +193,41 @@ func (o *opts) preflight(ctx context.Context) error {
 		return fmt.Errorf("user does not have permission to create pods in the %s namespace", o.Namespace)
 	}
 
-	// Create the namespace
-	ns, err := o.client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: o.Namespace,
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create namespace: %w", err)
+	nsa := corev1apply.Namespace(o.Namespace).WithName(o.Namespace)
+	if _, err := o.client.CoreV1().Namespaces().Apply(ctx, nsa, metav1.ApplyOptions{
+		FieldManager: "imagetest",
+		Force:        true,
+	}); err != nil {
+		return fmt.Errorf("failed to apply namespace: %w", err)
 	}
 
 	// Create the relevant rbac
-	sa, err := o.client.CoreV1().ServiceAccounts(ns.Name).Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      o.Name,
-			Namespace: ns.Name,
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create service account: %w", err)
+	saa := corev1apply.ServiceAccount(o.Name, o.Namespace).WithName(o.Name)
+	if _, err := o.client.CoreV1().ServiceAccounts(o.Namespace).Apply(ctx, saa, metav1.ApplyOptions{
+		FieldManager: "imagetest",
+		Force:        true,
+	}); err != nil {
+		return fmt.Errorf("failed to apply service account: %w", err)
 	}
 
 	// Create the role binding
-	_, err = o.client.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      o.Name,
-			Namespace: ns.Name,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      sa.Name,
-				Namespace: sa.Namespace,
-			},
-		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: rbacv1.GroupName,
-			Kind:     "ClusterRole",
-			Name:     "cluster-admin",
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create role binding: %w", err)
+	crba := rbacv1apply.ClusterRoleBinding(o.Name).
+		WithName(o.Name).
+		WithSubjects(&rbacv1apply.SubjectApplyConfiguration{
+			Kind:      ptr.To(rbacv1.ServiceAccountKind),
+			Name:      ptr.To(o.Name),
+			Namespace: ptr.To(o.Namespace),
+		}).
+		WithRoleRef(&rbacv1apply.RoleRefApplyConfiguration{
+			APIGroup: ptr.To(rbacv1.GroupName),
+			Kind:     ptr.To("ClusterRole"),
+			Name:     ptr.To("cluster-admin"),
+		})
+	if _, err := o.client.RbacV1().ClusterRoleBindings().Apply(ctx, crba, metav1.ApplyOptions{
+		FieldManager: "imagetest",
+		Force:        true,
+	}); err != nil {
+		return fmt.Errorf("failed to apply cluster role binding: %w", err)
 	}
 
 	return nil
