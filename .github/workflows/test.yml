@@ -84,6 +84,15 @@ jobs:
         with:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
+
+      - name: configure docker daemon
+        run: |
+          # Use a larger cidr range with a smaller subnet mask to avoid ip
+          # exhaustion when creating harness networks
+          cat /etc/docker/daemon.json | jq '. | .+{"default-address-pools": [{"base":"10.0.0.0/8","size":24}]}' | sudo tee /etc/docker/daemon.json
+          cat /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - run: go mod download
       - env:
           TF_ACC: "1"
