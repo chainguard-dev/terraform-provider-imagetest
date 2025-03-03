@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"testing"
 
@@ -81,17 +80,17 @@ resource "imagetest_tests" "foo" {
 		},
 		// TODO: This test will leave the clusters dangling and needs to be
 		// manually cleaned up.
-		"k3sindocker-enters-debug-mode-with-proper-exit-code-on-failure": {
-			{
-				Config:      fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-fails-with-proper-exit-code.sh"),
-				ExpectError: regexp.MustCompile(`.*213.*`),
-				PreConfig: func() {
-					if err := os.Setenv("IMAGETEST_SKIP_TEARDOWN", "true"); err != nil {
-						t.Fatal(err)
-					}
-				},
-			},
-		},
+		// "k3sindocker-enters-debug-mode-with-proper-exit-code-on-failure": {
+		// 	{
+		// 		Config:      fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-fails-with-proper-exit-code.sh"),
+		// 		ExpectError: regexp.MustCompile(`.*213.*`),
+		// 		PreConfig: func() {
+		// 			if err := os.Setenv("IMAGETEST_SKIP_TEARDOWN", "true"); err != nil {
+		// 				t.Fatal(err)
+		// 			}
+		// 		},
+		// 	},
+		// },
 
 		"dockerindocker-basic": {{Config: fmt.Sprintf(dockerindockerTpl, "docker-in-docker-basic.sh")}},
 		"dockerindocker-fails-message": {
