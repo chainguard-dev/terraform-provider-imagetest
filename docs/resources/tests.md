@@ -41,6 +41,7 @@ Optional:
 
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
+- `existing_cluster` (Attributes) The existing_cluster driver (see [below for nested schema](#nestedatt--drivers--existing_cluster))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
 
 <a id="nestedatt--drivers--docker_in_docker"></a>
@@ -55,6 +56,10 @@ Optional:
 ### Nested Schema for `drivers.eks_with_eksctl`
 
 
+<a id="nestedatt--drivers--existing_cluster"></a>
+### Nested Schema for `drivers.existing_cluster`
+
+
 <a id="nestedatt--drivers--k3s_in_docker"></a>
 ### Nested Schema for `drivers.k3s_in_docker`
 
@@ -65,6 +70,7 @@ Optional:
 - `metrics_server` (Boolean) Enable the metrics server
 - `network_policy` (Boolean) Enable the network policy
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--registries))
+- `snapshotter` (String) The containerd snapshotter to use
 - `traefik` (Boolean) Enable the traefik ingress controller
 
 <a id="nestedatt--drivers--k3s_in_docker--registries"></a>

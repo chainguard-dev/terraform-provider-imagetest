@@ -10,6 +10,7 @@ import (
 
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/google/go-containerregistry/pkg/name"
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,7 @@ type opts struct {
 	ExtraLabels      map[string]string
 
 	client kubernetes.Interface
+	stack  *harness.Stack
 }
 
 type RunOpts func(*opts) error
@@ -51,6 +53,7 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 		},
 
 		client: client,
+		stack:  harness.NewStack(),
 	}
 
 	for _, opt := range options {
@@ -67,6 +70,12 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 		Create(ctx, o.pod(), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create pod: %w", err)
+	}
+
+	if err := o.stack.Add(func(ctx context.Context) error {
+		return o.client.CoreV1().Pods(o.Namespace).Delete(ctx, pobj.Name, metav1.DeleteOptions{})
+	}); err != nil {
+		return fmt.Errorf("failed to add pod teardown to stack: %w", err)
 	}
 
 	plog := clog.FromContext(ctx).With("pod_name", pobj.Name, "pod_namespace", pobj.Namespace)
@@ -201,6 +210,12 @@ func (o *opts) preflight(ctx context.Context) error {
 		return fmt.Errorf("failed to apply namespace: %w", err)
 	}
 
+	if err := o.stack.Add(func(ctx context.Context) error {
+		return o.client.CoreV1().Namespaces().Delete(ctx, o.Namespace, metav1.DeleteOptions{})
+	}); err != nil {
+		return fmt.Errorf("failed to add namespace teardown to stack: %w", err)
+	}
+
 	// Create the relevant rbac
 	saa := corev1apply.ServiceAccount(o.Name, o.Namespace).WithName(o.Name)
 	if _, err := o.client.CoreV1().ServiceAccounts(o.Namespace).Apply(ctx, saa, metav1.ApplyOptions{
@@ -208,6 +223,12 @@ func (o *opts) preflight(ctx context.Context) error {
 		Force:        true,
 	}); err != nil {
 		return fmt.Errorf("failed to apply service account: %w", err)
+	}
+
+	if err := o.stack.Add(func(ctx context.Context) error {
+		return o.client.CoreV1().ServiceAccounts(o.Namespace).Delete(ctx, o.Name, metav1.DeleteOptions{})
+	}); err != nil {
+		return fmt.Errorf("failed to add service account teardown to stack: %w", err)
 	}
 
 	// Create the role binding
@@ -228,6 +249,12 @@ func (o *opts) preflight(ctx context.Context) error {
 		Force:        true,
 	}); err != nil {
 		return fmt.Errorf("failed to apply cluster role binding: %w", err)
+	}
+
+	if err := o.stack.Add(func(ctx context.Context) error {
+		return o.client.RbacV1().ClusterRoleBindings().Delete(ctx, o.Name, metav1.DeleteOptions{})
+	}); err != nil {
+		return fmt.Errorf("failed to add cluster role binding teardown to stack: %w", err)
 	}
 
 	return nil

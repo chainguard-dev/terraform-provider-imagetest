@@ -424,7 +424,18 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		trefs = append(trefs, tref)
 	}
 
-	dr, err := t.LoadDriver(ctx, data.Drivers, data.Driver, data.Id.ValueString())
+	driver := data.Driver
+	if os.Getenv("IMAGETEST_EXISTING_CLUSTER") != "" {
+		driver = DriverExistingCluster
+
+		// its mega ugly, but existing-cluster drivers need a lock for the lifetime
+		// of each individual resource to prevent concurrent test resources from
+		// stepping all over each other
+		ecLock.Lock()
+		defer ecLock.Unlock()
+	}
+
+	dr, err := t.LoadDriver(ctx, data.Drivers, driver, data.Id.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to load driver", err.Error())}
 	}

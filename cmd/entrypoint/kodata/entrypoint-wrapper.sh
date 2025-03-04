@@ -17,7 +17,7 @@ error() {
 usage() {
   error "Usage: $0 <test-script-path>"
   error "Environment variables:"
-  error "  IMAGETEST_DRIVER: Type of test environment (docker_in_docker, k3s_in_docker, eks_with_eksctl)"
+  error "  IMAGETEST_DRIVER: Type of test environment (docker_in_docker, k3s_in_docker, eks_with_eksctl, existing_cluster)"
   exit 1
 }
 
@@ -132,6 +132,27 @@ init_eks_with_eksctl() {
   exec "$cmd"
 }
 
+# Initialize and manage an existing cluster environment.
+# Arguments:
+#   $1: Path to the test script (already validated)
+init_existing_cluster() {
+  cmd="$1"
+
+  # Ensure required environment variables are set
+  if [ -z "${POD_NAME-}" ] || [ -z "${POD_NAMESPACE-}" ]; then
+    error "POD_NAME and POD_NAMESPACE environment variables must be set"
+    exit 1
+  fi
+
+  info "Waiting for pod ${POD_NAME} to be ready..."
+  if ! kubectl wait --for=condition=Ready=true pod/"${POD_NAME}" -n "${POD_NAMESPACE}" --timeout=60s; then
+    error "Pod ${POD_NAME} failed to become ready"
+    exit 1
+  fi
+
+  exec "$cmd"
+}
+
 # Validate command-line arguments
 if [ $# -ne 1 ]; then
   usage
@@ -158,6 +179,9 @@ k3s_in_docker)
   ;;
 eks_with_eksctl)
   init_eks_with_eksctl "$cmd"
+  ;;
+existing_cluster)
+  init_existing_cluster "$cmd"
   ;;
 *)
   error "Unknown driver '$IMAGETEST_DRIVER'"

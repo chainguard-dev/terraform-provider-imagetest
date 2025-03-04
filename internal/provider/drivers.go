@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
+	existingcluster "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/existing_cluster"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -17,15 +19,17 @@ import (
 type DriverResourceModel string
 
 const (
-	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
-	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
-	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
+	DriverK3sInDocker     DriverResourceModel = "k3s_in_docker"
+	DriverDockerInDocker  DriverResourceModel = "docker_in_docker"
+	DriverEKSWithEksctl   DriverResourceModel = "eks_with_eksctl"
+	DriverExistingCluster DriverResourceModel = "existing_cluster"
 )
 
 type TestsDriversResourceModel struct {
-	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
-	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
-	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
+	K3sInDocker     *K3sInDockerDriverResourceModel     `tfsdk:"k3s_in_docker"`
+	DockerInDocker  *DockerInDockerDriverResourceModel  `tfsdk:"docker_in_docker"`
+	EKSWithEksctl   *EKSWithEksctlDriverResourceModel   `tfsdk:"eks_with_eksctl"`
+	ExistingCluster *ExistingClusterDriverResourceModel `tfsdk:"existing_cluster"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -49,6 +53,8 @@ type K3sInDockerDriverRegistriesMirrorResourceModel struct {
 type DockerInDockerDriverResourceModel struct {
 	Image types.String `tfsdk:"image"`
 }
+
+type ExistingClusterDriverResourceModel struct{}
 
 type EKSWithEksctlDriverResourceModel struct{}
 
@@ -155,6 +161,8 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		*/
 
 		return ekswitheksctl.NewDriver(id)
+	case DriverExistingCluster:
+		return existingcluster.NewDriver(id)
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
@@ -207,6 +215,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 							},
 						},
 					},
+					"snapshotter": schema.StringAttribute{
+						Description: "The containerd snapshotter to use",
+						Optional:    true,
+					},
 				},
 			},
 			"docker_in_docker": schema.SingleNestedAttribute{
@@ -226,6 +238,13 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 					// TODO: attributes
 				},
 			},
+			"existing_cluster": schema.SingleNestedAttribute{
+				Description: "The existing_cluster driver",
+				Optional:    true,
+				Attributes:  map[string]schema.Attribute{},
+			},
 		},
 	}
 }
+
+var ecLock sync.Mutex
