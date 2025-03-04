@@ -112,3 +112,16 @@ func WithRegistryMirror(registry string, endpoints ...string) DriverOpts {
 		return nil
 	}
 }
+
+func WithPostStartHook(hook string) DriverOpts {
+	return func(k *driver) error {
+		if k.Hooks == nil {
+			k.Hooks = &K3sHooks{}
+		}
+		if k.Hooks.PostStart == nil {
+			k.Hooks.PostStart = make([]string, 0)
+		}
+		k.Hooks.PostStart = append(k.Hooks.PostStart, hook)
+		return nil
+	}
+}

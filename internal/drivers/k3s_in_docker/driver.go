@@ -19,7 +19,10 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -34,7 +37,8 @@ type driver struct {
 	NetworkPolicy bool           // Toggles whether the default k3s network policy controller is enabled
 	Snapshotter   string         // The containerd snapshotter to use
 	Registries    map[string]*K3sRegistryConfig
-	Namespace     string // The namespace to use for the test pods
+	Namespace     string    // The namespace to use for the test pods
+	Hooks         *K3sHooks // Run commands at various lifecycle events
 
 	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host
 
@@ -56,6 +60,10 @@ type K3sRegistryAuthConfig struct {
 
 type K3sRegistryMirrorConfig struct {
 	Endpoints []string
+}
+
+type K3sHooks struct {
+	PostStart []string
 }
 
 func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
@@ -252,6 +260,20 @@ configs:
 		}
 	}
 
+	if err := k.waitReady(ctx); err != nil {
+		return fmt.Errorf("waiting for k3s to be ready: %w", err)
+	}
+
+	if k.Hooks != nil {
+		for _, hook := range k.Hooks.PostStart {
+			if err := resp.Run(ctx, harness.Command{
+				Args: hook,
+			}); err != nil {
+				return fmt.Errorf("running post start hook: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -266,4 +288,49 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) error {
 			"IMAGETEST_DRIVER": "k3s_in_docker",
 		}),
 	)
+}
+
+// waitReady blocks until the k3s cluster is "ready". there are many
+// definitions of "ready". this one specifically waits for the api server to
+// exist, AND for the "default" serviceaccount to exist, which is typically the
+// bare requirements for scheduling a workload are. We don't want to wait for
+// "kube-system" to be ready, because that typically takes too long, and isn't
+// actually required to start scheduling pods.
+func (k *driver) waitReady(ctx context.Context) error {
+	if _, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{}); err == nil {
+		// sa already exists, we're good to go
+		return nil
+	}
+
+	saw, err := k.kcli.CoreV1().ServiceAccounts("default").Watch(ctx, metav1.ListOptions{
+		Watch:         true,
+		FieldSelector: "metadata.name=default",
+	})
+	if err != nil {
+		return fmt.Errorf("watching serviceaccount: %w", err)
+	}
+	defer saw.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e, ok := <-saw.ResultChan():
+			if !ok {
+				return fmt.Errorf("service account watcher closed prematurely")
+			}
+
+			if e.Object == nil {
+				return fmt.Errorf("saw event with nil object")
+			}
+
+			if e.Type == watch.Added {
+				sa, ok := e.Object.(*corev1.ServiceAccount)
+				if ok && sa.Name == "default" {
+					// SA created, we're good to go
+					return nil
+				}
+			}
+		}
+	}
 }

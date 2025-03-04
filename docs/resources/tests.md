@@ -61,11 +61,21 @@ Optional:
 Optional:
 
 - `cni` (Boolean) Enable the CNI plugin
+- `hooks` (Attributes) Run commands at various lifecycle events (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--hooks))
 - `image` (String) The image reference to use for the k3s_in_docker driver
 - `metrics_server` (Boolean) Enable the metrics server
 - `network_policy` (Boolean) Enable the network policy
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--registries))
+- `snapshotter` (String) The snapshotter to use for the k3s_in_docker driver
 - `traefik` (Boolean) Enable the traefik ingress controller
+
+<a id="nestedatt--drivers--k3s_in_docker--hooks"></a>
+### Nested Schema for `drivers.k3s_in_docker.hooks`
+
+Optional:
+
+- `post_start` (List of String)
+
 
 <a id="nestedatt--drivers--k3s_in_docker--registries"></a>
 ### Nested Schema for `drivers.k3s_in_docker.registries`

@@ -36,6 +36,7 @@ type K3sInDockerDriverResourceModel struct {
 	MetricsServer types.Bool                                           `tfsdk:"metrics_server"`
 	Registries    map[string]*K3sInDockerDriverRegistriesResourceModel `tfsdk:"registries"`
 	Snapshotter   types.String                                         `tfsdk:"snapshotter"`
+	Hooks         *K3sInDockerDriverHooksModel                         `tfsdk:"hooks"`
 }
 
 type K3sInDockerDriverRegistriesResourceModel struct {
@@ -44,6 +45,10 @@ type K3sInDockerDriverRegistriesResourceModel struct {
 
 type K3sInDockerDriverRegistriesMirrorResourceModel struct {
 	Endpoints []string `tfsdk:"endpoints"`
+}
+
+type K3sInDockerDriverHooksModel struct {
+	PostStart []string `tfsdk:"post_start"`
 }
 
 type DockerInDockerDriverResourceModel struct {
@@ -114,6 +119,12 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 						opts = append(opts, k3sindocker.WithRegistryMirror(k, mirror))
 					}
 				}
+			}
+		}
+
+		if hooks := cfg.Hooks; hooks != nil {
+			for _, hook := range hooks.PostStart {
+				opts = append(opts, k3sindocker.WithPostStartHook(hook))
 			}
 		}
 
@@ -189,6 +200,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Description: "Enable the metrics server",
 						Optional:    true,
 					},
+					"snapshotter": schema.StringAttribute{
+						Description: "The snapshotter to use for the k3s_in_docker driver",
+						Optional:    true,
+					},
 					"registries": schema.MapNestedAttribute{
 						Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
 						Optional:    true,
@@ -204,6 +219,16 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 										},
 									},
 								},
+							},
+						},
+					},
+					"hooks": schema.SingleNestedAttribute{
+						Description: "Run commands at various lifecycle events",
+						Optional:    true,
+						Attributes: map[string]schema.Attribute{
+							"post_start": schema.ListAttribute{
+								ElementType: types.StringType,
+								Optional:    true,
 							},
 						},
 					},
