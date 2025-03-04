@@ -35,6 +35,7 @@ type K3sInDockerDriverResourceModel struct {
 	Traefik       types.Bool                                           `tfsdk:"traefik"`
 	MetricsServer types.Bool                                           `tfsdk:"metrics_server"`
 	Registries    map[string]*K3sInDockerDriverRegistriesResourceModel `tfsdk:"registries"`
+	Snapshotter   types.String                                         `tfsdk:"snapshotter"`
 }
 
 type K3sInDockerDriverRegistriesResourceModel struct {
@@ -95,6 +96,15 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 
 		if cfg.MetricsServer.ValueBool() {
 			opts = append(opts, k3sindocker.WithMetricsServer(true))
+		}
+
+		if cfg.Snapshotter.ValueString() != "" {
+			opts = append(opts, k3sindocker.WithSnapshotter(cfg.Snapshotter.ValueString()))
+		}
+
+		// "native" snapshotter is required for environments already running docker in docker
+		if os.Getenv("WORKSTATION") != "" {
+			opts = append(opts, k3sindocker.WithSnapshotter("native"))
 		}
 
 		if registries := cfg.Registries; registries != nil {
