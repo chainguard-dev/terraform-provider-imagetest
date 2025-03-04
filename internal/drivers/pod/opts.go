@@ -1,6 +1,9 @@
 package pod
 
-import "github.com/google/go-containerregistry/pkg/name"
+import (
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/google/go-containerregistry/pkg/name"
+)
 
 func WithImageRef(ref name.Reference) RunOpts {
 	return func(o *opts) error {
@@ -15,6 +18,13 @@ func WithExtraEnvs(envs map[string]string) RunOpts {
 			envs = make(map[string]string)
 		}
 		o.ExtraEnvs = envs
+		return nil
+	}
+}
+
+func WithStack(stack *harness.Stack) RunOpts {
+	return func(o *opts) error {
+		o.stack = stack
 		return nil
 	}
 }
