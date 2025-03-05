@@ -15,10 +15,14 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -96,6 +100,28 @@ func main() {
 		}
 
 		os.Exit(0)
+	}
+
+	// Maybe start a registry proxy
+	if os.Getenv(entrypoint.DriverLocalRegistryEnvVar) != "" {
+		port, err := strconv.Atoi(os.Getenv(entrypoint.DriverLocalRegistryPortEnvVar))
+		if err != nil {
+			clog.ErrorContextf(ctx, "failed to parse registry port: %v", err)
+			os.Exit(entrypoint.InternalErrorCode)
+		}
+
+		ps := proxyServer{
+			port:    port,
+			logPath: filepath.Join("/tmp", "registry-proxy.log"),
+		}
+
+		// We don't really care about shutdowns here
+		go func() {
+			clog.InfoContext(ctx, "Starting proxy server")
+			if err := ps.Start(); err != nil {
+				clog.ErrorContextf(ctx, "failed to start server: %v", err)
+			}
+		}()
 	}
 
 	// Run the binary as an entrypoint
@@ -400,4 +426,49 @@ func (h *healthStatus) markProbed() {
 		h.update(healthRunning, "marking as probed")
 		close(h.probed)
 	})
+}
+
+type proxyServer struct {
+	port    int
+	logPath string
+}
+
+func (p *proxyServer) Start() error {
+	lf, err := os.OpenFile(p.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(lf, nil))
+
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("host.docker.internal:%d", p.port),
+	})
+
+	// Wrap the director with a simple logger
+	odirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		odirector(req)
+		logger.Info("request",
+			"method", req.Method,
+			"url", req.URL.String(),
+			"host", req.Host,
+			"remote", req.RemoteAddr)
+	}
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		logger.Info("response",
+			"method", resp.Request.Method,
+			"url", resp.Request.URL.String(),
+			"status", resp.StatusCode,
+			"size", resp.ContentLength)
+		return nil
+	}
+
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", p.port),
+		Handler: proxy,
+	}
+
+	return server.ListenAndServe()
 }

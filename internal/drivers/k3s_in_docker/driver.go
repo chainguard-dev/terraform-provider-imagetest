@@ -37,8 +37,9 @@ type driver struct {
 	NetworkPolicy bool           // Toggles whether the default k3s network policy controller is enabled
 	Snapshotter   string         // The containerd snapshotter to use
 	Registries    map[string]*K3sRegistryConfig
-	Namespace     string    // The namespace to use for the test pods
-	Hooks         *K3sHooks // Run commands at various lifecycle events
+	Namespace     string            // The namespace to use for the test pods
+	Hooks         *K3sHooks         // Run commands at various lifecycle events
+	SandboxEnvs   map[string]string // Additional environment variables to set in the sandbox
 
 	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host
 
@@ -287,6 +288,7 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) error {
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "k3s_in_docker",
 		}),
+		pod.WithExtraEnvs(k.SandboxEnvs),
 	)
 }
 

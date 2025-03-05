@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -220,6 +221,116 @@ resource "imagetest_tests" "foo" {
 				},
 				Steps: tc,
 			})
+		})
+	}
+}
+
+func TestIsLocalRegistry(t *testing.T) {
+	tests := []struct {
+		name    string
+		ref     string
+		want    bool
+		wantErr bool
+	}{
+		{
+			name:    "localhost with port",
+			ref:     "localhost:5000/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "localhost without port",
+			ref:     "localhost/myimage",
+			want:    false, // No prefix match without ":"
+			wantErr: false,
+		},
+		{
+			name:    "domain.localhost with port",
+			ref:     "myregistry.localhost:5000/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "domain.local with port",
+			ref:     "myregistry.local:5000/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "domain.local without port",
+			ref:     "myregistry.local/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "IPv4 loopback",
+			ref:     "127.0.0.1/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "IPv4 loopback with port",
+			ref:     "127.0.0.1:5000/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "IPv6 loopback",
+			ref:     "::1/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "IPv6 loopback with port",
+			ref:     "::1:5000/myimage",
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "remote registry",
+			ref:     "docker.io/library/ubuntu",
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "remote registry with port",
+			ref:     "gcr.io:443/google-containers/nginx",
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "similar to local but not matching",
+			ref:     "mylocalhost/image",
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "IP similar to loopback but not matching",
+			ref:     "127.0.0.2/image",
+			want:    false,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref, err := name.ParseReference(tt.ref)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Get the registry component from the parsed reference
+			registry := ref.Context().Registry
+
+			if got := isLocalRegistry(registry); got != tt.want {
+				t.Errorf("isLocalRegistry() = %v, want %v for registry %s",
+					got, tt.want, registry.Name())
+			}
 		})
 	}
 }

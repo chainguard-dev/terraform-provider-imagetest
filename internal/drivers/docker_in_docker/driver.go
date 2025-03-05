@@ -24,7 +24,9 @@ import (
 )
 
 type driver struct {
-	ImageRef name.Reference // The image to use for docker-in-docker
+	ImageRef   name.Reference    // The image to use for docker-in-docker
+	Envs       map[string]string // Additional environment variables to set in the sandbox
+	ExtraHosts []string          // Extra hosts (--add-hosts) to add to the sandbox
 
 	name   string
 	stack  *harness.Stack
@@ -153,6 +155,14 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		}
 	}()
 
+	extraHosts := []string{"host.docker.internal:host-gateway"}
+	extraHosts = append(extraHosts, d.ExtraHosts...)
+
+	envs := []string{}
+	for k, v := range d.Envs {
+		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
+	}
+
 	clog.InfoContext(ctx, "running docker-in-docker test", "image_ref", tref.String())
 	cid, err := d.cli.Run(ctx, &docker.Request{
 		Name:       d.name,
@@ -171,7 +181,8 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 			Retries:     1,
 			StartPeriod: 1 * time.Second,
 		},
-		ExtraHosts: []string{"host.docker.internal:host-gateway"},
+		Env:        envs,
+		ExtraHosts: extraHosts,
 		Contents:   content,
 		Logger:     mw,
 	})

@@ -69,3 +69,25 @@ func WithRegistryAuth(registry string) DriverOpts {
 		return nil
 	}
 }
+
+func WithExtraHosts(hosts ...string) DriverOpts {
+	return func(d *driver) error {
+		if d.ExtraHosts == nil {
+			d.ExtraHosts = make([]string, 0)
+		}
+		d.ExtraHosts = append(d.ExtraHosts, hosts...)
+		return nil
+	}
+}
+
+func WithExtraEnvs(envs map[string]string) DriverOpts {
+	return func(d *driver) error {
+		if d.Envs == nil {
+			d.Envs = make(map[string]string)
+		}
+		for k, v := range envs {
+			d.Envs[k] = v
+		}
+		return nil
+	}
+}
