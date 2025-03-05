@@ -5,7 +5,7 @@ go 1.23.4
 require (
 	chainguard.dev/apko v0.25.1
 	github.com/chainguard-dev/clog v1.7.0
-	github.com/docker/cli v27.5.1+incompatible
+	github.com/docker/cli v28.0.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.3
 	github.com/google/uuid v1.6.0
