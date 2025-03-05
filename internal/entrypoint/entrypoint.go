@@ -21,6 +21,10 @@ const (
 
 	// Healthcheck return code if wrapped command fails and we're paused.
 	ProcessPausedErrorCode = 927
+
+	DriverLocalRegistryEnvVar         = "IMAGETEST_LOCAL_REGISTRY"
+	DriverLocalRegistryHostnameEnvVar = "IMAGETEST_LOCAL_REGISTRY_HOSTNAME"
+	DriverLocalRegistryPortEnvVar     = "IMAGETEST_LOCAL_REGISTRY_PORT"
 )
 
 var DefaultEntrypoint = []string{

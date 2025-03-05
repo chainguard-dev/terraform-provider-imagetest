@@ -3,13 +3,16 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -129,7 +132,7 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		}
 
 		// If the user specified registry is "localhost:#", set a mirror to "host.docker.internal:#"
-		if strings.HasPrefix(t.repo.RegistryStr(), "localhost") {
+		if isLocalRegistry(t.repo.Registry) {
 			parts := strings.Split(t.repo.RegistryStr(), ":")
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("invalid registry: %s", t.repo.RegistryStr())
@@ -152,6 +155,19 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 
 		if cfg.Image.ValueString() != "" {
 			opts = append(opts, dockerindocker.WithImageRef(cfg.Image.ValueString()))
+		}
+
+		if isLocalRegistry(t.repo.Registry) {
+			u, err := url.Parse("http://" + t.repo.RegistryStr())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse registry url: %w", err)
+			}
+
+			opts = append(opts,
+				dockerindocker.WithExtraHosts(
+					fmt.Sprintf("%s:%s", u.Hostname(), "127.0.0.1"),
+				),
+			)
 		}
 
 		return dockerindocker.NewDriver(id, opts...)
@@ -254,3 +270,29 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 		},
 	}
 }
+
+// https://github.com/google/go-containerregistry/blob/098045d5e61ff426a61a0eecc19ad0c433cd35a9/pkg/name/registry.go
+func isLocalRegistry(ref name.Registry) bool {
+	if strings.HasPrefix(ref.Name(), "localhost:") {
+		return true
+	}
+	if reLocal.MatchString(ref.Name()) {
+		return true
+	}
+	if reLoopback.MatchString(ref.Name()) {
+		return true
+	}
+	if reipv6Loopback.MatchString(ref.Name()) {
+		return true
+	}
+	return false
+}
+
+// Detect more complex forms of local references.
+var reLocal = regexp.MustCompile(`.*\.local(?:host)?(?::\d{1,5})?$`)
+
+// Detect the loopback IP (127.0.0.1).
+var reLoopback = regexp.MustCompile(regexp.QuoteMeta("127.0.0.1"))
+
+// Detect the loopback IPV6 (::1).
+var reipv6Loopback = regexp.MustCompile(regexp.QuoteMeta("::1"))

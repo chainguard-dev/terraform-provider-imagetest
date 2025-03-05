@@ -36,25 +36,6 @@ validate_cmd() {
   fi
 }
 
-init_registry_proxy() {
-  # Check if IMAGETEST_REGISTRY is set and contains "localhost"
-  if [ -z "${IMAGETEST_REGISTRY:-}" ] || ! echo "$IMAGETEST_REGISTRY" | grep -q "localhost"; then
-    return
-  fi
-
-  info "Local registry detected, attempting to start registry proxy"
-
-  # Extract port number following "localhost:"
-  port=$(echo "$IMAGETEST_REGISTRY" | sed -n 's/.*localhost:\([0-9]\+\).*/\1/p')
-
-  if [ -n "$port" ]; then
-    info "Detected localhost and port ${port}, starting registry proxy"
-
-    # Start a non-forked socat process to proxy localhost to dockers magic dns
-    setsid socat -d -lf /tmp/local-registry-proxy.log TCP-LISTEN:"${port}",fork,reuseaddr TCP:host.docker.internal:"${port}" </dev/null >/dev/null 2>&1 &
-  fi
-}
-
 # Initialize and manage a Docker-in-Docker environment.
 # This function handles the Docker daemon startup and monitoring.
 # Arguments:
@@ -86,9 +67,6 @@ init_docker_in_docker() {
     error "Docker daemon failed to start"
     exit 1
   fi
-
-  # Maybe start a registry proxy
-  init_registry_proxy
 
   exec "$cmd"
 }

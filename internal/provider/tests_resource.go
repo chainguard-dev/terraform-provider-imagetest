@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -391,6 +392,20 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" || os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
 						envs["IMAGETEST_PAUSE_ON_ERROR"] = "true"
+					}
+
+					// Add some extra env vars for the entrypoint to potentially key off of
+					if isLocalRegistry(trepo.Registry) {
+						clog.InfoContext(ctx, "using local registry", "registry", trepo.RegistryStr())
+
+						u, err := url.Parse("http://" + trepo.RegistryStr())
+						if err != nil {
+							return nil, fmt.Errorf("failed to parse registry url: %w", err)
+						}
+
+						envs[entrypoint.DriverLocalRegistryEnvVar] = "1"
+						envs[entrypoint.DriverLocalRegistryHostnameEnvVar] = u.Hostname()
+						envs[entrypoint.DriverLocalRegistryPortEnvVar] = u.Port()
 					}
 
 					if cfgf.Config.Env == nil {
