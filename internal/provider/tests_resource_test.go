@@ -21,13 +21,13 @@ resource "imagetest_tests" "foo" {
   driver = "k3s_in_docker"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:98fa8044785ff59248ec9e5747bff259c6fe4b526ebb77d95d8a98ad958847dd"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
   }
 
   tests = [
     {
       name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev@sha256:1d8c1f0c437628aafa1bca52c41ff310aea449423cce9b2feae2767ac53c336f"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
       cmd     = "/imagetest/%s"
     }
@@ -44,7 +44,7 @@ resource "imagetest_tests" "foo" {
   driver = "docker_in_docker"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:98fa8044785ff59248ec9e5747bff259c6fe4b526ebb77d95d8a98ad958847dd"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
   }
 
   tests = [
@@ -107,13 +107,13 @@ resource "imagetest_tests" "foo" {
   }
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:98fa8044785ff59248ec9e5747bff259c6fe4b526ebb77d95d8a98ad958847dd"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
   }
 
   tests = [
     {
       name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev@sha256:1d8c1f0c437628aafa1bca52c41ff310aea449423cce9b2feae2767ac53c336f"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
       cmd     = "/imagetest/%s"
     }
@@ -168,13 +168,13 @@ resource "imagetest_tests" "foo" {
   driver = "docker_in_docker"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:98fa8044785ff59248ec9e5747bff259c6fe4b526ebb77d95d8a98ad958847dd"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
   }
 
   tests = [
     {
       name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev@sha256:1d8c1f0c437628aafa1bca52c41ff310aea449423cce9b2feae2767ac53c336f"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
       cmd     = "/imagetest/%[1]s"
     }
