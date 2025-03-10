@@ -27,6 +27,9 @@ const (
 	DriverLocalRegistryPortEnvVar     = "IMAGETEST_LOCAL_REGISTRY_PORT"
 
 	DefaultWorkDir = "/imagetest/work"
+
+	// ArtifactsPath is the default path to look for post test run artifacts
+	ArtifactsPath = "/imagetest/artifacts"
 )
 
 var DefaultEntrypoint = []string{
