@@ -41,7 +41,7 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 		Name:       "imagetest",
 		Namespace:  "imagetest",
 		ImageRef:   name.MustParseReference("cgr.dev/chainguard/kubectl:latest-dev"),
-		WorkingDir: "/imagetest",
+		WorkingDir: entrypoint.DefaultWorkDir,
 		ExtraLabels: map[string]string{
 			"dev.chainguard.imagetest": "true",
 		},

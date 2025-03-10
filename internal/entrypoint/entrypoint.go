@@ -25,6 +25,8 @@ const (
 	DriverLocalRegistryEnvVar         = "IMAGETEST_LOCAL_REGISTRY"
 	DriverLocalRegistryHostnameEnvVar = "IMAGETEST_LOCAL_REGISTRY_HOSTNAME"
 	DriverLocalRegistryPortEnvVar     = "IMAGETEST_LOCAL_REGISTRY_PORT"
+
+	DefaultWorkDir = "/imagetest/work"
 )
 
 var DefaultEntrypoint = []string{

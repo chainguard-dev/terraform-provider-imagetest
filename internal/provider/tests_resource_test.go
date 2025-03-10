@@ -30,7 +30,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "/imagetest/%s"
+      cmd     = "./%s"
     }
   ]
 
@@ -53,7 +53,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/busybox:latest"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "/imagetest/%s"
+      cmd     = "./%s"
     }
   ]
 
@@ -116,7 +116,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "/imagetest/%s"
+      cmd     = "./%s"
     }
   ]
 
@@ -177,7 +177,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "/imagetest/%[1]s"
+      cmd     = "./%[1]s"
     }
   ]
 

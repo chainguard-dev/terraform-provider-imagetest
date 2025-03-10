@@ -342,7 +342,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		for _, c := range test.Content {
 			target := c.Target.ValueString()
 			if target == "" {
-				target = "/imagetest"
+				target = entrypoint.DefaultWorkDir
 			}
 
 			layer, err := bundler.NewLayerFromPath(c.Source.ValueString(), target)
@@ -422,7 +422,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 					cfgf.Config.Cmd = []string{test.Cmd.ValueString()}
 
 					if cfgf.Config.WorkingDir == "" {
-						cfgf.Config.WorkingDir = "/imagetest"
+						cfgf.Config.WorkingDir = entrypoint.DefaultWorkDir
 					}
 
 					cfgf.Config.User = "0:0"
