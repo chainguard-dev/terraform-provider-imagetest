@@ -7,7 +7,10 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -41,6 +44,7 @@ type opts struct {
 	CommandTimeout time.Duration
 	GracePeriod    time.Duration
 	WaitForProbe   bool
+	ArtifactsPath  string
 
 	healthStatus *healthStatus
 	args         []string
@@ -55,6 +59,7 @@ func parseFlags() *opts {
 	flag.DurationVar(&opts.CommandTimeout, "timeout", DefaultTimeout, "How long to allow the process to run before cancelling it")
 	flag.DurationVar(&opts.GracePeriod, "grace-period", GracePeriod, "How long to wait for the process to exit gracefully after sending a SIGINT before sending a SIGKILL")
 	flag.BoolVar(&opts.WaitForProbe, "wait-for-probe", true, "Wait for the entrypoint to be probed before starting the wrapped process")
+	flag.StringVar(&opts.ArtifactsPath, "artifacts-path", entrypoint.ArtifactsPath, "Path to look for artifacts")
 
 	flag.Parse()
 
@@ -134,8 +139,15 @@ func (o *opts) Run(ctx context.Context) int {
 	if err != nil {
 		clog.ErrorContextf(ctx, "Error executing wrapped process: %v", err)
 		o.healthStatus.update(healthFailed, err.Error())
+	}
 
-		return code
+	// archive any artifacts, regardless of errors or not. artifact archiving
+	// shouldn't fail the test (yet?)
+	if o.ArtifactsPath != "" {
+		err := o.archiveArtifacts(ctx)
+		if err != nil {
+			clog.WarnContextf(ctx, "Error archiving artifacts: %v", err)
+		}
 	}
 
 	return code
@@ -150,6 +162,13 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		return entrypoint.InternalErrorCode, fmt.Errorf("failed to start health socket: %w", err)
 	}
 	defer healthCleanup()
+
+	if o.ArtifactsPath != "" {
+		if err := os.MkdirAll(o.ArtifactsPath, 0755); err != nil {
+			return entrypoint.InternalErrorCode, fmt.Errorf("failed to create artifacts directory: %w", err)
+		}
+		clog.InfoContext(ctx, "artifacts directory created", "path", o.ArtifactsPath)
+	}
 
 	stdoutw := io.Writer(os.Stdout)
 	stderrw := io.Writer(os.Stderr)
@@ -257,6 +276,76 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	}
 
 	return 0, nil
+}
+
+// archiveArtifacts archives and compresses anything in the artifacts path,
+// basically prepping it for any potential uploads
+func (o *opts) archiveArtifacts(ctx context.Context) error {
+	afpath := filepath.Join(o.ArtifactsPath, "artifacts.tar.gz")
+
+	af, err := os.Create(afpath)
+	if err != nil {
+		return fmt.Errorf("failed to create artifacts archive: %w", err)
+	}
+	defer af.Close()
+
+	hash := sha256.New()
+
+	mw := io.MultiWriter(af, hash)
+
+	gzw := gzip.NewWriter(mw)
+	tw := tar.NewWriter(gzw)
+
+	if err := filepath.Walk(o.ArtifactsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("walking path %s: %w", path, err)
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(o.ArtifactsPath, path)
+		if err != nil {
+			return fmt.Errorf("getting relative path for %s: %w", path, err)
+		}
+
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return fmt.Errorf("creating header for %s: %w", path, err)
+		}
+
+		hdr.Name = filepath.ToSlash(relPath)
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			return fmt.Errorf("writing header for %s: %w", path, err)
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("opening file %s: %w", path, err)
+		}
+		defer file.Close()
+
+		if _, err := io.CopyN(tw, file, info.Size()); err != nil {
+			return fmt.Errorf("copying file %s: %w", path, err)
+		}
+
+		return err
+	}); err != nil {
+		return fmt.Errorf("archiving artifacts: %w", err)
+	}
+
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("closing tar writer: %w", err)
+	}
+	if err := gzw.Close(); err != nil {
+		return fmt.Errorf("closing gzip writer: %w", err)
+	}
+
+	clog.InfoContext(ctx, "archived artifacts", "hash", fmt.Sprintf("%x", hash.Sum(nil)), "path", afpath, "directory", o.ArtifactsPath)
+
+	return nil
 }
 
 // gracefullyTerminate sends a SIGINT, waits for gracePeriod, then sends a SIGKILL.

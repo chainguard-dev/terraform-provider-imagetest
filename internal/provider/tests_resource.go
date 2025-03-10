@@ -389,6 +389,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 					envs["IMAGETEST_DRIVER"] = string(data.Driver)
 					envs["IMAGETEST_REGISTRY"] = trepo.RegistryStr()
 					envs["IMAGETEST_REPO"] = trepo.String()
+					envs["IMAGETEST_ARTIFACTS_PATH"] = entrypoint.ArtifactsPath
 
 					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" || os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
 						envs["IMAGETEST_PAUSE_ON_ERROR"] = "true"
