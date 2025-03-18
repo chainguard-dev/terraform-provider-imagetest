@@ -205,7 +205,7 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 
 	// Block until the container is running
 	cname := ""
-	var cjson types.ContainerJSON
+	var cjson container.InspectResponse
 	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, req.Timeout, true, func(ctx context.Context) (bool, error) {
 		inspect, err := d.cli.ContainerInspect(ctx, cid)
 		if err != nil {
@@ -363,7 +363,8 @@ func (d *Client) Connect(ctx context.Context, cid string) (*Response, error) {
 
 // pull the image if it doesn't exist in the daemon.
 func (d *Client) pull(ctx context.Context, ref name.Reference) error {
-	if _, _, err := d.cli.ImageInspectWithRaw(ctx, ref.Name()); err != nil {
+	var buf bytes.Buffer
+	if _, err := d.cli.ImageInspect(ctx, ref.Name(), client.ImageInspectWithRawResponse(&buf)); err != nil {
 		if !client.IsErrNotFound(err) {
 			return fmt.Errorf("checking if image exists: %w", err)
 		}
