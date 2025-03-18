@@ -3,12 +3,14 @@ package pod
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/google/go-containerregistry/pkg/name"
 	authv1 "k8s.io/api/authorization/v1"
@@ -109,7 +111,31 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				// this filters out "Readiness probe errored" events, which are always
 				// fired after a pod successfully completes (0/1 Completed)
 				plog.InfoContext(ctx, "test sandbox pod failed and is paused in debug mode")
-				return fmt.Errorf("test sandbox failed in debug mode and is now paused\n\n%s", e.Message)
+
+				// nastiness here is to parse the health check's exit code from the
+				// readiness probe events' message. there's got to be a better way...
+				parts := strings.Split(e.Message, ": ")
+				if len(parts) != 2 {
+					// just return the whole message
+					return fmt.Errorf("test sandbox failed in debug mode and is now paused\n\n%s", e.Message)
+				}
+
+				// extract the exit code from the error
+				var rmsg struct {
+					ExitCode int64  `json:"exit_code"`
+					Msg      string `json:"msg"`
+				}
+				if err := json.Unmarshal([]byte(parts[1]), &rmsg); err != nil {
+					clog.WarnContext(ctx, "failed to parse healthcheck message", "message", e.Message, "part", parts[1])
+					return fmt.Errorf("test sandbox failed in debug mode and is now paused\n\n%s", e.Message)
+				}
+
+				if rmsg.ExitCode == entrypoint.ProcessPausedCode {
+					clog.InfoContext(ctx, "test sandbox successfully completed and is paused", "exit_code", rmsg.ExitCode, "probe_message", rmsg.Msg)
+					return nil
+				}
+
+				return fmt.Errorf("test sandbox failed in debug mode and is now paused (exit_code: %d)\n\n%s", rmsg.ExitCode, rmsg.Msg)
 			}
 
 		case w, ok := <-pw.ResultChan():
@@ -151,6 +177,10 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				for _, cs := range p.Status.ContainerStatuses {
 					if cs.Name == "sandbox" {
 						if cs.State.Terminated != nil {
+							if cs.State.Terminated.ExitCode == entrypoint.ProcessPausedCode {
+								return nil
+							}
+
 							err = fmt.Errorf("%w\n\nexit code: %d, reason: %s, message: %s", err,
 								cs.State.Terminated.ExitCode,
 								cs.State.Terminated.Reason,
@@ -259,7 +289,7 @@ func (o *opts) startLogStream(ctx context.Context, podName string) <-chan error 
 				return
 			default:
 				line := scanner.Text()
-				clog.InfoContext(ctx, "received pod log line", "message", line)
+				clog.InfoContext(ctx, "received pod log line", drivers.LogAttributeKey, line)
 			}
 		}
 

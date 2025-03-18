@@ -41,6 +41,7 @@ type opts struct {
 	CommandTimeout time.Duration
 	GracePeriod    time.Duration
 	WaitForProbe   bool
+	PauseMode      entrypoint.PauseMode
 
 	healthStatus *healthStatus
 	args         []string
@@ -60,6 +61,13 @@ func parseFlags() *opts {
 
 	opts.args = flag.Args()
 
+	switch mode := os.Getenv(entrypoint.PauseModeEnvVar); mode {
+	case string(entrypoint.PauseAlways):
+		opts.PauseMode = entrypoint.PauseAlways
+	case string(entrypoint.PauseOnError):
+		opts.PauseMode = entrypoint.PauseOnError
+	}
+
 	return opts
 }
 
@@ -74,28 +82,31 @@ func main() {
 
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		// Run the binary as a health check
+		logger := clog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 		conn, err := net.Dial("unix", entrypoint.DefaultHealthCheckSocket)
 		if err != nil {
-			clog.ErrorContextf(ctx, "failed to connect to health socket: %v", err)
+			logger.ErrorContextf(ctx, "failed to connect to health socket: %v", err)
 			os.Exit(entrypoint.InternalErrorCode)
 		}
 		defer conn.Close()
 
 		var status healthStatus
 		if err := json.NewDecoder(conn).Decode(&status); err != nil {
-			clog.ErrorContextf(ctx, "failed to decode health status: %v", err)
+			logger.ErrorContextf(ctx, "failed to decode health status: %v", err)
 			os.Exit(entrypoint.InternalErrorCode)
 		}
 
+		logger.InfoContext(ctx, status.Message, "exit_code", status.ExitCode)
+
 		switch status.State {
 		case healthRunning:
-			clog.InfoContext(ctx, status.Message)
 			os.Exit(0)
+		case healthPausedWithError:
+			os.Exit(entrypoint.ProcessPausedWithErrorCode)
 		case healthPaused:
-			clog.InfoContext(ctx, status.Message)
-			os.Exit(entrypoint.ProcessPausedErrorCode)
+			os.Exit(entrypoint.ProcessPausedCode)
 		case healthFailed:
-			clog.InfoContext(ctx, status.Message)
 			os.Exit(entrypoint.InternalErrorCode)
 		}
 
@@ -133,7 +144,7 @@ func (o *opts) Run(ctx context.Context) int {
 	code, err := o.executeProcess(ctx)
 	if err != nil {
 		clog.ErrorContextf(ctx, "Error executing wrapped process: %v", err)
-		o.healthStatus.update(healthFailed, err.Error())
+		o.healthStatus.update(healthFailed, err.Error(), int64(code))
 
 		return code
 	}
@@ -238,8 +249,9 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 				exitErr.ExitCode(),
 			)
 
-			if os.Getenv("IMAGETEST_PAUSE_ON_ERROR") != "" {
-				o.healthStatus.update(healthPaused, errmsg)
+			if o.PauseMode == entrypoint.PauseOnError && exitErr.ExitCode() != 0 {
+				clog.ErrorContext(ctx, "wrapped process failed, entering paused state", "exit_code", exitErr.ExitCode(), "pause_mode", o.PauseMode)
+				o.healthStatus.update(healthPausedWithError, errmsg, int64(exitErr.ExitCode()))
 				if err := pause(ctx, exitErr.ExitCode()); err != nil {
 					return entrypoint.InternalErrorCode, err
 				}
@@ -254,6 +266,14 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 
 		// we got an error while force killing
 		return entrypoint.InternalErrorCode, waitErr
+	}
+
+	if o.PauseMode == entrypoint.PauseAlways {
+		clog.WarnContext(ctx, "process succeeded but pausing due to pause mode", "pause_mode", o.PauseMode)
+		o.healthStatus.update(healthPaused, "paused after successful execution", entrypoint.ProcessPausedCode)
+		if err := pause(ctx, entrypoint.ProcessPausedCode); err != nil {
+			return entrypoint.InternalErrorCode, err
+		}
 	}
 
 	return 0, nil
@@ -290,7 +310,7 @@ func gracefullyTerminate(ctx context.Context, cmd *exec.Cmd, gracePeriod time.Du
 
 func pause(parentCtx context.Context, exitCode int) error {
 	fifoPath := "/tmp/imagetest.unpause"
-	clog.ErrorContext(parentCtx, "wrapped process failed, attempting to pause for debugging", "fifo_path", fifoPath, "exit_code", exitCode)
+	clog.WarnContext(parentCtx, "attempting to pause for debugging", "fifo_path", fifoPath, "exit_code", exitCode)
 
 	// create a new context to avoid exiting early if the parent context is cancelled
 	pauseCtx, cancel := context.WithCancel(context.Background())
@@ -349,17 +369,19 @@ func pause(parentCtx context.Context, exitCode int) error {
 type healthState string
 
 const (
-	healthStarting healthState = "starting"
-	healthRunning  healthState = "running"
-	healthPaused   healthState = "paused"
-	healthFailed   healthState = "failed"
+	healthStarting        healthState = "starting"
+	healthRunning         healthState = "running"
+	healthPaused          healthState = "paused"
+	healthPausedWithError healthState = "paused_with_error"
+	healthFailed          healthState = "failed"
 )
 
 type healthStatus struct {
-	State   healthState `json:"state"`
-	Time    time.Time   `json:"time"`
-	Message string      `json:"message"`
-	mu      sync.RWMutex
+	State    healthState `json:"state"`
+	Time     time.Time   `json:"time"`
+	Message  string      `json:"message"`
+	ExitCode int64       `json:"exit_code"`
+	mu       sync.RWMutex
 
 	probed     chan struct{}
 	probedOnce sync.Once
@@ -376,11 +398,12 @@ func newHealthStatus() *healthStatus {
 	}
 }
 
-func (h *healthStatus) update(state healthState, message string) {
+func (h *healthStatus) update(state healthState, message string, exitCode int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.State = state
 	h.Message = message
+	h.ExitCode = exitCode
 	// This ends up being an approximation, but we don't need to be super precise
 	h.Time = time.Now()
 }
@@ -423,7 +446,7 @@ func (h *healthStatus) startSocket() (func(), error) {
 
 func (h *healthStatus) markProbed() {
 	h.probedOnce.Do(func() {
-		h.update(healthRunning, "marking as probed")
+		h.update(healthRunning, "marking as probed", 0)
 		close(h.probed)
 	})
 }

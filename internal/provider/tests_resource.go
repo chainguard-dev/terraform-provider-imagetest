@@ -246,10 +246,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
 	data.Id = types.StringValue(id)
 
-	l := clog.FromContext(ctx).With(
-		"test_id", id,
-		"driver_name", data.Driver,
-	)
+	ctx = clog.WithValues(ctx, "test_id", id, "driver", data.Driver)
 
 	_skip, reason := skip.Skip(data.Labels, t.includeTests, t.excludeTests)
 	if v := os.Getenv("IMAGETEST_SKIP_ALL"); v != "" {
@@ -285,7 +282,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to resolve images", err.Error())}
 	}
-	l.InfoContext(ctx, "resolved images", "images", string(imgsResolvedData))
+	clog.InfoContext(ctx, "resolved images", "images", string(imgsResolvedData))
 
 	// we should never get here, but just in case
 	if t.entrypointLayers == nil {
@@ -294,7 +291,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 	repo := t.repo
 	if data.RepoOverride.ValueString() != "" {
-		l.InfoContextf(ctx, "using repository override %q", data.RepoOverride.String())
+		clog.InfoContextf(ctx, "using repository override %q", data.RepoOverride.String())
 		var err error
 		repo, err = name.NewRepository(data.RepoOverride.ValueString())
 		if err != nil {
@@ -309,8 +306,8 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 	trefs := make([]name.Reference, 0, len(data.Tests))
 	for _, test := range data.Tests {
-		l := l.With("test_name", test.Name.ValueString(), "test_id", id)
-		l.InfoContext(ctx, "starting test", "driver", data.Driver)
+		l := clog.FromContext(ctx).With("test_name", test.Name.ValueString(), "test_id", id)
+		l.InfoContext(ctx, "starting test")
 
 		// for each test, we build the test image. The test image is assembled
 		// using a combination of the user provided "base" image, the entrypoint
@@ -390,8 +387,12 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 					envs["IMAGETEST_REGISTRY"] = trepo.RegistryStr()
 					envs["IMAGETEST_REPO"] = trepo.String()
 
-					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" || os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
-						envs["IMAGETEST_PAUSE_ON_ERROR"] = "true"
+					if os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
+						envs[entrypoint.PauseModeEnvVar] = string(entrypoint.PauseAlways)
+					}
+
+					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" {
+						envs[entrypoint.PauseModeEnvVar] = string(entrypoint.PauseOnError)
 					}
 
 					// Add some extra env vars for the entrypoint to potentially key off of
@@ -450,7 +451,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		}
 	}()
 
-	l.InfoContext(ctx, "setting up driver")
+	clog.InfoContext(ctx, "setting up driver")
 	if err := dr.Setup(ctx); err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to setup driver", err.Error())}
 	}
