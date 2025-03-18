@@ -144,8 +144,11 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 
 					if inspect.State != nil && inspect.State.Health != nil {
 						if inspect.State.Health.Status == "unhealthy" {
-							code := inspect.State.Health.Log[len(inspect.State.Health.Log)-1].ExitCode
-							unhealthyCh <- fmt.Errorf("container became unhealthy with exit code: %d", code)
+							check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+							unhealthyCh <- &RunError{
+								ExitCode: int64(check.ExitCode),
+								Message:  check.Output,
+							}
 							return
 						}
 					}
@@ -164,11 +167,14 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 
 	case status := <-statusCh:
 		if status.Error != nil {
-			return "", fmt.Errorf("container exited with error (%d): %s", status.StatusCode, status.Error.Message)
+			return "", &RunError{
+				ExitCode: status.StatusCode,
+				Message:  status.Error.Message,
+			}
 		}
 
 		if status.StatusCode != 0 {
-			return "", fmt.Errorf("container exited with non-zero exit code: %v", status.StatusCode)
+			return "", &RunError{ExitCode: status.StatusCode}
 		}
 
 	case err := <-unhealthyCh:
@@ -176,6 +182,18 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	}
 
 	return cid, nil
+}
+
+type RunError struct {
+	ExitCode int64
+	Message  string
+}
+
+func (e *RunError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("container exited with non-zero exit code: %d", e.ExitCode)
+	}
+	return fmt.Sprintf("container exited with non-zero exit code: %d: %s", e.ExitCode, e.Message)
 }
 
 // Start starts a container with the given request.

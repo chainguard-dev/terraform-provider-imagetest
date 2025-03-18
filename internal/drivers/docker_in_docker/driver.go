@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -151,7 +152,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		defer r.Close()
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
-			clog.InfoContext(ctx, scanner.Text())
+			clog.InfoContext(ctx, "received container log line", drivers.LogAttributeKey, scanner.Text())
 		}
 	}()
 
@@ -187,6 +188,13 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		Logger:     mw,
 	})
 	if err != nil {
+		var rerr *docker.RunError
+		if errors.As(err, &rerr) {
+			if rerr.ExitCode == entrypoint.ProcessPausedCode {
+				return nil
+			}
+			return fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
+		}
 		return fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
 	}
 
