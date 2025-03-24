@@ -141,26 +141,25 @@ func main() {
 }
 
 func (o *opts) Run(ctx context.Context) int {
+	healthCleanup, err := o.healthStatus.startSocket()
+	if err != nil {
+		clog.ErrorContextf(ctx, "failed to start health socket: %v", err)
+		return entrypoint.InternalErrorCode
+	}
+	defer healthCleanup()
+
 	code, err := o.executeProcess(ctx)
 	if err != nil {
 		clog.ErrorContextf(ctx, "Error executing wrapped process: %v", err)
 		o.healthStatus.update(healthFailed, err.Error(), int64(code))
-
-		return code
 	}
 
-	return code
+	return o.finalize(ctx, code, err)
 }
 
 func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.CommandTimeout)
 	defer cancel()
-
-	healthCleanup, err := o.healthStatus.startSocket()
-	if err != nil {
-		return entrypoint.InternalErrorCode, fmt.Errorf("failed to start health socket: %w", err)
-	}
-	defer healthCleanup()
 
 	stdoutw := io.Writer(os.Stdout)
 	stderrw := io.Writer(os.Stderr)
@@ -249,18 +248,6 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 				exitErr.ExitCode(),
 			)
 
-			if o.PauseMode == entrypoint.PauseOnError && exitErr.ExitCode() != 0 {
-				clog.ErrorContext(ctx, "wrapped process failed, entering paused state", "exit_code", exitErr.ExitCode(), "pause_mode", o.PauseMode)
-				o.healthStatus.update(healthPausedWithError, errmsg, int64(exitErr.ExitCode()))
-				if err := pause(ctx, exitErr.ExitCode()); err != nil {
-					return entrypoint.InternalErrorCode, err
-				}
-
-				// after a successful pause, just exit with the originally captured exit code
-				return exitErr.ExitCode(), nil
-			}
-
-			// wrapped process exiting with an error, just surface it
 			return exitErr.ExitCode(), fmt.Errorf("%s", errmsg)
 		}
 
@@ -268,15 +255,35 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		return entrypoint.InternalErrorCode, waitErr
 	}
 
-	if o.PauseMode == entrypoint.PauseAlways {
-		clog.WarnContext(ctx, "process succeeded but pausing due to pause mode", "pause_mode", o.PauseMode)
-		o.healthStatus.update(healthPaused, "paused after successful execution", entrypoint.ProcessPausedCode)
-		if err := pause(ctx, entrypoint.ProcessPausedCode); err != nil {
-			return entrypoint.InternalErrorCode, err
-		}
+	return 0, nil
+}
+
+func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
+	if o.PauseMode != entrypoint.PauseAlways &&
+		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) {
+		return code
 	}
 
-	return 0, nil
+	// we're pausing one way or another
+
+	if execErr != nil && (o.PauseMode == entrypoint.PauseOnError || o.PauseMode == entrypoint.PauseAlways) {
+		// we're pausing with an error
+		o.healthStatus.update(healthPausedWithError, "pausing after error observed", int64(entrypoint.ProcessPausedWithErrorCode))
+		if err := pause(ctx, code); err != nil {
+			clog.ErrorContextf(ctx, "failed to pause: %v", err)
+			return entrypoint.InternalErrorCode
+		}
+
+		return code
+	}
+
+	o.healthStatus.update(healthPaused, "pausing after successful execution", int64(entrypoint.ProcessPausedCode))
+	if err := pause(ctx, code); err != nil {
+		clog.ErrorContextf(ctx, "failed to pause: %v", err)
+		return entrypoint.InternalErrorCode
+	}
+
+	return entrypoint.ProcessPausedCode
 }
 
 // gracefullyTerminate sends a SIGINT, waits for gracePeriod, then sends a SIGKILL.
@@ -310,7 +317,7 @@ func gracefullyTerminate(ctx context.Context, cmd *exec.Cmd, gracePeriod time.Du
 
 func pause(parentCtx context.Context, exitCode int) error {
 	fifoPath := "/tmp/imagetest.unpause"
-	clog.WarnContext(parentCtx, "attempting to pause for debugging", "fifo_path", fifoPath, "exit_code", exitCode)
+	clog.InfoContext(parentCtx, "attempting to pause for debugging", "fifo_path", fifoPath, "exit_code", exitCode)
 
 	// create a new context to avoid exiting early if the parent context is cancelled
 	pauseCtx, cancel := context.WithCancel(context.Background())
