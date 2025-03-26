@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"context"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -12,7 +11,7 @@ func TestAccContainerVolumeResource(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, t.Context()),
 		Steps: []resource.TestStep{
 			{
 				ExpectNonEmptyPlan: true,

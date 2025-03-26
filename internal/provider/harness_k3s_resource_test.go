@@ -392,9 +392,11 @@ resource "terraform_data" "registry_down" {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			resource.Test(t, resource.TestCase{
-				PreCheck:                 func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
-				Steps:                    tc,
+				PreCheck: func() { testAccPreCheck(t) },
+				// ProtoV6ProviderFactories: testProviderWithRegistry(t, t.Context()),
+				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
+
+				Steps: tc,
 			})
 		})
 	}

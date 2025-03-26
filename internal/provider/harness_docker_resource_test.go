@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"context"
 	"regexp"
 	"testing"
 
@@ -371,7 +370,7 @@ resource "imagetest_feature" "test" {
 			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+				ProtoV6ProviderFactories: testProviderWithRegistry(t, t.Context()),
 				Steps:                    tc,
 			})
 		})
