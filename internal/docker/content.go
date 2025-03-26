@@ -78,7 +78,7 @@ func (c *Content) stream() {
 		currentPath = path.Join(currentPath, dir)
 		hdr := &tar.Header{
 			Name:     path.Join("/", currentPath) + "/",
-			Mode:     0755,
+			Mode:     0o755,
 			Typeflag: tar.TypeDir,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
@@ -89,7 +89,7 @@ func (c *Content) stream() {
 
 	hdr := &tar.Header{
 		Name:     c.Target,
-		Mode:     0644,
+		Mode:     0o644,
 		Size:     c.size,
 		Typeflag: tar.TypeReg,
 	}
