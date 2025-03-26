@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"context"
 	"io"
 	"testing"
 
@@ -17,7 +16,7 @@ func TestDocker(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	d, err := New()
 	require.NoError(t, err)
