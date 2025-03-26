@@ -13,7 +13,7 @@ func TestAccFeatureResource(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
 		Steps: []resource.TestStep{
 			// Create and read testing
 			{
@@ -67,7 +67,7 @@ func TestAccFeatureResourceRetry(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
 		Steps: []resource.TestStep{
 			// Create and read testing
 			{
@@ -131,7 +131,7 @@ func TestAccFeatureResourceUpdate(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
 		Steps: []resource.TestStep{
 			// Create testing
 			{
@@ -190,7 +190,7 @@ resource "imagetest_feature" "test" {
 func TestAccFeatureResourceSkip(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
 		Steps: []resource.TestStep{
 			// Create testing
 			{

@@ -59,7 +59,7 @@ func New(ctx context.Context, source fs.FS, opts ...Option) (*pterraform, error)
 		p.work = path
 	} else {
 		// Ensure the working directory exists
-		if err := os.MkdirAll(p.work, 0755); err != nil {
+		if err := os.MkdirAll(p.work, 0o755); err != nil {
 			return nil, err
 		}
 	}
@@ -179,7 +179,7 @@ func (p *pterraform) Create(ctx context.Context) error {
 
 		targ := filepath.Join(p.work, filepath.FromSlash(path))
 		if d.IsDir() {
-			if err := os.MkdirAll(targ, 0755); err != nil {
+			if err := os.MkdirAll(targ, 0o755); err != nil {
 				return err
 			}
 			return nil
@@ -239,7 +239,7 @@ func (p *pterraform) Create(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(p.work, "vars.tfvars.json"), vdata, 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(p.work, "vars.tfvars.json"), vdata, 0o644); err != nil {
 			return err
 		}
 		applyopts = append(applyopts, tfexec.VarFile("vars.tfvars.json"))

@@ -1,7 +1,6 @@
 package k3s
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -14,7 +13,7 @@ func TestK3s(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	h, err := New()
 	require.NoError(t, err)
@@ -46,7 +45,7 @@ func TestK3sSandboxInit(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	h, err := New()
 	require.NoError(t, err)

@@ -25,7 +25,7 @@ type Feature struct {
 }
 
 func NewInventory(base string) (*Inventory, error) {
-	if err := os.MkdirAll(base, 0755); err != nil {
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create inventory base directory: %w", err)
 	}
 
@@ -43,7 +43,7 @@ func (i *Inventory) AddHarness(ctx context.Context, id string) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(hpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(hpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to create harness: %w", err)
 	}
@@ -77,7 +77,7 @@ func (i *Inventory) AddFeature(ctx context.Context, harness string, feature Feat
 
 	fs[feature.Id] = feature
 
-	fw, err := os.OpenFile(hpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	fw, err := os.OpenFile(hpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open harness: %w", err)
 	}
@@ -169,7 +169,7 @@ func (i *Inventory) RemoveFeature(ctx context.Context, harness string, id string
 
 	delete(fs, id)
 
-	fw, err := os.OpenFile(hpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	fw, err := os.OpenFile(hpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open harness [%s] for writing: %w", harness, err)
 	}

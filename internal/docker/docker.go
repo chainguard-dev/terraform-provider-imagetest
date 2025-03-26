@@ -122,7 +122,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 			defer logs.Close()
 			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
 			if err != nil {
-				fmt.Fprintf(req.Logger, "error copying logs: %v", err)
+				_, _ = fmt.Fprintf(req.Logger, "error copying logs: %v", err)
 			}
 		}()
 	}

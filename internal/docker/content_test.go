@@ -21,7 +21,7 @@ func TestContent(t *testing.T) {
 }
 
 func TestContentFromFile(t *testing.T) {
-	f, err := os.CreateTemp("", "test")
+	f, err := os.CreateTemp(t.TempDir(), "test")
 	require.NoError(t, err)
 	defer os.Remove(f.Name())
 
