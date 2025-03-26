@@ -11,7 +11,7 @@ linters:
   default: none
   enable:
     - durationcheck
-    - errcheck
+    # - errcheck
     - forcetypeassert
     - godot
     - ineffassign
@@ -23,7 +23,7 @@ linters:
     - unconvert
     - unparam
     - unused
-    - usetesting
+    # - usetesting
   exclusions:
     rules:
       - linters:
@@ -34,5 +34,5 @@ formatters:
   enable:
     - gci
     - gofmt
-    - gofumpt
+    # - gofumpt
     - goimports

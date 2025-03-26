@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"os"
 	"path/filepath"
@@ -102,7 +101,7 @@ func TestRun(t *testing.T) {
 				}()
 			}
 
-			code, err := opts.executeProcess(context.Background())
+			code, err := opts.executeProcess(t.Context())
 
 			// Validate the result
 			if err != nil && tt.expectedCode == 0 {
