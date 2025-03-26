@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -392,7 +393,7 @@ resource "terraform_data" "registry_down" {
 			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: testProviderWithRegistry(t, t.Context()),
+				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
 				Steps:                    tc,
 			})
 		})
