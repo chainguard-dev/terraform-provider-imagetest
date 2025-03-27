@@ -259,8 +259,9 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 }
 
 func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
+	// TODO: refactor to QF1001: could apply De Morgan's law (staticcheck)
 	if o.PauseMode != entrypoint.PauseAlways &&
-		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) {
+		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) { //nolint: staticcheck
 		return code
 	}
 
