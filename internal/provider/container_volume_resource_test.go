@@ -12,7 +12,7 @@ func TestAccContainerVolumeResource(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()),
+		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
 		Steps: []resource.TestStep{
 			{
 				ExpectNonEmptyPlan: true,

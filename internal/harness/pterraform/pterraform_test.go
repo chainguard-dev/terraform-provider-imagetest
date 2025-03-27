@@ -1,7 +1,6 @@
 package pterraform
 
 import (
-	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -118,17 +117,17 @@ output "connection" {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			// Set environment variables
 			for key, value := range tt.envVars {
-				os.Setenv(key, value)
+				t.Setenv(key, value)
 			}
 
 			// Clean up environment variables after the test
 			defer func() {
 				for key := range tt.envVars {
-					os.Unsetenv(key)
+					_ = os.Unsetenv(key)
 				}
 			}()
 
@@ -155,7 +154,7 @@ func sourceFs(t *testing.T, content string) fs.FS {
 
 	t.Logf("using temp dir %s", dir)
 
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

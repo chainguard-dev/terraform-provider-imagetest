@@ -13,7 +13,7 @@ import (
 )
 
 func TestAccTestsResource(t *testing.T) {
-	repo := testRegistry(t, context.Background())
+	repo := testRegistry(t, context.Background()) //nolint: usetesting
 	t.Logf("serving ephemeral test registry at %s", repo)
 
 	k3sindockerTpl := `
@@ -153,7 +153,7 @@ resource "imagetest_tests" "foo" {
 }
 
 func TestAccTestsResource_skips(t *testing.T) {
-	repo := testRegistry(t, context.Background())
+	repo := testRegistry(t, context.Background()) //nolint: usetesting
 	t.Logf("serving ephemeral test registry at %s", repo)
 
 	tpl := `

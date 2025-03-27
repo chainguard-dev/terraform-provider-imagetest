@@ -7,14 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-
-	"github.com/chainguard-dev/clog"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 )
 
 type driver struct {

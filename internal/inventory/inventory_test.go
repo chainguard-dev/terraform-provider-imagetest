@@ -1,7 +1,6 @@
 package inventory_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -38,7 +37,7 @@ func TestNewInventory(t *testing.T) {
 }
 
 func TestInventory_AddHarness(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inv := tinv(t)
 
 	tests := []struct {
@@ -67,7 +66,7 @@ func TestInventory_AddHarness(t *testing.T) {
 }
 
 func TestInventory_AddFeature(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inv := tinv(t)
 
 	h1 := "foo"
@@ -109,7 +108,7 @@ func TestInventory_AddFeature(t *testing.T) {
 }
 
 func TestInventory_GetFeatures(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inv := tinv(t)
 
 	// Create harness and feature for the first test case
@@ -162,7 +161,7 @@ func TestInventory_GetFeatures(t *testing.T) {
 }
 
 func TestInventory_RemoveHarness(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inv := tinv(t)
 
 	h1 := "foo"
@@ -189,7 +188,7 @@ func TestInventory_RemoveHarness(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err = inv.RemoveHarness(context.Background(), tc.harness)
+			err = inv.RemoveHarness(t.Context(), tc.harness)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("RemoveHarness() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -198,7 +197,7 @@ func TestInventory_RemoveHarness(t *testing.T) {
 }
 
 func TestInventory_RemoveFeature(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	inv := tinv(t)
 
 	// Create harness and feature for the first test case
@@ -240,7 +239,7 @@ func TestInventory_RemoveFeature(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err = inv.RemoveFeature(context.Background(), tc.harness, tc.feature)
+			err = inv.RemoveFeature(t.Context(), tc.harness, tc.feature)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("RemoveFeature() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -250,7 +249,7 @@ func TestInventory_RemoveFeature(t *testing.T) {
 
 func TestInventory_Concurrency(t *testing.T) {
 	inv := tinv(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Pick something on the order of images
 	numHarnesses := 1000

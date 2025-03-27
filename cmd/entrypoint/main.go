@@ -165,7 +165,7 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	stderrw := io.Writer(os.Stderr)
 
 	if o.ProcessLogPath != "" {
-		if err := os.MkdirAll(filepath.Dir(o.ProcessLogPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(o.ProcessLogPath), 0o755); err != nil {
 			return entrypoint.InternalErrorCode, fmt.Errorf("failed to create process log directory: %w", err)
 		}
 
@@ -259,8 +259,9 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 }
 
 func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
+	// TODO: refactor to QF1001: could apply De Morgan's law (staticcheck)
 	if o.PauseMode != entrypoint.PauseAlways &&
-		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) {
+		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) { //nolint: staticcheck
 		return code
 	}
 
@@ -330,7 +331,7 @@ func pause(parentCtx context.Context, exitCode int) error {
 		return fmt.Errorf("failed to remove debug fifo: %w", err)
 	}
 
-	if err := syscall.Mkfifo(fifoPath, 0622); err != nil {
+	if err := syscall.Mkfifo(fifoPath, 0o622); err != nil {
 		return fmt.Errorf("failed to create debug fifo: %w", err)
 	}
 	defer os.Remove(fifoPath)
@@ -446,8 +447,8 @@ func (h *healthStatus) startSocket() (func(), error) {
 	}()
 
 	return func() {
-		listener.Close()
-		os.Remove(entrypoint.DefaultHealthCheckSocket)
+		_ = listener.Close()
+		_ = os.Remove(entrypoint.DefaultHealthCheckSocket)
 	}, nil
 }
 
@@ -464,7 +465,7 @@ type proxyServer struct {
 }
 
 func (p *proxyServer) Start() error {
-	lf, err := os.OpenFile(p.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	lf, err := os.OpenFile(p.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
