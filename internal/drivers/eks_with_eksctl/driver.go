@@ -28,26 +28,15 @@ type driver struct {
 	kcfg        *rest.Config
 }
 
-type DriverOpts func(*driver) error
-
-func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
-	k := &driver{
-		name:      n,
-		region:    "us-west-2",
-		namespace: "imagetest",
-	}
-
+func NewDriver(n string) (drivers.Tester, error) {
 	if _, err := exec.LookPath("eksctl"); err != nil {
 		return nil, fmt.Errorf("eksctl not found in $PATH: %w", err)
 	}
-
-	for _, opt := range opts {
-		if err := opt(k); err != nil {
-			return nil, err
-		}
-	}
-
-	return k, nil
+	return &driver{
+		name:      n,
+		region:    "us-west-2",
+		namespace: "imagetest",
+	}, nil
 }
 
 func (k *driver) eksctl(ctx context.Context, args ...string) error {
