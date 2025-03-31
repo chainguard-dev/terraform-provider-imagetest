@@ -12,6 +12,7 @@ import (
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/lambda"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -23,12 +24,14 @@ const (
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
+	DriverLambda         DriverResourceModel = "lambda"
 )
 
 type TestsDriversResourceModel struct {
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
+	Lambda         *LambdaDriverResourceModel         `tfsdk:"lambda"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -60,6 +63,8 @@ type DockerInDockerDriverResourceModel struct {
 }
 
 type EKSWithEksctlDriverResourceModel struct{}
+
+type LambdaDriverResourceModel struct{}
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
 	if drivers == nil {
@@ -187,6 +192,10 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		*/
 
 		return ekswitheksctl.NewDriver(id)
+
+	case DriverLambda:
+		return lambda.NewDriver(id)
+
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
