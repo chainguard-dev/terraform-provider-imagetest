@@ -21,7 +21,7 @@ resource "imagetest_tests" "foo" {
   driver = "eks_with_eksctl"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:98fa8044785ff59248ec9e5747bff259c6fe4b526ebb77d95d8a98ad958847dd"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
   }
 
   tests = [

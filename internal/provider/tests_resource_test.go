@@ -22,7 +22,7 @@ resource "imagetest_tests" "foo" {
   driver = "k3s_in_docker"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
   }
 
   tests = [
@@ -45,7 +45,7 @@ resource "imagetest_tests" "foo" {
   driver = "docker_in_docker"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
   }
 
   tests = [
@@ -108,7 +108,7 @@ resource "imagetest_tests" "foo" {
   }
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
   }
 
   tests = [
@@ -169,7 +169,7 @@ resource "imagetest_tests" "foo" {
   driver = "docker_in_docker"
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:4559395ca443fc5d7be4dc813370ef3de4dda8561d1b9a8a24dc578027339791"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
   }
 
   tests = [
