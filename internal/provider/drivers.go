@@ -183,14 +183,6 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		return dockerindocker.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
-		/*
-			cfg := drivers.EKSWithEksctl
-			if cfg == nil {
-				cfg = &EKSWithEksctlDriverResourceModel{}
-			}
-			opts = append(opts, ekswitheksctl.WithFoo(cfg.Foo.ValueString()))
-		*/
-
 		return ekswitheksctl.NewDriver(id)
 
 	case DriverLambda:
@@ -281,9 +273,12 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 			"eks_with_eksctl": schema.SingleNestedAttribute{
 				Description: "The eks_with_eksctl driver",
 				Optional:    true,
-				Attributes:  map[string]schema.Attribute{
-					// TODO: attributes
-				},
+				Attributes:  map[string]schema.Attribute{},
+			},
+			"lambda": schema.SingleNestedAttribute{
+				Description: "The lambda driver",
+				Optional:    true,
+				Attributes:  map[string]schema.Attribute{},
 			},
 		},
 	}
