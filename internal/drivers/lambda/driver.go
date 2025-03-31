@@ -20,21 +20,11 @@ type driver struct {
 	client *lambda.Client
 }
 
-type DriverOpts func(*driver) error
-
-func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
-	k := &driver{
+func NewDriver(n string) (drivers.Tester, error) {
+	return &driver{
 		name:   n,
 		region: "us-west-2",
-	}
-
-	for _, opt := range opts {
-		if err := opt(k); err != nil {
-			return nil, err
-		}
-	}
-
-	return k, nil
+	}, nil
 }
 
 func (k *driver) Setup(ctx context.Context) error {
