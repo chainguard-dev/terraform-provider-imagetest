@@ -42,6 +42,7 @@ Optional:
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
+- `lambda` (Attributes) The lambda driver (see [below for nested schema](#nestedatt--drivers--lambda))
 
 <a id="nestedatt--drivers--docker_in_docker"></a>
 ### Nested Schema for `drivers.docker_in_docker`
@@ -93,6 +94,10 @@ Optional:
 - `endpoints` (List of String)
 
 
+
+
+<a id="nestedatt--drivers--lambda"></a>
+### Nested Schema for `drivers.lambda`
 
 
 
