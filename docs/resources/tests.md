@@ -49,6 +49,7 @@ Optional:
 Optional:
 
 - `image` (String) The image reference to use for the docker-in-docker driver
+- `mirrors` (List of String)
 
 
 <a id="nestedatt--drivers--eks_with_eksctl"></a>

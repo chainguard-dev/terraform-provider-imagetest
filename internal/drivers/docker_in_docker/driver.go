@@ -28,12 +28,14 @@ type driver struct {
 	ImageRef   name.Reference    // The image to use for docker-in-docker
 	Envs       map[string]string // Additional environment variables to set in the sandbox
 	ExtraHosts []string          // Extra hosts (--add-hosts) to add to the sandbox
+	Mirrors    []string          // Registry mirrors to use for docker-in-docker
 
-	name   string
-	stack  *harness.Stack
-	cli    *docker.Client
-	config *dockerConfig
-	ropts  []remote.Option
+	name      string
+	stack     *harness.Stack
+	cli       *docker.Client
+	cliCfg    *dockerConfig
+	daemonCfg *daemonConfig
+	ropts     []remote.Option
 }
 
 func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
@@ -47,7 +49,11 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 				Architecture: runtime.GOARCH,
 			}),
 		},
-		config: &dockerConfig{},
+		cliCfg: &dockerConfig{},
+		daemonCfg: &daemonConfig{
+			// DefaultAddressPool needs to be RFC 1918 compliant that doesn't overlap with the default dockerd's pool (172.17.0.0/16)
+			DefaultAddressPool: "base=172.30.0.0/16,size=24",
+		},
 	}
 
 	for _, opt := range opts {
@@ -134,12 +140,17 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		return err
 	}
 
-	content := []*docker.Content{}
-	cfg, err := d.config.Content()
+	cliCfg, err := d.cliCfg.Content()
 	if err != nil {
 		return err
 	}
-	content = append(content, cfg)
+
+	daemonCfg, err := d.daemonCfg.Content()
+	if err != nil {
+		return err
+	}
+
+	content := []*docker.Content{cliCfg, daemonCfg}
 
 	r, w := io.Pipe()
 	defer w.Close()
@@ -226,4 +237,18 @@ func (c dockerConfig) Content() (*docker.Content, error) {
 	}
 
 	return docker.NewContentFromString(string(data), "/root/.docker/config.json"), nil
+}
+
+type daemonConfig struct {
+	Mirrors            []string `json:"registry-mirrors,omitempty"`
+	DefaultAddressPool string   `json:"default-address-pool,omitempty"`
+}
+
+func (c daemonConfig) Content() (*docker.Content, error) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+
+	return docker.NewContentFromString(string(data), "/etc/docker/daemon.json"), nil
 }
