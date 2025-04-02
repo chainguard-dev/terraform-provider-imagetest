@@ -8,12 +8,9 @@ const (
 	BinaryPath  = "/ko-app/entrypoint"
 	WrapperPath = "/var/run/ko/entrypoint-wrapper.sh"
 
-	// DefaultProcessLogPath contains both stdout and stderr. It is only used
-	// when specified at runtime.
-	DefaultProcessLogPath = "/tmp/imagetest.log"
-	// DefaultStderrLogPath contains only stderr. It is always used to write
-	// stderr.
-	DefaultStderrLogPath     = "/tmp/imagetest.stderr.log"
+	// DefaultProcessLogPath contains both stdout and stderr.
+	DefaultProcessLogPath = "/tmp/imagetest/artifacts/logs/process.log"
+
 	DefaultHealthCheckSocket = "/tmp/imagetest.health.sock"
 
 	// Return code if entrypoint fails.
@@ -32,6 +29,10 @@ const (
 	DriverLocalRegistryPortEnvVar     = "IMAGETEST_LOCAL_REGISTRY_PORT"
 
 	DefaultWorkDir = "/imagetest/work"
+
+	AritfactsDirEnvVar = "IMAGETEST_ARTIFACTS"
+	ArtifactsDir       = "/tmp/imagetest/artifacts"
+	ArtifactsPath      = "/tmp/imagetest/artifacts.tar.gz"
 )
 
 // PauseMode are the states of pause the entrypoint can be in.

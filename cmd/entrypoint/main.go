@@ -7,6 +7,8 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,6 +44,8 @@ type opts struct {
 	GracePeriod    time.Duration
 	WaitForProbe   bool
 	PauseMode      entrypoint.PauseMode
+	ArtifactsDir   string
+	ArtifactPath   string
 
 	healthStatus *healthStatus
 	args         []string
@@ -56,6 +60,8 @@ func parseFlags() *opts {
 	flag.DurationVar(&opts.CommandTimeout, "timeout", DefaultTimeout, "How long to allow the process to run before cancelling it")
 	flag.DurationVar(&opts.GracePeriod, "grace-period", GracePeriod, "How long to wait for the process to exit gracefully after sending a SIGINT before sending a SIGKILL")
 	flag.BoolVar(&opts.WaitForProbe, "wait-for-probe", true, "Wait for the entrypoint to be probed before starting the wrapped process")
+	flag.StringVar(&opts.ArtifactsDir, "artifacts-dir", entrypoint.ArtifactsDir, "Path to the directory where artifacts should be stored")
+	flag.StringVar(&opts.ArtifactPath, "artifact-path", entrypoint.ArtifactsPath, "Path to the packaged artifact tarball")
 
 	flag.Parse()
 
@@ -150,7 +156,7 @@ func (o *opts) Run(ctx context.Context) int {
 
 	code, err := o.executeProcess(ctx)
 	if err != nil {
-		clog.ErrorContextf(ctx, "Error executing wrapped process: %v", err)
+		clog.ErrorContextf(ctx, "wrapped process exited with exit code %d", code)
 		o.healthStatus.update(healthFailed, err.Error(), int64(code))
 	}
 
@@ -180,13 +186,6 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		stderrw = io.MultiWriter(stderrw, plf)
 	}
 
-	ef, err := os.Create(entrypoint.DefaultStderrLogPath)
-	if err != nil {
-		clog.ErrorContextf(ctx, "Error writing stderr log: %v", err)
-	}
-	defer ef.Close()
-	stderrw = io.MultiWriter(stderrw, ef)
-
 	if len(o.args) == 0 {
 		return entrypoint.InternalErrorCode, fmt.Errorf("no command provided")
 	}
@@ -210,6 +209,7 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		}
 	}
 
+	clog.InfoContext(ctx, "starting wrapped process", "cmd", cmdName, "args", cmdArgs)
 	if err := cmd.Start(); err != nil {
 		return entrypoint.InternalErrorCode, fmt.Errorf("failed to start the process: %w", err)
 	}
@@ -237,18 +237,7 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		var exitErr *exec.ExitError
 
 		if errors.As(waitErr, &exitErr) {
-			// grab stderr from the file
-			errdata, err := os.ReadFile(entrypoint.DefaultStderrLogPath)
-			if err != nil {
-				clog.ErrorContextf(ctx, "Error reading stderr log: %v", err)
-			}
-
-			errmsg := fmt.Sprintf("%s (exit code %d)",
-				errdata,
-				exitErr.ExitCode(),
-			)
-
-			return exitErr.ExitCode(), fmt.Errorf("%s", errmsg)
+			return exitErr.ExitCode(), exitErr
 		}
 
 		// we got an error while force killing
@@ -259,6 +248,12 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 }
 
 func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
+	if err := o.bundleArtifacts(ctx); err != nil {
+		clog.ErrorContextf(ctx, "failed to bundle artifacts: %v", err)
+		// NOTE: Let it fallthrough so we don't block the pause, this will surface
+		// on the client side as an error instead
+	}
+
 	// TODO: refactor to QF1001: could apply De Morgan's law (staticcheck)
 	if o.PauseMode != entrypoint.PauseAlways &&
 		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) { //nolint: staticcheck
@@ -285,6 +280,82 @@ func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
 	}
 
 	return entrypoint.ProcessPausedCode
+}
+
+// bundleArtifacts builds the artifacts bundle suitable for exfiltration/upload.
+func (o *opts) bundleArtifacts(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	if err := os.MkdirAll(o.ArtifactsDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory for artifact file %s: %w", o.ArtifactPath, err)
+	}
+
+	af, err := os.Create(o.ArtifactPath)
+	if err != nil {
+		return err
+	}
+	defer af.Close()
+
+	gzw := gzip.NewWriter(af)
+	defer gzw.Close()
+
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+
+	err = filepath.WalkDir(o.ArtifactsDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("error accessing path %s during walk: %w", path, walkErr)
+		}
+
+		if path == o.ArtifactsDir {
+			return nil
+		}
+
+		fi, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("failed to get FileInfo for %s: %w", path, err)
+		}
+
+		// Don't chase symlinks
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		hdr, err := tar.FileInfoHeader(fi, "")
+		if err != nil {
+			return fmt.Errorf("failed to create tar header for %s: %w", path, err)
+		}
+
+		rpath, err := filepath.Rel(o.ArtifactsDir, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
+		}
+		hdr.Name = filepath.ToSlash(rpath)
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			return fmt.Errorf("failed to write tar header for %s: %w", path, err)
+		}
+
+		if !fi.IsDir() && fi.Mode().IsRegular() {
+			f, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("failed to open file %s for tarring: %w", path, err)
+			}
+			defer f.Close()
+
+			if _, err := io.CopyN(tw, f, fi.Size()); err != nil {
+				return fmt.Errorf("failed to copy file content %s to tar archive: %w", path, err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed walking artifacts directory %s: %w", o.ArtifactsDir, err)
+	}
+
+	log.InfoContext(ctx, "finished bundling artifacts", "target", o.ArtifactPath)
+	return nil
 }
 
 // gracefullyTerminate sends a SIGINT, waits for gracePeriod, then sends a SIGKILL.
