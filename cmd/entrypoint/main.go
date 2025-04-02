@@ -10,6 +10,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -86,8 +87,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Run the entrypoint as a health check
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
-		// Run the binary as a health check
 		logger := clog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 		conn, err := net.Dial("unix", entrypoint.DefaultHealthCheckSocket)
@@ -119,6 +120,39 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Run the entrypoint and block via the pause
+	if len(os.Args) == 2 && os.Args[1] == "wait" {
+		if err := wait(ctx); err != nil {
+			clog.ErrorContextf(ctx, "failed to wait: %v", err)
+			os.Exit(entrypoint.InternalErrorCode)
+		}
+
+		os.Exit(0)
+	}
+
+	// Bundle the artifact dir and export it to stdout
+	if len(os.Args) == 2 && os.Args[1] == "export" {
+		f, err := os.Open(opts.ArtifactPath)
+		if err != nil {
+			clog.ErrorContextf(ctx, "failed to open artifact path: %v", err)
+			os.Exit(entrypoint.InternalErrorCode)
+		}
+		defer f.Close()
+
+		if _, err := io.Copy(os.Stdout, f); err != nil {
+			clog.ErrorContextf(ctx, "failed to copy artifact to stdout: %v", err)
+			os.Exit(entrypoint.InternalErrorCode)
+		}
+
+		// after the copy is done, send a resume signal
+		if err := resume(); err != nil {
+			clog.ErrorContextf(ctx, "failed to resume: %v", err)
+			os.Exit(entrypoint.InternalErrorCode)
+		}
+
+		os.Exit(0)
+	}
+
 	// Maybe start a registry proxy
 	if os.Getenv(entrypoint.DriverLocalRegistryEnvVar) != "" {
 		port, err := strconv.Atoi(os.Getenv(entrypoint.DriverLocalRegistryPortEnvVar))
@@ -143,6 +177,7 @@ func main() {
 
 	// Run the binary as an entrypoint
 	code := opts.Run(ctx)
+	clog.InfoContextf(ctx, "exiting with code: %d", code)
 	os.Exit(code)
 }
 
@@ -248,15 +283,19 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 }
 
 func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
-	if err := o.bundleArtifacts(ctx); err != nil {
-		clog.ErrorContextf(ctx, "failed to bundle artifacts: %v", err)
-		// NOTE: Let it fallthrough so we don't block the pause, this will surface
-		// on the client side as an error instead
+	berr := o.bundleArtifacts(ctx)
+	if berr != nil {
+		clog.ErrorContextf(ctx, "failed to bundle artifacts: %v", berr)
+		// Let this fallthrough so we don't block the pause, but depending on the pause we may surface berr
 	}
 
 	// TODO: refactor to QF1001: could apply De Morgan's law (staticcheck)
 	if o.PauseMode != entrypoint.PauseAlways &&
 		!(execErr != nil && o.PauseMode == entrypoint.PauseOnError) { //nolint: staticcheck
+
+		if berr != nil {
+			return entrypoint.InternalErrorCode
+		}
 		return code
 	}
 
@@ -284,8 +323,6 @@ func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
 
 // bundleArtifacts builds the artifacts bundle suitable for exfiltration/upload.
 func (o *opts) bundleArtifacts(ctx context.Context) error {
-	log := clog.FromContext(ctx)
-
 	if err := os.MkdirAll(o.ArtifactsDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory for artifact file %s: %w", o.ArtifactPath, err)
 	}
@@ -294,13 +331,13 @@ func (o *opts) bundleArtifacts(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer af.Close()
 
-	gzw := gzip.NewWriter(af)
-	defer gzw.Close()
+	h := sha256.New()
 
+	mw := io.MultiWriter(af, h)
+
+	gzw := gzip.NewWriter(mw)
 	tw := tar.NewWriter(gzw)
-	defer tw.Close()
 
 	err = filepath.WalkDir(o.ArtifactsDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -354,7 +391,29 @@ func (o *opts) bundleArtifacts(ctx context.Context) error {
 		return fmt.Errorf("failed walking artifacts directory %s: %w", o.ArtifactsDir, err)
 	}
 
-	log.InfoContext(ctx, "finished bundling artifacts", "target", o.ArtifactPath)
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("failed to close tar writer: %w", err)
+	}
+
+	if err := gzw.Close(); err != nil {
+		return fmt.Errorf("failed to close gzip writer: %w", err)
+	}
+
+	if err := af.Close(); err != nil {
+		return fmt.Errorf("failed to close artifact file: %w", err)
+	}
+
+	fi, err := os.Stat(o.ArtifactPath)
+	if err != nil {
+		return fmt.Errorf("failed to get file info for artifact file: %w", err)
+	}
+
+	clog.InfoContext(ctx, "finished bundling artifacts",
+		"target", o.ArtifactPath,
+		"dir", o.ArtifactsDir,
+		"size", fi.Size(),
+		"hash", fmt.Sprintf("%x", h.Sum(nil)),
+	)
 	return nil
 }
 
@@ -385,6 +444,14 @@ func gracefullyTerminate(ctx context.Context, cmd *exec.Cmd, gracePeriod time.Du
 			return
 		}
 	}
+}
+
+// resume writes some bytes to the named pipe to resume the process.
+func resume() error {
+	if err := os.WriteFile("/tmp/imagetest.unpause", []byte("resume"), 0o644); err != nil {
+		return fmt.Errorf("failed to write to resume file: %w", err)
+	}
+	return nil
 }
 
 func pause(parentCtx context.Context, exitCode int) error {
@@ -443,6 +510,27 @@ func pause(parentCtx context.Context, exitCode int) error {
 			return nil
 		}
 	}
+}
+
+// wait handles the "wait" command, and simply blocks until the process is resumed with a health check server so that it responds to probes.
+func wait(ctx context.Context) error {
+	clog.InfoContext(ctx, "starting wait...")
+
+	health := newHealthStatus()
+	teardown, err := health.startSocket()
+	if err != nil {
+		return fmt.Errorf("failed to start health socket: %w", err)
+	}
+	defer teardown()
+
+	health.update(healthPaused, "paused in wait mode", 0)
+
+	if err := pause(ctx, 0); err != nil {
+		return fmt.Errorf("failed to pause: %w", err)
+	}
+
+	clog.InfoContext(ctx, "finished pausing")
+	return nil
 }
 
 type healthState string

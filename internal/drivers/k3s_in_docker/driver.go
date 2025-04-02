@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -46,6 +47,7 @@ type driver struct {
 	name  string
 	stack *harness.Stack
 	kcli  kubernetes.Interface
+	kcfg  *rest.Config
 }
 
 type K3sRegistryConfig struct {
@@ -240,6 +242,7 @@ configs:
 		return fmt.Errorf("creating kubernetes client: %w", err)
 	}
 	k.kcli = kcli
+	k.kcfg = config
 
 	if k.kubeconfigWritePath != "" {
 		kcfg, err := clientcmd.Load(kcfgraw)
@@ -282,8 +285,8 @@ func (k *driver) Teardown(ctx context.Context) error {
 	return k.stack.Teardown(ctx)
 }
 
-func (k *driver) Run(ctx context.Context, ref name.Reference) error {
-	return pod.Run(ctx, k.kcli,
+func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
+	return pod.Run(ctx, k.kcfg,
 		pod.WithImageRef(ref),
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "k3s_in_docker",

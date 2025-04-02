@@ -1,15 +1,22 @@
 package provider
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
+	"net/url"
+	"os"
 	"regexp"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAccTestsResource(t *testing.T) {
@@ -18,7 +25,7 @@ func TestAccTestsResource(t *testing.T) {
 
 	k3sindockerTpl := `
 resource "imagetest_tests" "foo" {
-  name   = "foo"
+  name   = "%[1]s"
   driver = "k3s_in_docker"
 
   images = {
@@ -30,7 +37,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%s"
+      cmd     = "./%[1]s"
     }
   ]
 
@@ -41,7 +48,7 @@ resource "imagetest_tests" "foo" {
 
 	dockerindockerTpl := `
 resource "imagetest_tests" "foo" {
-  name   = "foo"
+  name   = "%[1]s"
   driver = "docker_in_docker"
 
   images = {
@@ -53,7 +60,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/busybox:latest"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%s"
+      cmd     = "./%[1]s"
     }
   ]
 
@@ -96,7 +103,7 @@ resource "imagetest_tests" "foo" {
 			{
 				Config: fmt.Sprintf(`
 resource "imagetest_tests" "foo" {
-  name   = "foo"
+  name   = "%[1]s"
   driver = "k3s_in_docker"
 
   drivers = {
@@ -116,7 +123,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/kubectl:latest-dev"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%s"
+      cmd     = "./%[1]s"
     }
   ]
 
@@ -134,6 +141,96 @@ resource "imagetest_tests" "foo" {
 				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
 			},
 		},
+		"k3sindocker-artifacts": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "k3s_in_docker"
+
+  drivers = {
+    k3s_in_docker = {}
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  // Something before GHA timeouts
+  timeout = "5m"
+}
+					`, "artifact.sh"),
+				Check: checkArtifact(t),
+			},
+		},
+		"k3sindocker-artifacts-on-failure": {
+			{
+				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "k3s_in_docker"
+
+  drivers = {
+    k3s_in_docker = {}
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  // Something before GHA timeouts
+  timeout = "5m"
+}
+					`, "artifact-with-failure.sh"),
+				Check: checkArtifact(t),
+			},
+		},
+		"dockerindocker-artifacts": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  // Something before GHA timeouts
+  timeout = "5m"
+}
+					`, "artifact.sh"),
+				Check: checkArtifact(t),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -149,6 +246,100 @@ resource "imagetest_tests" "foo" {
 				Steps: tc,
 			})
 		})
+	}
+}
+
+func checkArtifact(t *testing.T) func(s *terraform.State) error {
+	return func(s *terraform.State) error {
+		rname := "imagetest_tests.foo"
+		rs, ok := s.RootModule().Resources[rname]
+		if !ok {
+			return fmt.Errorf("resource not found: %s", rname)
+		}
+
+		t.Logf("rs: %#v", rs.Primary.Attributes)
+
+		auri, ok := rs.Primary.Attributes["tests.0.artifact.uri"]
+		if !ok {
+			return fmt.Errorf("attribute not found: %s", "tests.0.artifact.uri")
+		} else if auri == "" {
+			return fmt.Errorf("attribute value is empty: %s", "tests.0.artifact.uri")
+		}
+
+		achecksum, ok := rs.Primary.Attributes["tests.0.artifact.checksum"]
+		if !ok {
+			return fmt.Errorf("attribute not found: %s", "tests.0.artifact.checksum")
+		} else if achecksum == "" {
+			return fmt.Errorf("attribute value is empty: %s", "tests.0.artifact.checksum")
+		}
+
+		aurl, err := url.Parse(auri)
+		if err != nil {
+			return fmt.Errorf("failed to parse artifact URI: %w", err)
+		}
+
+		if aurl.Scheme != "file" {
+			return fmt.Errorf("expected artifact scheme to be file, got %s", aurl.Scheme)
+		}
+
+		t.Logf("exfiltrated artifact uri: %s", auri)
+
+		// load the tgz and verify its contents match what we expect
+		af, err := os.Open(aurl.EscapedPath())
+		if err != nil {
+			return fmt.Errorf("failed to open artifact file: %w", err)
+		}
+		defer af.Close()
+
+		gz, err := gzip.NewReader(af)
+		if err != nil {
+			return fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer gz.Close()
+
+		tr := tar.NewReader(gz)
+
+		match := false
+		expectedContent := "hello artifact content 123\n"
+		var content []byte
+
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+
+			if err != nil {
+				return fmt.Errorf("failed to read tar header: %w", err)
+			}
+
+			if hdr.Typeflag != tar.TypeReg {
+				continue
+			}
+
+			if hdr.Name != "results/output.txt" {
+				continue
+			}
+
+			match = true
+
+			content, err = io.ReadAll(tr)
+			if err != nil {
+				return fmt.Errorf("failed to read file content: %w", err)
+			}
+
+			break
+		}
+
+		if !match {
+			return fmt.Errorf("expected artifact to contain results/output.txt")
+		}
+
+		if diff := cmp.Diff(expectedContent, string(content)); diff != "" {
+			return fmt.Errorf("unexpected output.txt content (-want +got):\n%s", diff)
+		}
+
+		return nil
 	}
 }
 

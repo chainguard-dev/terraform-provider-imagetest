@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -17,16 +18,21 @@ import (
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	corev1apply "k8s.io/client-go/applyconfigurations/core/v1"
 	rbacv1apply "k8s.io/client-go/applyconfigurations/rbac/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/ptr"
 )
 
 const (
-	SandboxContainerName = "sandbox"
+	SandboxContainerName  = "sandbox"
+	ArtifactContainerName = "artifacts"
 )
 
 type opts struct {
@@ -38,12 +44,14 @@ type opts struct {
 	ExtraAnnotations map[string]string
 	ExtraLabels      map[string]string
 
-	client kubernetes.Interface
+	client   kubernetes.Interface
+	cfg      *rest.Config
+	logErrCh <-chan error
 }
 
 type RunOpts func(*opts) error
 
-func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) error {
+func Run(ctx context.Context, kcfg *rest.Config, options ...RunOpts) (*drivers.RunResult, error) {
 	o := opts{
 		Name:       "imagetest",
 		Namespace:  "imagetest",
@@ -57,32 +65,47 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 			"IMAGETEST": "true",
 		},
 
-		client: client,
+		cfg: kcfg,
 	}
 
 	for _, opt := range options {
 		if err := opt(&o); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
+	kcli, err := kubernetes.NewForConfig(kcfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating kubernetes client: %w", err)
+	}
+	o.client = kcli
+
 	if err := o.preflight(ctx); err != nil {
-		return err
+		return nil, err
 	}
 
 	pobj, err := o.client.CoreV1().Pods(o.Namespace).
 		Create(ctx, o.pod(), metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to create pod: %w", err)
+		return nil, fmt.Errorf("failed to create pod: %w", err)
 	}
 
-	plog := clog.FromContext(ctx).With("pod_name", pobj.Name, "pod_namespace", pobj.Namespace)
+	ctx = clog.WithValues(ctx,
+		"pod_name", pobj.Name,
+		"pod_namespace", pobj.Namespace,
+	)
+
+	if err := o.wait(ctx, pobj); err != nil {
+		return nil, err
+	}
+
+	clog.InfoContext(ctx, "pod successfully started")
 
 	ew, err := o.client.CoreV1().Events(pobj.Namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", pobj.Name),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to watch events: %w", err)
+		return nil, fmt.Errorf("failed to watch events: %w", err)
 	}
 	defer ew.Stop()
 
@@ -90,14 +113,21 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 		FieldSelector: fmt.Sprintf("metadata.name=%s", pobj.Name),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to watch pod: %w", err)
+		return nil, fmt.Errorf("failed to watch pod: %w", err)
 	}
 	defer pw.Stop()
 
-	var logErrCh <-chan error
-	logStreamOnce := sync.Once{}
+	var sandboxErr error
 
-	started := false
+	result := &drivers.RunResult{Artifact: &drivers.RunArtifactResult{}}
+
+	// defer trying to get the artifact
+	defer func() {
+		if err := o.getArtifact(ctx, pobj, result); err != nil {
+			clog.ErrorContext(ctx, "failed to get artifact", "error", err)
+		}
+	}()
+
 	for {
 		select {
 		case w, ok := <-ew.ResultChan():
@@ -110,12 +140,12 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				continue
 			}
 
-			plog.InfoContext(ctx, "noticed event", "message", e.Message, "reason", e.Reason, "name", e.Name)
+			clog.InfoContext(ctx, "noticed event", "message", e.Message, "reason", e.Reason, "name", e.Name)
 
-			if e.Reason == string(corev1.ResourceHealthStatusUnhealthy) && started && strings.Contains(e.Message, "Readiness probe failed") {
+			if e.Reason == string(corev1.ResourceHealthStatusUnhealthy) && strings.Contains(e.Message, "Readiness probe failed") {
 				// this filters out "Readiness probe errored" events, which are always
 				// fired after a pod successfully completes (0/1 Completed)
-				plog.InfoContext(ctx, "test sandbox pod failed and is paused in debug mode")
+				clog.InfoContext(ctx, "test sandbox pod failed and is paused in debug mode")
 
 				pe := &PodRunError{
 					Name:      pobj.Name,
@@ -136,7 +166,7 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				if len(parts) != 2 {
 					// just return the whole message
 					pe.Reason = fmt.Sprintf("readiness probe failed with unknown readiness check message: %s", e.Message)
-					return pe
+					return result, pe
 				}
 
 				// extract the exit code from the error
@@ -148,17 +178,17 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 					clog.WarnContext(ctx, "failed to parse healthcheck message", "message", e.Message, "part", parts[1])
 					pe.Reason = fmt.Sprintf("readiness probe failed with invalid readiness check message: %s", e.Message)
 					pe.e = err
-					return pe
+					return result, pe
 				}
 
 				if rmsg.ExitCode == entrypoint.ProcessPausedCode {
 					clog.InfoContext(ctx, "test sandbox successfully completed and is paused", "exit_code", rmsg.ExitCode, "probe_message", rmsg.Msg)
-					return nil
+					return result, nil
 				}
 
 				pe.ExitCode = int(rmsg.ExitCode)
 				pe.Reason = fmt.Sprintf("readiness probe failed: %s", rmsg.Msg)
-				return pe
+				return result, pe
 			}
 
 		case w, ok := <-pw.ResultChan():
@@ -172,61 +202,45 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 			}
 
 			if w.Type == watch.Deleted {
-				return fmt.Errorf("pod was deleted before tests could run")
+				return result, fmt.Errorf("pod was deleted before tests could run")
 			}
 
-			switch p.Status.Phase {
-			case corev1.PodRunning:
-				logStreamOnce.Do(func() {
-					logErrCh = o.startLogStream(ctx, pobj.Name)
-				})
+			for _, cs := range p.Status.ContainerStatuses {
+				// we only care about the sandbox container
+				if cs.Name == SandboxContainerName && cs.State.Terminated != nil {
+					clog.InfoContext(ctx, "sandbox container terminated", "exit_code", cs.State.Terminated.ExitCode, "reason", cs.State.Terminated.Reason, "message", cs.State.Terminated.Message)
 
-				for _, cs := range p.Status.ContainerStatuses {
-					if cs.Name == SandboxContainerName && cs.State.Running != nil && *cs.Started {
-						plog.InfoContext(ctx, "test sandbox pod has started")
-						started = true
-						break
-					}
-				}
-
-			case corev1.PodSucceeded:
-				plog.InfoContext(ctx, "test sandbox pod completed successfully")
-				return nil
-
-			case corev1.PodFailed, corev1.PodUnknown:
-				plog.InfoContext(ctx, "test sandbox pod exited with failure")
-
-				pe := &PodRunError{
-					Name:      pobj.Name,
-					Namespace: pobj.Namespace,
-					Reason:    "test sandbox failed",
-					ExitCode:  -1,
-					Logs:      o.maybeLog(ctx, pobj),
-				}
-
-				for _, cs := range p.Status.ContainerStatuses {
-					if cs.Name == SandboxContainerName {
-						if cs.State.Terminated != nil {
-							// Failed with a pause after successful completion, don't throw an error
-							if cs.State.Terminated.ExitCode == entrypoint.ProcessPausedCode {
-								return nil
-							}
-
-							pe.ExitCode = int(cs.State.Terminated.ExitCode)
-							return pe
+					if ec := cs.State.Terminated.ExitCode; ec != 0 {
+						sandboxErr = &PodRunError{
+							Name:      p.Name,
+							Namespace: p.Namespace,
+							Reason:    fmt.Sprintf("Container %s terminated: %s", SandboxContainerName, cs.State.Terminated.Reason),
+							ExitCode:  int(ec),
+							Logs:      o.maybeLog(ctx, p),
 						}
+
+						// Check if its a pause after success
+						if ec == entrypoint.ProcessPausedCode {
+							// Return without an error if it is
+							return result, nil
+						}
+
+						clog.InfoContext(ctx, "returning from pod.Run due to non-zero exit code termination", "exit_code", ec)
+						return result, sandboxErr
 					}
+
+					clog.InfoContext(ctx, "returning from pod.Run due to exit code 0 termination", "exit_code", cs.State.Terminated.ExitCode)
+					return result, nil
 				}
-				return pe
 			}
 
-		case err, ok := <-logErrCh:
+		case err, ok := <-o.logErrCh:
 			if ok && err != nil {
-				return fmt.Errorf("failed to stream logs: %w", err)
+				return result, fmt.Errorf("failed to stream logs: %w", err)
 			}
 
 		case <-ctx.Done():
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
+			return result, fmt.Errorf("context cancelled: %w", ctx.Err())
 		}
 	}
 }
@@ -291,6 +305,67 @@ func (o *opts) preflight(ctx context.Context) error {
 	return nil
 }
 
+func (o *opts) wait(ctx context.Context, pod *corev1.Pod) error {
+	pw, err := o.client.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", pod.Name),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to watch pod: %w", err)
+	}
+	defer pw.Stop()
+
+	ew, err := o.client.CoreV1().Events(pod.Namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to watch events: %w", err)
+	}
+	defer ew.Stop()
+
+	logStreamOnce := sync.Once{}
+
+	for {
+		select {
+		case w, ok := <-ew.ResultChan():
+			if !ok {
+				continue
+			}
+
+			e, ok := w.Object.(*corev1.Event)
+			if !ok {
+				continue
+			}
+
+			clog.InfoContext(ctx, "noticed event while waiting", "message", e.Message, "reason", e.Reason, "name", e.Name)
+
+		case w, ok := <-pw.ResultChan():
+			if !ok {
+				continue
+			}
+
+			p, ok := w.Object.(*corev1.Pod)
+			if !ok {
+				continue
+			}
+
+			if w.Type == watch.Deleted {
+				return fmt.Errorf("pod was deleted before tests could run")
+			}
+
+			switch p.Status.Phase {
+			case corev1.PodRunning:
+				logStreamOnce.Do(func() {
+					o.logErrCh = o.startLogStream(ctx, pod.Name)
+				})
+
+				return nil
+			case corev1.PodFailed:
+				return fmt.Errorf("pod failed with status %s", p.Status.Phase)
+			}
+		}
+	}
+}
+
 func (o *opts) startLogStream(ctx context.Context, podName string) <-chan error {
 	errch := make(chan error, 1)
 	lreq := o.client.CoreV1().Pods(o.Namespace).GetLogs(podName, &corev1.PodLogOptions{
@@ -344,13 +419,18 @@ func (o *opts) maybeLog(ctx context.Context, pod *corev1.Pod) string {
 
 	var buf bytes.Buffer
 	if _, err = io.Copy(&buf, rc); err != nil {
-		return fmt.Sprintf("failed to get logs: %v", err)
+		return fmt.Sprintf("failed to copy logs: %v", err)
 	}
 
 	return buf.String()
 }
 
 func (o *opts) pod() *corev1.Pod {
+	wref := entrypoint.ImageRef
+	if override := os.Getenv("IMAGETEST_ENTRYPOINT_REF"); override != "" {
+		wref = override
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-", o.Name),
@@ -401,6 +481,12 @@ func (o *opts) pod() *corev1.Pod {
 								},
 							},
 						},
+					},
+				},
+				{
+					Name: ArtifactContainerName,
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{},
 					},
 				},
 			},
@@ -464,6 +550,47 @@ func (o *opts) pod() *corev1.Pod {
 							MountPath: "/var/run/secrets/kubernetes.io/serviceaccount",
 							ReadOnly:  true,
 						},
+						{
+							Name:      ArtifactContainerName,
+							MountPath: entrypoint.ArtifactsMountPath,
+							ReadOnly:  false,
+						},
+					},
+				},
+				// The "sidecar" container used for storing artifacts to exfiltrate
+				{
+					Name:    ArtifactContainerName,
+					Image:   wref,
+					Command: []string{entrypoint.BinaryPath},
+					Args:    []string{"wait"},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      ArtifactContainerName,
+							MountPath: entrypoint.ArtifactsMountPath,
+							ReadOnly:  false,
+						},
+					},
+					StartupProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							Exec: &corev1.ExecAction{
+								Command: entrypoint.DefaultHealthCheckCommand,
+							},
+						},
+						InitialDelaySeconds: 0,
+						PeriodSeconds:       1,
+						FailureThreshold:    60,
+						TimeoutSeconds:      1,
+						SuccessThreshold:    1,
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("10m"),
+							corev1.ResourceMemory: resource.MustParse("16Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
 					},
 				},
 			},
@@ -486,6 +613,76 @@ func (o *opts) pod() *corev1.Pod {
 	}
 
 	return pod
+}
+
+func (o *opts) getArtifact(ctx context.Context, pod *corev1.Pod, result *drivers.RunResult) error {
+	req := o.client.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(pod.GetName()).
+		Namespace(pod.GetNamespace()).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: ArtifactContainerName,
+			Command:   []string{entrypoint.BinaryPath, "export"},
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(o.cfg, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("failed to create SPDY executor: %w", err)
+	}
+
+	reader, writer := io.Pipe()
+
+	var (
+		stderrBuf  bytes.Buffer
+		streamDone = make(chan error, 1)
+	)
+
+	go func() {
+		defer writer.Close()
+		clog.InfoContext(ctx, "starting stream to copy artifact")
+
+		// Stream data from pod to the pipe writer
+		streamErr := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdout: writer,
+			Stderr: &stderrBuf,
+		})
+
+		stderr := stderrBuf.String()
+		if stderr != "" {
+			clog.WarnContextf(ctx, "received stderr while streaming from pod: %v", stderr)
+		}
+
+		if streamErr != nil {
+			err := fmt.Errorf("stream error: %w (stderr: %q)", streamErr, stderr)
+			writer.CloseWithError(err)
+			clog.WarnContextf(ctx, "stream ended with error: %v", err)
+			streamDone <- err
+			return
+		}
+
+		clog.InfoContext(ctx, "stream finished successfully")
+		streamDone <- nil
+	}()
+
+	artifact, err := drivers.NewRunArtifactResult(ctx, reader)
+	if err != nil {
+		return fmt.Errorf("failed to process artifact: %w", err)
+	}
+
+	select {
+	case err := <-streamDone:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled: %w", ctx.Err())
+	}
+
+	result.Artifact = artifact
+	return nil
 }
 
 type PodRunError struct {

@@ -9,7 +9,7 @@ const (
 	WrapperPath = "/var/run/ko/entrypoint-wrapper.sh"
 
 	// DefaultProcessLogPath contains both stdout and stderr.
-	DefaultProcessLogPath = "/tmp/imagetest/artifacts/logs/process.log"
+	DefaultProcessLogPath = ArtifactsDir + "/logs/process.log"
 
 	DefaultHealthCheckSocket = "/tmp/imagetest.health.sock"
 
@@ -31,8 +31,9 @@ const (
 	DefaultWorkDir = "/imagetest/work"
 
 	AritfactsDirEnvVar = "IMAGETEST_ARTIFACTS"
-	ArtifactsDir       = "/tmp/imagetest/artifacts"
-	ArtifactsPath      = "/tmp/imagetest/artifacts.tar.gz"
+	ArtifactsMountPath = "/mnt/imagetest"
+	ArtifactsDir       = ArtifactsMountPath + "/artifacts"
+	ArtifactsPath      = ArtifactsMountPath + "/artifacts.tar.gz"
 )
 
 // PauseMode are the states of pause the entrypoint can be in.

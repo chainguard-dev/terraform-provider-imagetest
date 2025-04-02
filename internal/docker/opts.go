@@ -8,7 +8,7 @@ type Option func(*Client) error
 
 func WithClient(cli *client.Client) Option {
 	return func(d *Client) error {
-		d.cli = cli
+		d.inner = cli
 		return nil
 	}
 }

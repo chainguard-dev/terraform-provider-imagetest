@@ -82,7 +82,7 @@ func (d *driver) Teardown(ctx context.Context) error {
 }
 
 // Run implements drivers.TestDriver.
-func (d *driver) Run(ctx context.Context, ref name.Reference) error {
+func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
 	// Build the driver image, uses the provided dind image appended with the ref
 	tref, err := bundler.Mutate(ctx, d.ImageRef, ref.Context(), bundler.MutateOpts{
 		RemoteOptions: d.ropts,
@@ -126,28 +126,28 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to build driver image: %w", err)
+		return nil, fmt.Errorf("failed to build driver image: %w", err)
 	}
 
 	nw, err := d.cli.CreateNetwork(ctx, &docker.NetworkRequest{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := d.stack.Add(func(ctx context.Context) error {
 		return d.cli.RemoveNetwork(ctx, nw)
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	cliCfg, err := d.cliCfg.Content()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	daemonCfg, err := d.daemonCfg.Content()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	content := []*docker.Content{cliCfg, daemonCfg}
@@ -198,15 +198,29 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 		Contents:   content,
 		Logger:     mw,
 	})
+
+	result := &drivers.RunResult{}
+
+	arc, aerr := docker.GetFile(ctx, d.cli, cid, entrypoint.ArtifactsPath)
+	if aerr != nil {
+		clog.WarnContextf(ctx, "failed to retrieve artifact: %v", aerr)
+	} else {
+		a, aerr := drivers.NewRunArtifactResult(ctx, arc)
+		if aerr != nil {
+			clog.WarnContextf(ctx, "failed to create artifact result: %v", aerr)
+		}
+		result.Artifact = a
+	}
+
 	if err != nil {
 		var rerr *docker.RunError
 		if errors.As(err, &rerr) {
 			if rerr.ExitCode == entrypoint.ProcessPausedCode {
-				return nil
+				return result, nil
 			}
-			return fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
+			return result, fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
 		}
-		return fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
+		return result, fmt.Errorf("docker-in-docker test failed: %w\n\n%s", err, stw.String())
 	}
 
 	if err := d.stack.Add(func(ctx context.Context) error {
@@ -214,10 +228,10 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) error {
 			ID: cid,
 		})
 	}); err != nil {
-		return err
+		return result, err
 	}
 
-	return nil
+	return result, nil
 }
 
 type dockerConfig struct {
