@@ -2,6 +2,7 @@ package pod
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,10 @@ import (
 	rbacv1apply "k8s.io/client-go/applyconfigurations/rbac/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
+)
+
+const (
+	SandboxContainerName = "sandbox"
 )
 
 type opts struct {
@@ -112,12 +117,26 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				// fired after a pod successfully completes (0/1 Completed)
 				plog.InfoContext(ctx, "test sandbox pod failed and is paused in debug mode")
 
+				pe := &PodRunError{
+					Name:      pobj.Name,
+					Namespace: pobj.Namespace,
+					ExitCode:  -1,
+					Reason:    fmt.Sprintf("readiness probe failed: %s", e.Message),
+					Logs:      o.maybeLog(ctx, pobj),
+				}
+
 				// nastiness here is to parse the health check's exit code from the
 				// readiness probe events' message. there's got to be a better way...
+				//
+				// A parseable message looks like:
+				// 	Readiness probe failed: {"time":"2025-04-02T00:10:53.017770929Z","level":"INFO","msg":"pausing after error observed","exit_code":75}
+				//
+				// This splits on the first ":", and then processes the json structured message after it
 				parts := strings.Split(e.Message, ": ")
 				if len(parts) != 2 {
 					// just return the whole message
-					return fmt.Errorf("test sandbox failed in debug mode and is now paused\n\n%s", e.Message)
+					pe.Reason = fmt.Sprintf("readiness probe failed with unknown readiness check message: %s", e.Message)
+					return pe
 				}
 
 				// extract the exit code from the error
@@ -127,7 +146,9 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				}
 				if err := json.Unmarshal([]byte(parts[1]), &rmsg); err != nil {
 					clog.WarnContext(ctx, "failed to parse healthcheck message", "message", e.Message, "part", parts[1])
-					return fmt.Errorf("test sandbox failed in debug mode and is now paused\n\n%s", e.Message)
+					pe.Reason = fmt.Sprintf("readiness probe failed with invalid readiness check message: %s", e.Message)
+					pe.e = err
+					return pe
 				}
 
 				if rmsg.ExitCode == entrypoint.ProcessPausedCode {
@@ -135,7 +156,9 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 					return nil
 				}
 
-				return fmt.Errorf("test sandbox failed in debug mode and is now paused (exit_code: %d)\n\n%s", rmsg.ExitCode, rmsg.Msg)
+				pe.ExitCode = int(rmsg.ExitCode)
+				pe.Reason = fmt.Sprintf("readiness probe failed: %s", rmsg.Msg)
+				return pe
 			}
 
 		case w, ok := <-pw.ResultChan():
@@ -159,7 +182,7 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 				})
 
 				for _, cs := range p.Status.ContainerStatuses {
-					if cs.Name == "sandbox" && cs.State.Running != nil && *cs.Started {
+					if cs.Name == SandboxContainerName && cs.State.Running != nil && *cs.Started {
 						plog.InfoContext(ctx, "test sandbox pod has started")
 						started = true
 						break
@@ -173,23 +196,28 @@ func Run(ctx context.Context, client kubernetes.Interface, options ...RunOpts) e
 			case corev1.PodFailed, corev1.PodUnknown:
 				plog.InfoContext(ctx, "test sandbox pod exited with failure")
 
-				err := fmt.Errorf("pod %s/%s exited with failure", pobj.Name, pobj.Namespace)
+				pe := &PodRunError{
+					Name:      pobj.Name,
+					Namespace: pobj.Namespace,
+					Reason:    "test sandbox failed",
+					ExitCode:  -1,
+					Logs:      o.maybeLog(ctx, pobj),
+				}
+
 				for _, cs := range p.Status.ContainerStatuses {
-					if cs.Name == "sandbox" {
+					if cs.Name == SandboxContainerName {
 						if cs.State.Terminated != nil {
+							// Failed with a pause after successful completion, don't throw an error
 							if cs.State.Terminated.ExitCode == entrypoint.ProcessPausedCode {
 								return nil
 							}
 
-							err = fmt.Errorf("%w\n\nexit code: %d, reason: %s, message: %s", err,
-								cs.State.Terminated.ExitCode,
-								cs.State.Terminated.Reason,
-								cs.State.Terminated.Message,
-							)
+							pe.ExitCode = int(cs.State.Terminated.ExitCode)
+							return pe
 						}
 					}
 				}
-				return err
+				return pe
 			}
 
 		case err, ok := <-logErrCh:
@@ -267,7 +295,7 @@ func (o *opts) startLogStream(ctx context.Context, podName string) <-chan error 
 	errch := make(chan error, 1)
 	lreq := o.client.CoreV1().Pods(o.Namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Follow:    true,
-		Container: "sandbox",
+		Container: SandboxContainerName,
 	})
 
 	logs, err := lreq.Stream(ctx)
@@ -299,6 +327,27 @@ func (o *opts) startLogStream(ctx context.Context, podName string) <-chan error 
 	}()
 
 	return errch
+}
+
+func (o *opts) maybeLog(ctx context.Context, pod *corev1.Pod) string {
+	req := o.client.CoreV1().Pods(o.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+		Container: SandboxContainerName,
+		// limit to 1mb of logs
+		LimitBytes: nil,
+	})
+
+	rc, err := req.Stream(ctx)
+	if err != nil {
+		return fmt.Sprintf("failed to get logs: %v", err)
+	}
+	defer rc.Close()
+
+	var buf bytes.Buffer
+	if _, err = io.Copy(&buf, rc); err != nil {
+		return fmt.Sprintf("failed to get logs: %v", err)
+	}
+
+	return buf.String()
 }
 
 func (o *opts) pod() *corev1.Pod {
@@ -358,7 +407,7 @@ func (o *opts) pod() *corev1.Pod {
 			Containers: []corev1.Container{
 				// The primary test workspace
 				{
-					Name:  "sandbox",
+					Name:  SandboxContainerName,
 					Image: o.ImageRef.String(),
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &[]bool{true}[0],
@@ -383,8 +432,7 @@ func (o *opts) pod() *corev1.Pod {
 							},
 						},
 					},
-					WorkingDir:             o.WorkingDir,
-					TerminationMessagePath: entrypoint.DefaultStderrLogPath,
+					WorkingDir: o.WorkingDir,
 					StartupProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
 							Exec: &corev1.ExecAction{
@@ -438,4 +486,37 @@ func (o *opts) pod() *corev1.Pod {
 	}
 
 	return pod
+}
+
+type PodRunError struct {
+	Name      string
+	Namespace string
+	Reason    string
+	ExitCode  int
+	Logs      string
+	e         error
+}
+
+func (e PodRunError) Error() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "pod %s/%s error: %s", e.Namespace, e.Name, e.Reason)
+
+	if e.ExitCode != -1 {
+		fmt.Fprintf(&sb, ", exit_code=%d", e.ExitCode)
+	}
+
+	if e.e != nil {
+		fmt.Fprintf(&sb, ", caused by: %v", e.e)
+	}
+
+	if e.Logs != "" {
+		sb.WriteString(", Pod Logs:\n\n")
+		sb.WriteString(e.Logs)
+	}
+
+	return sb.String()
+}
+
+func (e PodRunError) Unwrap() error {
+	return e.e
 }
