@@ -35,14 +35,14 @@ func WithRemoteOptions(opts ...remote.Option) DriverOpts {
 // TODO: Replace this with Jon's cred proxy: https://gist.github.com/jonjohnsonjr/6d20148edca0f187cfed050cee669685
 func WithRegistryAuth(registry string) DriverOpts {
 	return func(d *driver) error {
-		if d.config == nil {
-			d.config = &dockerConfig{
+		if d.cliCfg == nil {
+			d.cliCfg = &dockerConfig{
 				Auths: make(map[string]dockerAuthEntry),
 			}
 		}
 
-		if d.config.Auths == nil {
-			d.config.Auths = make(map[string]dockerAuthEntry)
+		if d.cliCfg.Auths == nil {
+			d.cliCfg.Auths = make(map[string]dockerAuthEntry)
 		}
 
 		r, err := name.NewRegistry(registry)
@@ -60,7 +60,7 @@ func WithRegistryAuth(registry string) DriverOpts {
 			return err
 		}
 
-		d.config.Auths[registry] = dockerAuthEntry{
+		d.cliCfg.Auths[registry] = dockerAuthEntry{
 			Username: acfg.Username,
 			Password: acfg.Password,
 			Auth:     acfg.Auth,
@@ -88,6 +88,23 @@ func WithExtraEnvs(envs map[string]string) DriverOpts {
 		for k, v := range envs {
 			d.Envs[k] = v
 		}
+		return nil
+	}
+}
+
+func WithRegistryMirrors(mirrors ...string) DriverOpts {
+	return func(d *driver) error {
+		if d.daemonCfg == nil {
+			d.daemonCfg = &daemonConfig{
+				Mirrors: make([]string, 0),
+			}
+		}
+
+		if d.daemonCfg.Mirrors == nil {
+			d.daemonCfg.Mirrors = make([]string, 0)
+		}
+
+		d.daemonCfg.Mirrors = append(d.daemonCfg.Mirrors, mirrors...)
 		return nil
 	}
 }

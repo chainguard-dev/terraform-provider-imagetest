@@ -55,7 +55,8 @@ type K3sInDockerDriverHooksModel struct {
 }
 
 type DockerInDockerDriverResourceModel struct {
-	Image types.String `tfsdk:"image"`
+	Image   types.String `tfsdk:"image"`
+	Mirrors []string     `tfsdk:"mirrors"`
 }
 
 type EKSWithEksctlDriverResourceModel struct{}
@@ -157,6 +158,10 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 			opts = append(opts, dockerindocker.WithImageRef(cfg.Image.ValueString()))
 		}
 
+		if len(cfg.Mirrors) > 0 {
+			opts = append(opts, dockerindocker.WithRegistryMirrors(cfg.Mirrors...))
+		}
+
 		if isLocalRegistry(t.repo.Registry) {
 			u, err := url.Parse("http://" + t.repo.RegistryStr())
 			if err != nil {
@@ -256,6 +261,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 				Attributes: map[string]schema.Attribute{
 					"image": schema.StringAttribute{
 						Description: "The image reference to use for the docker-in-docker driver",
+						Optional:    true,
+					},
+					"mirrors": schema.ListAttribute{
+						ElementType: types.StringType,
 						Optional:    true,
 					},
 				},

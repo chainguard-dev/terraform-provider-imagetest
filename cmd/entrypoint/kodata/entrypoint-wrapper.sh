@@ -2,15 +2,15 @@
 set -eu
 
 info() {
-  printf '%s [INFO] %s\n' "$(date "+%Y-%m-%dT%H:%M:%S")" "$1" >&2
+  printf '%s INFO %s\n' "$(date "+%Y-%m-%dT%H:%M:%S")" "$1" >&2
 }
 
 warn() {
-  printf '%s [WARN] %s\n' "$(date "+%Y-%m-%dT%H:%M:%S")" "$1" >&2
+  printf '%s WARN %s\n' "$(date "+%Y-%m-%dT%H:%M:%S")" "$1" >&2
 }
 
 error() {
-  printf '%s [ERROR] %s\n' "$(date "+%Y-%m-%dT%H:%M:%S")" "$1" >&2
+  printf '%s ERROR %s\n' "$(date "+%Y-%m-%dT%H:%M:%S")" "$1" >&2
 }
 
 # Print usage and exit with error
@@ -49,7 +49,7 @@ init_docker_in_docker() {
   mkdir -p "$log_dir"
 
   # Start Docker daemon in background, capturing logs
-  /usr/bin/dockerd-entrypoint.sh dockerd --default-address-pool "base=192.0.0.0/20,size=24" >"$log_dir/dockerd.log" 2>&1 &
+  /usr/bin/dockerd-entrypoint.sh dockerd >"$log_dir/dockerd.log" 2>&1 &
 
   # Wait for Docker to be ready
   info "Waiting for Docker daemon to be ready..."
