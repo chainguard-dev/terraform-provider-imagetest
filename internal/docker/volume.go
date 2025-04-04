@@ -20,7 +20,7 @@ func (d *Client) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 		req.Labels = make(map[string]string)
 	}
 
-	v, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
+	v, err := d.inner.VolumeCreate(ctx, volume.CreateOptions{
 		Name:   req.Name,
 		Labels: req.Labels,
 	})
@@ -39,5 +39,5 @@ func (d *Client) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 }
 
 func (d *Client) RemoveVolume(ctx context.Context, v mount.Mount) error {
-	return d.cli.VolumeRemove(ctx, v.Source, true)
+	return d.inner.VolumeRemove(ctx, v.Source, true)
 }

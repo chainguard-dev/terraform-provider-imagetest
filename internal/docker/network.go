@@ -47,7 +47,7 @@ func (d *Client) CreateNetwork(ctx context.Context, req *NetworkRequest) (*Netwo
 		Steps:    5,
 		Cap:      1 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		resp, err := d.cli.NetworkCreate(ctx, req.Name, network.CreateOptions{
+		resp, err := d.inner.NetworkCreate(ctx, req.Name, network.CreateOptions{
 			Driver:     "bridge",
 			Labels:     d.withDefaultLabels(req.Labels),
 			IPAM:       req.IPAM,
@@ -78,7 +78,7 @@ func (d *Client) CreateNetwork(ctx context.Context, req *NetworkRequest) (*Netwo
 }
 
 func (d *Client) RemoveNetwork(ctx context.Context, nw *NetworkAttachment) error {
-	return d.cli.NetworkRemove(ctx, nw.ID)
+	return d.inner.NetworkRemove(ctx, nw.ID)
 }
 
 func isRetryableNetworkCreateError(err error) bool {

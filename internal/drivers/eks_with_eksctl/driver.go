@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -24,6 +25,7 @@ type driver struct {
 	namespace   string
 	kubeconfig  string
 	kcli        kubernetes.Interface
+	kcfg        *rest.Config
 }
 
 type DriverOpts func(*driver) error
@@ -103,6 +105,7 @@ func (k *driver) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("building kubeconfig: %w", err)
 	}
+	k.kcfg = config
 
 	kcli, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -124,8 +127,8 @@ func (k *driver) Teardown(ctx context.Context) error {
 	return nil
 }
 
-func (k *driver) Run(ctx context.Context, ref name.Reference) error {
-	return pod.Run(ctx, k.kcli,
+func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
+	return pod.Run(ctx, k.kcfg,
 		pod.WithImageRef(ref),
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "eks_with_eksctl",

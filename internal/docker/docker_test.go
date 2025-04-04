@@ -32,7 +32,7 @@ func TestDocker(t *testing.T) {
 	require.NoError(t, err)
 
 	// Validate the network was removed
-	_, err = d.cli.NetworkInspect(ctx, nw.ID, network.InspectOptions{})
+	_, err = d.inner.NetworkInspect(ctx, nw.ID, network.InspectOptions{})
 	require.ErrorContains(t, err, "not found")
 
 	// Create a network
@@ -102,7 +102,7 @@ func TestDocker(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure the volume was removed
-	_, err = d.cli.VolumeInspect(ctx, vol.Source)
+	_, err = d.inner.VolumeInspect(ctx, vol.Source)
 	require.ErrorContains(t, err, "no such volume")
 
 	err = d.RemoveNetwork(ctx, nw)

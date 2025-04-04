@@ -30,7 +30,7 @@ import (
 )
 
 type Client struct {
-	cli   *client.Client
+	inner *client.Client
 	copts []client.Opt
 }
 
@@ -77,7 +77,7 @@ func New(opts ...Option) (*Client, error) {
 		}
 	}
 
-	if d.cli == nil {
+	if d.inner == nil {
 		copts := []client.Opt{
 			client.FromEnv,
 			client.WithAPIVersionNegotiation(),
@@ -89,7 +89,7 @@ func New(opts ...Option) (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating docker client: %w", err)
 		}
-		d.cli = cli
+		d.inner = cli
 	}
 
 	return d, nil
@@ -101,14 +101,14 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		return "", fmt.Errorf("starting container: %w", err)
 	}
 
-	statusCh, errCh := d.cli.ContainerWait(ctx, cid, container.WaitConditionNotRunning)
+	statusCh, errCh := d.inner.ContainerWait(ctx, cid, container.WaitConditionNotRunning)
 
 	// TODO: This is specific to Run() and not in Start() because Run() has a
 	// clearly defined exit condition. In the future we may want to consider
 	// adding this to Start(), but its unclear how useful those logs would be,
 	// and how to even surface them without being overly verbose.
 	if req.Logger != nil {
-		logs, err := d.cli.ContainerLogs(ctx, cid, container.LogsOptions{
+		logs, err := d.inner.ContainerLogs(ctx, cid, container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
@@ -136,7 +136,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 				case <-ctx.Done():
 					return
 				default:
-					inspect, err := d.cli.ContainerInspect(ctx, cid)
+					inspect, err := d.inner.ContainerInspect(ctx, cid)
 					if err != nil {
 						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
 						return
@@ -160,25 +160,25 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 
 	select {
 	case <-ctx.Done():
-		return "", fmt.Errorf("context cancelled while waiting for container to exit: %w", ctx.Err())
+		return cid, fmt.Errorf("context cancelled while waiting for container to exit: %w", ctx.Err())
 
 	case err := <-errCh:
-		return "", fmt.Errorf("waiting for container to exit: %w", err)
+		return cid, fmt.Errorf("waiting for container to exit: %w", err)
 
 	case status := <-statusCh:
 		if status.Error != nil {
-			return "", &RunError{
+			return cid, &RunError{
 				ExitCode: status.StatusCode,
 				Message:  status.Error.Message,
 			}
 		}
 
 		if status.StatusCode != 0 {
-			return "", &RunError{ExitCode: status.StatusCode}
+			return cid, &RunError{ExitCode: status.StatusCode}
 		}
 
 	case err := <-unhealthyCh:
-		return "", err
+		return cid, err
 	}
 
 	return cid, nil
@@ -207,7 +207,7 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 	cname := ""
 	var cjson container.InspectResponse
 	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, req.Timeout, true, func(ctx context.Context) (bool, error) {
-		inspect, err := d.cli.ContainerInspect(ctx, cid)
+		inspect, err := d.inner.ContainerInspect(ctx, cid)
 		if err != nil {
 			// We always want to retry within the timeout, so ignore the error.
 			//lint:ignore nilerr reason
@@ -247,7 +247,7 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 		ContainerJSON: cjson,
 		ID:            cid,
 		Name:          cname,
-		cli:           d.cli,
+		cli:           d,
 	}, nil
 }
 
@@ -288,7 +288,7 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 		return "", fmt.Errorf("pulling image: %w", err)
 	}
 
-	cresp, err := d.cli.ContainerCreate(ctx,
+	cresp, err := d.inner.ContainerCreate(ctx,
 		&container.Config{
 			Image:        req.Ref.String(),
 			Entrypoint:   req.Entrypoint,
@@ -331,12 +331,12 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 	}
 
 	for _, content := range req.Contents {
-		if err := d.cli.CopyToContainer(ctx, cresp.ID, "/", content, container.CopyToContainerOptions{}); err != nil {
+		if err := d.inner.CopyToContainer(ctx, cresp.ID, "/", content, container.CopyToContainerOptions{}); err != nil {
 			return "", fmt.Errorf("copying content to container: %w", err)
 		}
 	}
 
-	if err := d.cli.ContainerStart(ctx, cresp.ID, container.StartOptions{}); err != nil {
+	if err := d.inner.ContainerStart(ctx, cresp.ID, container.StartOptions{}); err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
 	}
 
@@ -345,7 +345,7 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 
 // Connect returns a response for a container that is already running.
 func (d *Client) Connect(ctx context.Context, cid string) (*Response, error) {
-	info, err := d.cli.ContainerInspect(ctx, cid)
+	info, err := d.inner.ContainerInspect(ctx, cid)
 	if err != nil {
 		return nil, fmt.Errorf("inspecting container: %w", err)
 	}
@@ -357,14 +357,14 @@ func (d *Client) Connect(ctx context.Context, cid string) (*Response, error) {
 	return &Response{
 		ID:   info.ID,
 		Name: info.Name,
-		cli:  d.cli,
+		cli:  d,
 	}, nil
 }
 
 // pull the image if it doesn't exist in the daemon.
 func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 	var buf bytes.Buffer
-	if _, err := d.cli.ImageInspect(ctx, ref.Name(), client.ImageInspectWithRawResponse(&buf)); err != nil {
+	if _, err := d.inner.ImageInspect(ctx, ref.Name(), client.ImageInspectWithRawResponse(&buf)); err != nil {
 		if !client.IsErrNotFound(err) {
 			return fmt.Errorf("checking if image exists: %w", err)
 		}
@@ -393,7 +393,7 @@ func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 		return fmt.Errorf("marshaling auth data: %w", err)
 	}
 
-	pull, err := d.cli.ImagePull(ctx, ref.Name(), image.PullOptions{
+	pull, err := d.inner.ImagePull(ctx, ref.Name(), image.PullOptions{
 		RegistryAuth: base64.URLEncoding.EncodeToString(authdata),
 	})
 	if err != nil {
@@ -411,13 +411,13 @@ func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 // Remove forcibly removes all the resources associated with the given request.
 func (d *Client) Remove(ctx context.Context, resp *Response) error {
 	force := 0
-	if err := d.cli.ContainerStop(ctx, resp.ID, container.StopOptions{
+	if err := d.inner.ContainerStop(ctx, resp.ID, container.StopOptions{
 		Timeout: &force,
 	}); err != nil {
 		return fmt.Errorf("stopping container: %w", err)
 	}
 
-	return d.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{
+	return d.inner.ContainerRemove(ctx, resp.ID, container.RemoveOptions{
 		RemoveVolumes: true,
 	})
 }
@@ -427,11 +427,11 @@ type Response struct {
 	types.ContainerJSON
 	ID   string
 	Name string
-	cli  *client.Client
+	cli  *Client
 }
 
 func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
-	resp, err := r.cli.ContainerExecCreate(ctx, r.ID, container.ExecOptions{
+	resp, err := r.cli.inner.ContainerExecCreate(ctx, r.ID, container.ExecOptions{
 		Cmd:          []string{"sh", "-c", cmd.Args},
 		WorkingDir:   cmd.WorkingDir,
 		AttachStderr: true,
@@ -445,13 +445,13 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 		return fmt.Errorf("exec ID is empty")
 	}
 
-	attach, err := r.cli.ContainerExecAttach(ctx, resp.ID, container.ExecStartOptions{})
+	attach, err := r.cli.inner.ContainerExecAttach(ctx, resp.ID, container.ExecStartOptions{})
 	if err != nil {
 		return fmt.Errorf("attaching to exec: %w", err)
 	}
 	defer attach.Close()
 
-	if err := r.cli.ContainerExecStart(ctx, resp.ID, container.ExecStartOptions{}); err != nil {
+	if err := r.cli.inner.ContainerExecStart(ctx, resp.ID, container.ExecStartOptions{}); err != nil {
 		return fmt.Errorf("starting exec: %w", err)
 	}
 
@@ -483,7 +483,7 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 		}
 	}
 
-	exec, err := r.cli.ContainerExecInspect(ctx, resp.ID)
+	exec, err := r.cli.inner.ContainerExecInspect(ctx, resp.ID)
 	if err != nil {
 		return fmt.Errorf("inspecting exec: %w", err)
 	}
@@ -499,13 +499,13 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 	return nil
 }
 
-func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) {
+func GetFile(ctx context.Context, cli *Client, cid string, path string) (io.ReadCloser, error) {
 	// ensure path is absolute
 	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("path %s is not absolute", path)
 	}
 
-	trc, _, err := r.cli.CopyFromContainer(ctx, r.ID, path)
+	trc, _, err := cli.inner.CopyFromContainer(ctx, cid, path)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +527,27 @@ func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) 
 		return nil, fmt.Errorf("requested file %s does not match what is in the archive: %s", hdr.Name, path)
 	}
 
-	return tr, nil
+	return &fileReader{
+		tr:  tr,
+		trc: trc,
+	}, nil
+}
+
+type fileReader struct {
+	tr  *tar.Reader
+	trc io.ReadCloser
+}
+
+func (fr *fileReader) Read(p []byte) (int, error) {
+	return fr.tr.Read(p)
+}
+
+func (fr *fileReader) Close() error {
+	return fr.trc.Close()
+}
+
+func (r *Response) GetFile(ctx context.Context, path string) (io.Reader, error) {
+	return GetFile(ctx, r.cli, r.ID, path)
 }
 
 // ReadFile is a helper method over GetFile() that returns the raw contents.
