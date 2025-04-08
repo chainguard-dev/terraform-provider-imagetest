@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -70,6 +73,10 @@ func (t *TestsLambdaResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
+	if data.Name.IsNull() {
+		data.Name = types.StringValue(uuid.New().String())
+	}
+
 	resp.Diagnostics.Append(t.do(ctx, &data)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -93,7 +100,11 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse image digest", err.Error())}
 	}
-	data.Id = types.StringValue(ref.DigestStr())
+
+	h := sha256.New()
+	fmt.Fprint(h, data.Name.ValueString())
+	fmt.Fprint(h, ref.DigestStr())
+	data.Id = types.StringValue(fmt.Sprintf("%x", h.Sum(nil)))
 
 	t.ropts = append(t.ropts, remote.WithContext(ctx))
 
@@ -113,7 +124,7 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to setup driver", err.Error())}
 	}
 
-	if err := dr.Run(ctx, ref); err != nil {
+	if _, err := dr.Run(ctx, ref); err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("test failed", err.Error())}
 	}
 	return nil

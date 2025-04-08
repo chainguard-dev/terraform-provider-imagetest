@@ -53,10 +53,10 @@ func (k *driver) Teardown(ctx context.Context) error {
 	return nil
 }
 
-func (k *driver) Run(ctx context.Context, ref name.Reference) error {
+func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
 	dig, ok := ref.(name.Digest)
 	if !ok {
-		return fmt.Errorf("expected digest reference, got %T %q", ref, ref)
+		return nil, fmt.Errorf("expected digest reference, got %T %q", ref, ref)
 	}
 
 	// TODO: ensure a minimal role `lambda-ex`
@@ -69,16 +69,16 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) error {
 		Role:         &[]string{os.Getenv("IMAGETEST_LAMBDA_ROLE")}[0], // TODO remove this
 		Publish:      true,
 	}); err != nil {
-		return fmt.Errorf("creating Lambda function: %w", err)
+		return nil, fmt.Errorf("creating Lambda function: %w", err)
 	}
 	clog.FromContext(ctx).Info("Created Lambda function", "name", k.functionName)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		out, err := k.client.GetFunction(ctx, &lambda.GetFunctionInput{
 			FunctionName: &k.functionName,
 		})
 		if err != nil {
-			return fmt.Errorf("getting Lambda function: %w", err)
+			return nil, fmt.Errorf("getting Lambda function: %w", err)
 		}
 		if out.Configuration.State == types.StateActive {
 			break
@@ -90,16 +90,16 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) error {
 
 	// Invoke the function to ensure it is ready.
 	if out, err := k.client.Invoke(ctx, &lambda.InvokeInput{FunctionName: &k.functionName}); err != nil {
-		return fmt.Errorf("failed to invoke Lambda function: %w", err)
+		return nil, fmt.Errorf("failed to invoke Lambda function: %w", err)
 	} else if out.StatusCode != 200 {
-		return fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
+		return nil, fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
 	} else if out.FunctionError != nil {
-		return fmt.Errorf("function returned error: %q", *out.FunctionError)
+		return nil, fmt.Errorf("function returned error: %q", *out.FunctionError)
 	} else {
 		if out == nil {
-			return fmt.Errorf("function returned nil output")
+			return nil, fmt.Errorf("function returned nil output")
 		}
 		clog.FromContext(ctx).Info("function invoked successfully", "out", out)
 	}
-	return nil
+	return nil, nil
 }
