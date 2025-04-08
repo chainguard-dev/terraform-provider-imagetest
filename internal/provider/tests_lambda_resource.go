@@ -102,8 +102,8 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 	}
 
 	h := sha256.New()
-	fmt.Fprint(h, data.Name.ValueString())
-	fmt.Fprint(h, ref.DigestStr())
+	_, _ = fmt.Fprint(h, data.Name.ValueString())
+	_, _ = fmt.Fprint(h, ref.DigestStr())
 	data.Id = types.StringValue(fmt.Sprintf("%x", h.Sum(nil)))
 
 	t.ropts = append(t.ropts, remote.WithContext(ctx))
