@@ -54,8 +54,6 @@ func (k *driver) Teardown(ctx context.Context) error {
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) error {
-	os.WriteFile("lambda.run", []byte("hello i am dog"), 0644)
-
 	dig, ok := ref.(name.Digest)
 	if !ok {
 		return fmt.Errorf("expected digest reference, got %T %q", ref, ref)
@@ -63,10 +61,10 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) error {
 
 	// TODO: ensure a minimal role `lambda-ex`
 
-	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[0:7], time.Now().Unix())
+	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[8:16], time.Now().Unix())
 	if _, err := k.client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: &k.functionName,
-		Code:         &types.FunctionCode{ImageUri: &[]string{ref.Identifier()}[0]},
+		Code:         &types.FunctionCode{ImageUri: &[]string{ref.String()}[0]},
 		PackageType:  types.PackageTypeImage,
 		Role:         &[]string{os.Getenv("IMAGETEST_LAMBDA_ROLE")}[0], // TODO remove this
 		Publish:      true,
@@ -75,16 +73,33 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) error {
 	}
 	clog.FromContext(ctx).Info("Created Lambda function", "name", k.functionName)
 
+	for i := 0; i < 10; i++ {
+		out, err := k.client.GetFunction(ctx, &lambda.GetFunctionInput{
+			FunctionName: &k.functionName,
+		})
+		if err != nil {
+			return fmt.Errorf("getting Lambda function: %w", err)
+		}
+		if out.Configuration.State == types.StateActive {
+			break
+		}
+		clog.FromContext(ctx).Info("Waiting for Lambda function to be active", "state", out.Configuration.State)
+		time.Sleep(5 * time.Second)
+	}
+	clog.FromContext(ctx).Info("Lambda function is active", "name", k.functionName)
+
 	// Invoke the function to ensure it is ready.
 	if out, err := k.client.Invoke(ctx, &lambda.InvokeInput{FunctionName: &k.functionName}); err != nil {
-		return fmt.Errorf("invoking Lambda function: %w", err)
+		return fmt.Errorf("failed to invoke Lambda function: %w", err)
 	} else if out.StatusCode != 200 {
 		return fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
-	} else if *out.FunctionError != "" {
-		return fmt.Errorf("function returned error: %s", *out.FunctionError)
+	} else if out.FunctionError != nil {
+		return fmt.Errorf("function returned error: %q", *out.FunctionError)
 	} else {
+		if out == nil {
+			return fmt.Errorf("function returned nil output")
+		}
 		clog.FromContext(ctx).Info("function invoked successfully", "out", out)
-		return os.WriteFile("lambda.out", out.Payload, 0644)
 	}
 	return nil
 }

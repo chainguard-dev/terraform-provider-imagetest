@@ -379,6 +379,9 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 
 		// Tests Resources
 		NewTestsResource,
+
+		// Tests for Lambda
+		NewTestsLambdaResource,
 	}
 }
 
