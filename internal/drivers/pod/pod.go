@@ -528,7 +528,7 @@ func (o *opts) pod() *corev1.Pod {
 						InitialDelaySeconds: 0,
 						PeriodSeconds:       1,
 						FailureThreshold:    60, // Allow the pod ample time to start
-						TimeoutSeconds:      5,
+						TimeoutSeconds:      1,
 						SuccessThreshold:    1,
 					},
 					// Once running, any failure should be captured by probe and considered a stop
@@ -541,7 +541,7 @@ func (o *opts) pod() *corev1.Pod {
 						InitialDelaySeconds: 0,
 						PeriodSeconds:       1,
 						FailureThreshold:    1,
-						TimeoutSeconds:      5,
+						TimeoutSeconds:      1,
 						SuccessThreshold:    1,
 					},
 					VolumeMounts: []corev1.VolumeMount{
