@@ -52,7 +52,12 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 		cliCfg: &dockerConfig{},
 		daemonCfg: &daemonConfig{
 			// DefaultAddressPool needs to be RFC 1918 compliant that doesn't overlap with the default dockerd's pool (172.17.0.0/16)
-			DefaultAddressPool: "base=172.30.0.0/16,size=24",
+			DefaultAddressPools: []daemonConfigDefaultAddressPool{
+				{
+					Base: "10.240.0.0/20",
+					Size: 24,
+				},
+			},
 		},
 	}
 
@@ -253,9 +258,14 @@ func (c dockerConfig) Content() (*docker.Content, error) {
 	return docker.NewContentFromString(string(data), "/root/.docker/config.json"), nil
 }
 
+type daemonConfigDefaultAddressPool struct {
+	Base string `json:"base"`
+	Size int    `json:"size"`
+}
+
 type daemonConfig struct {
-	Mirrors            []string `json:"registry-mirrors,omitempty"`
-	DefaultAddressPool string   `json:"default-address-pool,omitempty"`
+	Mirrors             []string                         `json:"registry-mirrors,omitempty"`
+	DefaultAddressPools []daemonConfigDefaultAddressPool `json:"default-address-pools,omitempty"`
 }
 
 func (c daemonConfig) Content() (*docker.Content, error) {
