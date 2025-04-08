@@ -8,6 +8,10 @@ spec:
         identities:
           - subjectRegExp: .+@chainguard\.dev$
             issuer: https://accounts.google.com
+          - issuer: https://accounts.google.com
+            subject: workstation-work@chainguard-workstations.iam.gserviceaccount.com
+          - issuer: https://accounts.google.com
+            subjectRegExp: ".*-work-v2@chainguard-workstations\\.iam\\.gserviceaccount\\.com"
       ctlog:
         url: https://rekor.sigstore.dev
     - key:
