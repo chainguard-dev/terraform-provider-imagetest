@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/chainguard-dev/clog"
@@ -39,6 +38,7 @@ type TestsLambdaResourceModel struct {
 	Id       types.String `tfsdk:"id"`
 	Name     types.String `tfsdk:"name"`
 	ImageRef types.String `tfsdk:"image_ref"`
+	Region   types.String `tfsdk:"region"`
 }
 
 func (t *TestsLambdaResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -58,6 +58,12 @@ func (t *TestsLambdaResource) Schema(ctx context.Context, req resource.SchemaReq
 			"image_ref": schema.StringAttribute{
 				Description: "The image ref to deploy and test.",
 				Required:    true,
+			},
+			"region": schema.StringAttribute{
+				Description: "The AWS region to deploy the test in. If not provided, the default region will be used.",
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString("us-west-2"),
 			},
 		},
 	}
@@ -93,7 +99,6 @@ func (t *TestsLambdaResource) Update(ctx context.Context, req resource.UpdateReq
 }
 
 func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceModel) (ds diag.Diagnostics) {
-	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
 	ctx = clog.WithValues(ctx, "test_id", data.Id.ValueString())
 
 	ref, err := name.NewDigest(data.ImageRef.ValueString())
@@ -108,7 +113,7 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 
 	t.ropts = append(t.ropts, remote.WithContext(ctx))
 
-	dr, err := lambda.NewDriver(data.ImageRef.ValueString())
+	dr, err := lambda.NewDriver(data.ImageRef.ValueString(), data.Region.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create driver", err.Error())}
 	}

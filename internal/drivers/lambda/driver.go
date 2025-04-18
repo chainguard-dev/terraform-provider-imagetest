@@ -22,10 +22,14 @@ type driver struct {
 	client *lambda.Client
 }
 
-func NewDriver(n string) (drivers.Tester, error) {
+// NewDriver creates a new driver for AWS Lambda.
+//
+// This isn't used by the typical imagetest_tests resource, but is instead used by
+// the imagetest_tests_lambda resource. It satisfies the same interface anyway.
+func NewDriver(name, region string) (drivers.Tester, error) {
 	return &driver{
-		name:   n,
-		region: "us-west-2",
+		name:   name,
+		region: region,
 	}, nil
 }
 
