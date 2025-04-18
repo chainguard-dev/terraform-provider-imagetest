@@ -22,6 +22,7 @@ description: |-
 ### Optional
 
 - `name` (String) The name of the test. If one is not provided, a random name will be generated.
+- `region` (String) The AWS region to deploy the test in. If not provided, the default region will be used.
 
 ### Read-Only
 
