@@ -35,10 +35,11 @@ type TestsLambdaResource struct {
 }
 
 type TestsLambdaResourceModel struct {
-	Id       types.String `tfsdk:"id"`
-	Name     types.String `tfsdk:"name"`
-	ImageRef types.String `tfsdk:"image_ref"`
-	Region   types.String `tfsdk:"region"`
+	Id            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	ImageRef      types.String `tfsdk:"image_ref"`
+	ExecutionRole types.String `tfsdk:"execution_role"`
+	Region        types.String `tfsdk:"region"`
 }
 
 func (t *TestsLambdaResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -57,6 +58,10 @@ func (t *TestsLambdaResource) Schema(ctx context.Context, req resource.SchemaReq
 			},
 			"image_ref": schema.StringAttribute{
 				Description: "The image ref to deploy and test.",
+				Required:    true,
+			},
+			"execution_role": schema.StringAttribute{
+				Description: "The ARN of the IAM role to use for the Lambda function.",
 				Required:    true,
 			},
 			"region": schema.StringAttribute{
@@ -113,7 +118,7 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 
 	t.ropts = append(t.ropts, remote.WithContext(ctx))
 
-	dr, err := lambda.NewDriver(data.ImageRef.ValueString(), data.Region.ValueString())
+	dr, err := lambda.NewDriver(data.ImageRef.ValueString(), data.Region.ValueString(), data.ExecutionRole.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create driver", err.Error())}
 	}

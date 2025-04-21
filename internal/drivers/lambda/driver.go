@@ -15,9 +15,10 @@ import (
 )
 
 type driver struct {
-	name         string
-	region       string
-	functionName string
+	name          string
+	region        string
+	executionRole string
+	functionName  string
 
 	client *lambda.Client
 }
@@ -26,10 +27,11 @@ type driver struct {
 //
 // This isn't used by the typical imagetest_tests resource, but is instead used by
 // the imagetest_tests_lambda resource. It satisfies the same interface anyway.
-func NewDriver(name, region string) (drivers.Tester, error) {
+func NewDriver(name, region, executionRole string) (drivers.Tester, error) {
 	return &driver{
-		name:   name,
-		region: region,
+		name:          name,
+		region:        region,
+		executionRole: executionRole,
 	}, nil
 }
 
@@ -63,14 +65,12 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		return nil, fmt.Errorf("expected digest reference, got %T %q", ref, ref)
 	}
 
-	// TODO: ensure a minimal role `lambda-ex`
-
 	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[8:16], time.Now().Unix())
 	if _, err := k.client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: &k.functionName,
 		Code:         &types.FunctionCode{ImageUri: &[]string{ref.String()}[0]},
 		PackageType:  types.PackageTypeImage,
-		Role:         &[]string{os.Getenv("IMAGETEST_LAMBDA_ROLE")}[0], // TODO remove this
+		Role:         &k.executionRole,
 		Publish:      true,
 	}); err != nil {
 		return nil, fmt.Errorf("creating Lambda function: %w", err)

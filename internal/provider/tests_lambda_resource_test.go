@@ -18,14 +18,20 @@ func TestAccTestsResource_Lambda(t *testing.T) {
 	if ref == "" {
 		t.Fatal("IMAGETEST_LAMBDA_TEST_IMAGE_REF must be set")
 	}
+	executionRole := os.Getenv("IMAGETEST_LAMBDA_TEST_EXECUTION_ROLE")
+	if executionRole == "" {
+		t.Fatal("IMAGETEST_LAMBDA_TEST_EXECUTION_ROLE must be set")
+	}
+
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{}),
 		},
 		Steps: []resource.TestStep{{Config: fmt.Sprintf(`resource "imagetest_tests_lambda" "foo" {
-  name      = "foo"
-  image_ref = %q
-}`, ref)}},
+  name           = "foo"
+  execution_role = %q
+  image_ref      = %q
+}`, executionRole, ref)}},
 	})
 }
