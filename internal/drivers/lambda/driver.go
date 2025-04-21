@@ -77,24 +77,34 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	}
 	clog.FromContext(ctx).Info("Created Lambda function", "name", k.functionName)
 
+	var out *lambda.GetFunctionOutput
+L:
 	for range 10 {
-		out, err := k.client.GetFunction(ctx, &lambda.GetFunctionInput{
+		var err error
+		out, err = k.client.GetFunction(ctx, &lambda.GetFunctionInput{
 			FunctionName: &k.functionName,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("getting Lambda function: %w", err)
 		}
-		if out.Configuration.State == types.StateActive {
-			break
+		switch out.Configuration.State {
+		case types.StatePending, types.StateInactive:
+			time.Sleep(5 * time.Second)
+		case types.StateFailed:
+			return nil, fmt.Errorf("function failed: %s", *out.Configuration.StateReason)
+		case types.StateActive:
+			break L
 		}
 		clog.FromContext(ctx).Info("Waiting for Lambda function to be active", "state", out.Configuration.State)
-		time.Sleep(5 * time.Second)
+	}
+	if out.Configuration.State != types.StateActive {
+		return nil, fmt.Errorf("function state is %s: %s", out.Configuration.State, *out.Configuration.StateReason)
 	}
 	clog.FromContext(ctx).Info("Lambda function is active", "name", k.functionName)
 
 	// Invoke the function to ensure it is ready.
 	if out, err := k.client.Invoke(ctx, &lambda.InvokeInput{FunctionName: &k.functionName}); err != nil {
-		return nil, fmt.Errorf("failed to invoke Lambda function: %w", err)
+		return nil, fmt.Errorf("failed to invoke Lambda function:q %w", err)
 	} else if out.StatusCode != 200 {
 		return nil, fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
 	} else if out.FunctionError != nil {
