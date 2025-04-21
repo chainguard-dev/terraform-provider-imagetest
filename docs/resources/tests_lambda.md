@@ -17,6 +17,7 @@ description: |-
 
 ### Required
 
+- `execution_role` (String) The ARN of the IAM role to use for the Lambda function.
 - `image_ref` (String) The image ref to deploy and test.
 
 ### Optional

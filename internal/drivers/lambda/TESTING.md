@@ -18,7 +18,7 @@ aws iam create-role \
 
 ```
 IMAGETEST_LAMBDA_TEST_IMAGE_REF=12345.dkr.ecr.us-west-2.amazonaws.com/foo@sha256:07a99c... \
-IMAGETEST_LAMBDA_ROLE=arn:aws:iam::12345:role/lambda-ex \
+IMAGETEST_LAMBDA_TEST_EXECUTION_ROLE=arn:aws:iam::12345:role/lambda-ex \
 TF_ACC=1 \
   go test -tags=lambda ./internal/provider/... -count=1 -v -run=Lambda -timeout=5m
 ```
