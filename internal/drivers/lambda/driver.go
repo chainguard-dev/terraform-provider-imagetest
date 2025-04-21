@@ -104,7 +104,7 @@ L:
 
 	// Invoke the function to ensure it is ready.
 	if out, err := k.client.Invoke(ctx, &lambda.InvokeInput{FunctionName: &k.functionName}); err != nil {
-		return nil, fmt.Errorf("failed to invoke Lambda function:q %w", err)
+		return nil, fmt.Errorf("failed to invoke Lambda function: %w", err)
 	} else if out.StatusCode != 200 {
 		return nil, fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
 	} else if out.FunctionError != nil {
