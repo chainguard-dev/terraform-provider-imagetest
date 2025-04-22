@@ -108,7 +108,7 @@ L:
 	} else if out.StatusCode != 200 {
 		return nil, fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
 	} else if out.FunctionError != nil {
-		return nil, fmt.Errorf("function returned error: %q", *out.FunctionError)
+		return nil, fmt.Errorf("function returned error: %q: %s", *out.FunctionError, string(out.Payload))
 	} else {
 		if out == nil {
 			return nil, fmt.Errorf("function returned nil output")
