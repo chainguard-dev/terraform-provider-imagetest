@@ -2,8 +2,6 @@ package provider
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
 	"os"
 
 	"github.com/chainguard-dev/clog"
@@ -12,7 +10,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -36,7 +33,6 @@ type TestsLambdaResource struct {
 
 type TestsLambdaResourceModel struct {
 	Id            types.String `tfsdk:"id"`
-	Name          types.String `tfsdk:"name"`
 	ImageRef      types.String `tfsdk:"image_ref"`
 	ExecutionRole types.String `tfsdk:"execution_role"`
 	Region        types.String `tfsdk:"region"`
@@ -47,14 +43,8 @@ func (t *TestsLambdaResource) Schema(ctx context.Context, req resource.SchemaReq
 		MarkdownDescription: ``,
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description: "The unique identifier for the test. If a name is provided, this will be the name appended with a random suffix.",
+				Description: "The unique identifier for the test. This will be the same as the image ref's digest.",
 				Computed:    true,
-			},
-			"name": schema.StringAttribute{
-				Description: "The name of the test. If one is not provided, a random name will be generated.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("test"),
 			},
 			"image_ref": schema.StringAttribute{
 				Description: "The image ref to deploy and test.",
@@ -84,10 +74,6 @@ func (t *TestsLambdaResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	if data.Name.IsNull() {
-		data.Name = types.StringValue(uuid.New().String())
-	}
-
 	resp.Diagnostics.Append(t.do(ctx, &data)...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -111,14 +97,11 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse image digest", err.Error())}
 	}
 
-	h := sha256.New()
-	_, _ = fmt.Fprint(h, data.Name.ValueString())
-	_, _ = fmt.Fprint(h, ref.DigestStr())
-	data.Id = types.StringValue(fmt.Sprintf("%x", h.Sum(nil)))
+	data.Id = types.StringValue(ref.DigestStr())
 
 	t.ropts = append(t.ropts, remote.WithContext(ctx))
 
-	dr, err := lambda.NewDriver(data.ImageRef.ValueString(), data.Region.ValueString(), data.ExecutionRole.ValueString())
+	dr, err := lambda.NewDriver(data.Region.ValueString(), data.ExecutionRole.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create driver", err.Error())}
 	}

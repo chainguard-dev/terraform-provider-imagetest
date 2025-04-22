@@ -15,7 +15,6 @@ import (
 )
 
 type driver struct {
-	name          string
 	region        string
 	executionRole string
 	functionName  string
@@ -27,9 +26,8 @@ type driver struct {
 //
 // This isn't used by the typical imagetest_tests resource, but is instead used by
 // the imagetest_tests_lambda resource. It satisfies the same interface anyway.
-func NewDriver(name, region, executionRole string) (drivers.Tester, error) {
+func NewDriver(region, executionRole string) (drivers.Tester, error) {
 	return &driver{
-		name:          name,
 		region:        region,
 		executionRole: executionRole,
 	}, nil
@@ -65,7 +63,7 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		return nil, fmt.Errorf("expected digest reference, got %T %q", ref, ref)
 	}
 
-	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[8:16], time.Now().Unix())
+	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[8:16], time.Now().UnixNano())
 	if _, err := k.client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: &k.functionName,
 		Code:         &types.FunctionCode{ImageUri: &[]string{ref.String()}[0]},
