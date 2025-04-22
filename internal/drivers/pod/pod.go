@@ -439,9 +439,10 @@ func (o *opts) pod() *corev1.Pod {
 			Annotations:  map[string]string{},
 		},
 		Spec: corev1.PodSpec{
-			ServiceAccountName: o.Name,
-			SecurityContext:    &corev1.PodSecurityContext{},
-			RestartPolicy:      corev1.RestartPolicyNever,
+			ServiceAccountName:           o.Name,
+			AutomountServiceAccountToken: ptr.To(false),
+			SecurityContext:              &corev1.PodSecurityContext{},
+			RestartPolicy:                corev1.RestartPolicyNever,
 			Volumes: []corev1.Volume{
 				{
 					Name: "kube-api-access",
@@ -463,18 +464,6 @@ func (o *opts) pod() *corev1.Pod {
 											{
 												Key:  "ca.crt",
 												Path: "ca.crt",
-											},
-										},
-									},
-								},
-								{
-									DownwardAPI: &corev1.DownwardAPIProjection{
-										Items: []corev1.DownwardAPIVolumeFile{
-											{
-												Path: "namespace",
-												FieldRef: &corev1.ObjectFieldSelector{
-													FieldPath: "metadata.namespace",
-												},
 											},
 										},
 									},

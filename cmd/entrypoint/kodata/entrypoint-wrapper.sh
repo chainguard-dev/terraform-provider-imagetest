@@ -77,6 +77,10 @@ init_docker_in_docker() {
 init_k3s_in_docker() {
   cmd="$1"
 
+  # Set a default context to better mimic a local setup
+  kubectl config set-context default --cluster=kubernetes --user=default --namespace=default
+  kubectl config use-context default
+
   # Ensure required environment variables are set
   if [ -z "${POD_NAME-}" ] || [ -z "${POD_NAMESPACE-}" ]; then
     error "POD_NAME and POD_NAMESPACE environment variables must be set"
@@ -97,6 +101,10 @@ init_k3s_in_docker() {
 #   $1: Path to the test script (already validated)
 init_eks_with_eksctl() {
   cmd="$1"
+
+  # Set a default context to better mimic a local setup
+  kubectl config set-context default --cluster=kubernetes --user=default --namespace=default
+  kubectl config use-context default
 
   # Ensure required environment variables are set
   if [ -z "${POD_NAME-}" ] || [ -z "${POD_NAMESPACE-}" ]; then
