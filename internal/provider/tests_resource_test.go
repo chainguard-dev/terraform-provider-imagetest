@@ -70,8 +70,9 @@ resource "imagetest_tests" "foo" {
   `
 
 	testCases := map[string][]resource.TestStep{
-		"k3sindocker-basic":          {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh")}},
-		"k3sindocker-non-executable": {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-non-executable.sh")}},
+		"k3sindocker-basic":             {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh")}},
+		"k3sindocker-non-executable":    {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-non-executable.sh")}},
+		"k3sindocker-default-namespace": {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-default-namespace.sh")}},
 		// ensure command's exit code surfaces in tf error
 		"k3sindocker-fails-with-proper-exit-code": {
 			{
