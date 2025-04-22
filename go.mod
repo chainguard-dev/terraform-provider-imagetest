@@ -5,7 +5,7 @@ go 1.24
 require (
 	chainguard.dev/apko v0.26.1
 	github.com/aws/aws-sdk-go-v2/config v1.29.10
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.71.0
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.71.2
 	github.com/chainguard-dev/clog v1.7.0
 	github.com/docker/cli v28.0.4+incompatible
 	github.com/docker/go-connections v0.5.0
