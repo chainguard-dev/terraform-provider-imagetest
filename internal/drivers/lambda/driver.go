@@ -15,7 +15,6 @@ import (
 )
 
 type driver struct {
-	name          string
 	region        string
 	executionRole string
 	functionName  string
@@ -27,9 +26,8 @@ type driver struct {
 //
 // This isn't used by the typical imagetest_tests resource, but is instead used by
 // the imagetest_tests_lambda resource. It satisfies the same interface anyway.
-func NewDriver(name, region, executionRole string) (drivers.Tester, error) {
+func NewDriver(region, executionRole string) (drivers.Tester, error) {
 	return &driver{
-		name:          name,
 		region:        region,
 		executionRole: executionRole,
 	}, nil
@@ -65,7 +63,7 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		return nil, fmt.Errorf("expected digest reference, got %T %q", ref, ref)
 	}
 
-	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[8:16], time.Now().Unix())
+	k.functionName = fmt.Sprintf("imagetest-%s-%d", dig.DigestStr()[8:16], time.Now().UnixNano())
 	if _, err := k.client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: &k.functionName,
 		Code:         &types.FunctionCode{ImageUri: &[]string{ref.String()}[0]},
@@ -77,18 +75,28 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	}
 	clog.FromContext(ctx).Info("Created Lambda function", "name", k.functionName)
 
+	var out *lambda.GetFunctionOutput
+L:
 	for range 10 {
-		out, err := k.client.GetFunction(ctx, &lambda.GetFunctionInput{
+		var err error
+		out, err = k.client.GetFunction(ctx, &lambda.GetFunctionInput{
 			FunctionName: &k.functionName,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("getting Lambda function: %w", err)
 		}
-		if out.Configuration.State == types.StateActive {
-			break
+		switch out.Configuration.State {
+		case types.StatePending, types.StateInactive:
+			time.Sleep(5 * time.Second)
+		case types.StateFailed:
+			return nil, fmt.Errorf("function failed: %s", *out.Configuration.StateReason)
+		case types.StateActive:
+			break L
 		}
 		clog.FromContext(ctx).Info("Waiting for Lambda function to be active", "state", out.Configuration.State)
-		time.Sleep(5 * time.Second)
+	}
+	if out.Configuration.State != types.StateActive {
+		return nil, fmt.Errorf("function state is %s: %s", out.Configuration.State, *out.Configuration.StateReason)
 	}
 	clog.FromContext(ctx).Info("Lambda function is active", "name", k.functionName)
 
@@ -98,7 +106,7 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	} else if out.StatusCode != 200 {
 		return nil, fmt.Errorf("function returned %d: %s", out.StatusCode, string(out.Payload))
 	} else if out.FunctionError != nil {
-		return nil, fmt.Errorf("function returned error: %q", *out.FunctionError)
+		return nil, fmt.Errorf("function returned error: %q: %s", *out.FunctionError, string(out.Payload))
 	} else {
 		if out == nil {
 			return nil, fmt.Errorf("function returned nil output")

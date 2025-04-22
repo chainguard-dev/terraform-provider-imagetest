@@ -22,9 +22,8 @@ description: |-
 
 ### Optional
 
-- `name` (String) The name of the test. If one is not provided, a random name will be generated.
 - `region` (String) The AWS region to deploy the test in. If not provided, the default region will be used.
 
 ### Read-Only
 
-- `id` (String) The unique identifier for the test. If a name is provided, this will be the name appended with a random suffix.
+- `id` (String) The unique identifier for the test. This will be the same as the image ref's digest.

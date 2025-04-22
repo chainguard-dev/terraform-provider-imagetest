@@ -29,7 +29,6 @@ func TestAccTestsResource_Lambda(t *testing.T) {
 			"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{}),
 		},
 		Steps: []resource.TestStep{{Config: fmt.Sprintf(`resource "imagetest_tests_lambda" "foo" {
-  name           = "foo"
   execution_role = %q
   image_ref      = %q
 }`, executionRole, ref)}},
