@@ -559,7 +559,11 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 							}
 							defer w.Close()
 
-							r.WriteTo(w)
+							_, err = r.WriteTo(w)
+							if err != nil {
+								// TODO: handle errors
+								return
+							}
 						}
 					}
 				}
