@@ -509,6 +509,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	defer func() {
 		basePath := os.Getenv("IMAGETEST_PRESERVE_ARTIFACT_PATH")
 		if basePath == "" {
+			clog.InfoContext(ctx, "not exporting artifacts - IMAGETEST_PRESERVE_ARTIFACT_PATH not set")
 			return
 		}
 
@@ -530,9 +531,11 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 			return
 		}
 
+		clog.InfoContext(ctx, "exporting preserved artifacts to directory", "path", basePath)
+
 		for _, t := range data.Tests {
 			nameVal := t.Name.ValueString()
-			if !t.Preserve.IsNull() && !t.Preserve.IsUnknown() {
+			if !t.Preserve.IsNull() && !t.Preserve.IsUnknown() && t.Preserve.ValueBool() {
 				if !t.Artifact.IsNull() && !t.Artifact.IsUnknown() {
 					uriAttr, ok := t.Artifact.Attributes()["uri"]
 					if ok {
@@ -541,27 +544,28 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 							uri := uriString.ValueString()
 							localPath, found := strings.CutPrefix(uri, "file://")
 							if !found {
-								// TODO: handle error when not a file URI
+								clog.ErrorContextf(ctx, "artifact URI is not a file: %s", uri)
 								return
 							}
 
 							r, err := os.Open(localPath)
 							if err != nil {
-								// TODO: handle errors
+								clog.ErrorContextf(ctx, "unable to open artifact %s for reading: %v", localPath, err)
 								return
 							}
 							defer r.Close()
 
-							w, err := os.Create(path.Join(basePath, fmt.Sprintf("%s.tar.gz", nameVal)))
+							destFile := path.Join(basePath, fmt.Sprintf("%s.tar.gz", nameVal))
+							w, err := os.Create(destFile)
 							if err != nil {
-								// TODO: handle errors
+								clog.ErrorContextf(ctx, "unable to open artifact %s for writing: %v", destFile, err)
 								return
 							}
 							defer w.Close()
 
 							_, err = r.WriteTo(w)
 							if err != nil {
-								// TODO: handle errors
+								clog.ErrorContextf(ctx, "unable to write artifact contents from %s to %s: %v", localPath, destFile, err)
 								return
 							}
 						}
