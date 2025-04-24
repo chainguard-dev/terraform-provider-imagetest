@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -56,6 +57,7 @@ type TestsResource struct {
 type TestsResourceModel struct {
 	Id           types.String               `tfsdk:"id"`
 	Name         types.String               `tfsdk:"name"`
+	ArtifactPath types.String               `tfsdk:"artifact_path"`
 	Driver       DriverResourceModel        `tfsdk:"driver"`
 	Drivers      *TestsDriversResourceModel `tfsdk:"drivers"`
 	Images       TestsImageResource         `tfsdk:"images"`
@@ -100,6 +102,7 @@ type TestResourceModel struct {
 	Cmd      types.String               `tfsdk:"cmd"`
 	Timeout  types.String               `tfsdk:"timeout"`
 	Artifact types.Object               `tfsdk:"artifact"`
+	Preserve types.Bool                 `tfsdk:"preserve"`
 }
 
 type TestContentResourceModel struct {
@@ -130,6 +133,10 @@ func (t *TestsResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString("test"),
+			},
+			"artifact_path": schema.StringAttribute{
+				Description: "The path to add for storing artifacts.",
+				Optional:    true,
 			},
 			"driver": schema.StringAttribute{
 				Description: "The driver to use for the test suite. Only one driver can be used at a time.",
@@ -201,6 +208,10 @@ func (t *TestsResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 									Computed:    true,
 								},
 							},
+						},
+						"preserve": schema.BoolAttribute{
+							Description: "Whether the artifact from this step should be preserved.",
+							Optional:    true,
 						},
 					},
 				},
@@ -492,6 +503,67 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	defer func() {
 		if teardownErr := t.maybeTeardown(ctx, dr, ds.HasError()); teardownErr != nil {
 			ds = append(ds, teardownErr)
+		}
+	}()
+
+	defer func() {
+		basePath := os.Getenv("IMAGETEST_PRESERVE_ARTIFACT_PATH")
+		if basePath == "" {
+			return
+		}
+
+		if !data.ArtifactPath.IsNull() {
+			artifactPath := data.ArtifactPath.ValueString()
+			if artifactPath != "" {
+				basePath = path.Join(basePath, artifactPath)
+			}
+		}
+
+		testName := data.Name.ValueString()
+		if testName != "" {
+			basePath = path.Join(basePath, testName)
+		}
+
+		err = os.MkdirAll(basePath, 0o777)
+		if err != nil {
+			// TODO: handle errors
+			return
+		}
+
+		for _, t := range data.Tests {
+			nameVal := t.Name.ValueString()
+			if !t.Preserve.IsNull() && !t.Preserve.IsUnknown() {
+				if !t.Artifact.IsNull() && !t.Artifact.IsUnknown() {
+					uriAttr, ok := t.Artifact.Attributes()["uri"]
+					if ok {
+						uriString, ok := uriAttr.(types.String)
+						if ok {
+							uri := uriString.ValueString()
+							localPath, found := strings.CutPrefix(uri, "file://")
+							if !found {
+								// TODO: handle error when not a file URI
+								return
+							}
+
+							r, err := os.Open(localPath)
+							if err != nil {
+								// TODO: handle errors
+								return
+							}
+							defer r.Close()
+
+							w, err := os.Create(path.Join(basePath, fmt.Sprintf("%s.tar.gz", nameVal)))
+							if err != nil {
+								// TODO: handle errors
+								return
+							}
+							defer w.Close()
+
+							r.WriteTo(w)
+						}
+					}
+				}
+			}
 		}
 	}()
 
