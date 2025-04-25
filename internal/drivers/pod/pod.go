@@ -385,6 +385,8 @@ func (o *opts) startLogStream(ctx context.Context, podName string) <-chan error 
 		defer close(errch)
 
 		scanner := bufio.NewScanner(logs)
+		buf := make([]byte, 0, 1024*1024)
+		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
