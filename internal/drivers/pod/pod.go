@@ -358,7 +358,7 @@ func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.P
 		}
 
 		if err := scanner.Err(); err != nil && err != io.EOF {
-			errch <- fmt.Errorf("scanning logs: %w", err)
+			clog.WarnContext(ctx, "error scanning logs, continuing", "error", err)
 		}
 	}()
 
