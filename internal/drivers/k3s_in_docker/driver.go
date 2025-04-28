@@ -259,7 +259,6 @@ configs:
 		clog.DebugContext(ctx, "renaming kubeconfig context", "context", k.name)
 		kcfg.Contexts[k.name] = kcfg.Contexts["default"]
 		kcfg.CurrentContext = k.name
-		delete(kcfg.Contexts, "default")
 
 		if err := os.MkdirAll(filepath.Dir(k.kubeconfigWritePath), 0o755); err != nil {
 			return fmt.Errorf("failed to create kubeconfig directory: %w", err)
