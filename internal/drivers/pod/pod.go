@@ -346,6 +346,8 @@ func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.P
 		defer close(errch)
 
 		scanner := bufio.NewScanner(logs)
+		buf := make([]byte, 0, 512*1024)
+		scanner.Buffer(buf, 512*1024)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
