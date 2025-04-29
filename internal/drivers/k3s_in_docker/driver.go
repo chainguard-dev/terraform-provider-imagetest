@@ -254,6 +254,12 @@ configs:
 			cluster.Server = config.Host
 		}
 
+		// Rename the kube context to the name of the test harness.
+		// This makes life easier for someone interacting with the test cluster from their host machine
+		clog.DebugContext(ctx, "renaming kubeconfig context", "context", k.name)
+		kcfg.Contexts[k.name] = kcfg.Contexts["default"]
+		kcfg.CurrentContext = k.name
+
 		if err := os.MkdirAll(filepath.Dir(k.kubeconfigWritePath), 0o755); err != nil {
 			return fmt.Errorf("failed to create kubeconfig directory: %w", err)
 		}
