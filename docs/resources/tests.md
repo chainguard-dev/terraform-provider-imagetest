@@ -55,6 +55,11 @@ Optional:
 <a id="nestedatt--drivers--eks_with_eksctl"></a>
 ### Nested Schema for `drivers.eks_with_eksctl`
 
+Optional:
+
+- `node_ami` (String) The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)
+- `region` (String) The AWS region to use for the eks_with_eksctl driver (default is us-west-2)
+
 
 <a id="nestedatt--drivers--k3s_in_docker"></a>
 ### Nested Schema for `drivers.k3s_in_docker`

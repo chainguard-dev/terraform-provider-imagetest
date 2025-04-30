@@ -18,7 +18,8 @@ import (
 )
 
 type driver struct {
-	name string
+	name    string
+	nodeAMI string
 
 	region      string
 	clusterName string
@@ -28,25 +29,29 @@ type driver struct {
 	kcfg        *rest.Config
 }
 
-type DriverOpts func(*driver) error
+type Options struct {
+	Region    string
+	NodeAMI   string
+	Namespace string
+}
 
-func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
+func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
-		name:      n,
-		region:    "us-west-2",
-		namespace: "imagetest",
+		name:      name,
+		region:    opts.Region,
+		nodeAMI:   opts.NodeAMI,
+		namespace: opts.Namespace,
+	}
+	if k.region == "" {
+		k.region = "us-west-2"
+	}
+	if k.namespace == "" {
+		k.namespace = "imagetest"
 	}
 
 	if _, err := exec.LookPath("eksctl"); err != nil {
 		return nil, fmt.Errorf("eksctl not found in $PATH: %w", err)
 	}
-
-	for _, opt := range opts {
-		if err := opt(k); err != nil {
-			return nil, err
-		}
-	}
-
 	return k, nil
 }
 
@@ -90,12 +95,17 @@ func (k *driver) Setup(ctx context.Context) error {
 			return fmt.Errorf("eksctl utils write-kubeconfig: %w", err)
 		}
 	} else {
-		if err := k.eksctl(ctx, "create", "cluster",
+		args := []string{
+			"create", "cluster",
 			"--node-private-networking=false",
 			"--vpc-nat-mode=Disable",
-			"--kubeconfig="+k.kubeconfig,
-			"--name="+k.clusterName,
-		); err != nil {
+			"--kubeconfig=" + k.kubeconfig,
+			"--name=" + k.clusterName,
+		}
+		if k.nodeAMI != "" {
+			args = append(args, "--node-ami", k.nodeAMI)
+		}
+		if err := k.eksctl(ctx, args...); err != nil {
 			return fmt.Errorf("eksctl create cluster: %w", err)
 		}
 		log.Infof("Created cluster %s", k.clusterName)
