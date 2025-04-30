@@ -18,7 +18,7 @@ func TestAccTestsResource_EKS(t *testing.T) {
 
 	repo := "ttl.sh/imagetest" // TODO: Don't push to ttl.sh
 
-	k3sindockerTpl := fmt.Sprintf(`
+	tf := fmt.Sprintf(`
 resource "imagetest_tests" "foo" {
   name   = "foo"
   driver = "eks_with_eksctl"
@@ -38,7 +38,7 @@ resource "imagetest_tests" "foo" {
       name    = "sample"
       image   = "cgr.dev/chainguard/kubectl:latest-dev@sha256:1d8c1f0c437628aafa1bca52c41ff310aea449423cce9b2feae2767ac53c336f"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "/imagetest/%s"
+      cmd     = "/imagetest/k3s-in-docker-basic.sh"
     }
   ]
 
@@ -53,8 +53,6 @@ resource "imagetest_tests" "foo" {
 				repo: repo,
 			}),
 		},
-		Steps: []resource.TestStep{
-			{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh")},
-		},
+		Steps: []resource.TestStep{{Config: tf}},
 	})
 }
