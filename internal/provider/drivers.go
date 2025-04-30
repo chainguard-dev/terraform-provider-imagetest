@@ -59,7 +59,11 @@ type DockerInDockerDriverResourceModel struct {
 	Mirrors []string     `tfsdk:"mirrors"`
 }
 
-type EKSWithEksctlDriverResourceModel struct{}
+type EKSWithEksctlDriverResourceModel struct {
+	Region   types.String `tfsdk:"region"`
+	NodeAMI  types.String `tfsdk:"node_ami"`
+	NodeType types.String `tfsdk:"node_type"`
+}
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
 	if drivers == nil {
@@ -178,15 +182,12 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		return dockerindocker.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
-		/*
-			cfg := drivers.EKSWithEksctl
-			if cfg == nil {
-				cfg = &EKSWithEksctlDriverResourceModel{}
-			}
-			opts = append(opts, ekswitheksctl.WithFoo(cfg.Foo.ValueString()))
-		*/
+		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
+			Region:   drivers.EKSWithEksctl.Region.ValueString(),
+			NodeAMI:  drivers.EKSWithEksctl.NodeAMI.ValueString(),
+			NodeType: drivers.EKSWithEksctl.NodeType.ValueString(),
+		})
 
-		return ekswitheksctl.NewDriver(id)
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
@@ -272,8 +273,19 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 			"eks_with_eksctl": schema.SingleNestedAttribute{
 				Description: "The eks_with_eksctl driver",
 				Optional:    true,
-				Attributes:  map[string]schema.Attribute{
-					// TODO: attributes
+				Attributes: map[string]schema.Attribute{
+					"region": schema.StringAttribute{
+						Description: "The AWS region to use for the eks_with_eksctl driver (default is us-west-2)",
+						Optional:    true,
+					},
+					"node_ami": schema.StringAttribute{
+						Description: "The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)",
+						Optional:    true,
+					},
+					"node_type": schema.StringAttribute{
+						Description: "The instance type to use for the eks_with_eksctl driver (default is m5.large)",
+						Optional:    true,
+					},
 				},
 			},
 		},
