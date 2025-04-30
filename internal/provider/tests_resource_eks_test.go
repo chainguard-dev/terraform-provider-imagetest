@@ -5,6 +5,7 @@ package provider
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -13,12 +14,20 @@ import (
 )
 
 func TestAccTestsResource_EKS(t *testing.T) {
+	nodeAMI := os.Getenv("IMAGETEST_EKS_NODE_AMI")
+
 	repo := "ttl.sh/imagetest" // TODO: Don't push to ttl.sh
 
-	k3sindockerTpl := `
+	k3sindockerTpl := fmt.Sprintf(`
 resource "imagetest_tests" "foo" {
   name   = "foo"
   driver = "eks_with_eksctl"
+
+  drivers = {
+    eks_with_eksctl = {
+      node_ami = %q
+    }
+  }
 
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
@@ -36,7 +45,7 @@ resource "imagetest_tests" "foo" {
   // Creating the cluster takes ~15m... 🐌
   timeout = "30m"
 }
-`
+`, nodeAMI)
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){

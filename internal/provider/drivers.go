@@ -60,8 +60,9 @@ type DockerInDockerDriverResourceModel struct {
 }
 
 type EKSWithEksctlDriverResourceModel struct {
-	Region  types.String `tfsdk:"region"`
-	NodeAMI types.String `tfsdk:"node_ami"`
+	Region   types.String `tfsdk:"region"`
+	NodeAMI  types.String `tfsdk:"node_ami"`
+	NodeType types.String `tfsdk:"node_type"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -181,18 +182,12 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		return dockerindocker.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
-		/*
-			cfg := drivers.EKSWithEksctl
-			if cfg == nil {
-				cfg = &EKSWithEksctlDriverResourceModel{}
-			}
-			opts = append(opts, ekswitheksctl.WithFoo(cfg.Foo.ValueString()))
-		*/
-
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
-			Region:  drivers.EKSWithEksctl.Region.ValueString(),
-			NodeAMI: drivers.EKSWithEksctl.NodeAMI.ValueString(),
+			Region:   drivers.EKSWithEksctl.Region.ValueString(),
+			NodeAMI:  drivers.EKSWithEksctl.NodeAMI.ValueString(),
+			NodeType: drivers.EKSWithEksctl.NodeType.ValueString(),
 		})
+
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
@@ -285,6 +280,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 					},
 					"node_ami": schema.StringAttribute{
 						Description: "The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)",
+						Optional:    true,
+					},
+					"node_type": schema.StringAttribute{
+						Description: "The instance type to use for the eks_with_eksctl driver (default is m5.large)",
 						Optional:    true,
 					},
 				},

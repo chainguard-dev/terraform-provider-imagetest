@@ -18,8 +18,9 @@ import (
 )
 
 type driver struct {
-	name    string
-	nodeAMI string
+	name     string
+	nodeAMI  string
+	nodeType string
 
 	region      string
 	clusterName string
@@ -31,6 +32,7 @@ type driver struct {
 
 type Options struct {
 	Region    string
+	NodeType  string
 	NodeAMI   string
 	Namespace string
 }
@@ -40,6 +42,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		name:      name,
 		region:    opts.Region,
 		nodeAMI:   opts.NodeAMI,
+		nodeType:  opts.NodeType,
 		namespace: opts.Namespace,
 	}
 	if k.region == "" {
@@ -47,6 +50,9 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	}
 	if k.namespace == "" {
 		k.namespace = "imagetest"
+	}
+	if k.nodeType == "" {
+		k.nodeType = "m5.large"
 	}
 
 	if _, err := exec.LookPath("eksctl"); err != nil {
@@ -101,9 +107,13 @@ func (k *driver) Setup(ctx context.Context) error {
 			"--vpc-nat-mode=Disable",
 			"--kubeconfig=" + k.kubeconfig,
 			"--name=" + k.clusterName,
+			"--node-type=" + k.nodeType,
 		}
 		if k.nodeAMI != "" {
-			args = append(args, "--node-ami", k.nodeAMI)
+			args = append(args,
+				"--node-ami", k.nodeAMI,
+				"--node-ami-family", "AmazonLinux2023",
+			)
 		}
 		if err := k.eksctl(ctx, args...); err != nil {
 			return fmt.Errorf("eksctl create cluster: %w", err)

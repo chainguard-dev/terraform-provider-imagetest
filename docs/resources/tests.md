@@ -58,6 +58,7 @@ Optional:
 Optional:
 
 - `node_ami` (String) The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)
+- `node_type` (String) The instance type to use for the eks_with_eksctl driver (default is m5.large)
 - `region` (String) The AWS region to use for the eks_with_eksctl driver (default is us-west-2)
 
 
