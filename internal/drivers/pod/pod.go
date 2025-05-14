@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -42,6 +43,10 @@ type opts struct {
 	ExtraEnvs        map[string]string
 	ExtraAnnotations map[string]string
 	ExtraLabels      map[string]string
+	// DockerConfig is used for plumbing any registry credentials into the
+	// pod. Despite its name, its not for docker, but for clients that can
+	// leverage creds in the known ~/.docker/config.json location.
+	DockerConfig *docker.DockerConfig
 
 	client kubernetes.Interface
 	cfg    *rest.Config
@@ -176,6 +181,31 @@ func (o *opts) preflight(ctx context.Context) error {
 		Force:        true,
 	}); err != nil {
 		return fmt.Errorf("failed to apply cluster role binding: %w", err)
+	}
+
+	if o.DockerConfig != nil {
+		secretName := fmt.Sprintf("%s-docker-config", o.Name)
+
+		dockerConfigJSON, err := json.Marshal(o.DockerConfig)
+		if err != nil {
+			return fmt.Errorf("failed to marshal docker config: %w", err)
+		}
+
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: o.Namespace,
+			},
+			Type: corev1.SecretTypeDockerConfigJson,
+			Data: map[string][]byte{
+				".dockerconfigjson": dockerConfigJSON,
+			},
+		}
+
+		_, err = o.client.CoreV1().Secrets(o.Namespace).Create(ctx, secret, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create docker config secret: %w", err)
+		}
 	}
 
 	return nil
@@ -550,6 +580,32 @@ func (o *opts) pod() *corev1.Pod {
 			Name:  k,
 			Value: v,
 		})
+	}
+
+	// If DockerConfig is provided, create a secret volume and mount it to ~/.docker/config.json
+	if o.DockerConfig != nil {
+		dockerConfigVolume := corev1.Volume{
+			Name: "docker-config",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: fmt.Sprintf("%s-docker-config", o.Name),
+					Items: []corev1.KeyToPath{
+						{
+							Key:  ".dockerconfigjson",
+							Path: "config.json",
+						},
+					},
+				},
+			},
+		}
+		pod.Spec.Volumes = append(pod.Spec.Volumes, dockerConfigVolume)
+
+		dockerConfigMount := corev1.VolumeMount{
+			Name:      "docker-config",
+			MountPath: "/root/.docker",
+			ReadOnly:  true,
+		}
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, dockerConfigMount)
 	}
 
 	return pod

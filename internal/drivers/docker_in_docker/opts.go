@@ -1,6 +1,7 @@
 package dockerindocker
 
 import (
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -36,13 +37,13 @@ func WithRemoteOptions(opts ...remote.Option) DriverOpts {
 func WithRegistryAuth(registry string) DriverOpts {
 	return func(d *driver) error {
 		if d.cliCfg == nil {
-			d.cliCfg = &dockerConfig{
-				Auths: make(map[string]dockerAuthEntry),
+			d.cliCfg = &docker.DockerConfig{
+				Auths: make(map[string]docker.DockerAuthConfig),
 			}
 		}
 
 		if d.cliCfg.Auths == nil {
-			d.cliCfg.Auths = make(map[string]dockerAuthEntry)
+			d.cliCfg.Auths = make(map[string]docker.DockerAuthConfig)
 		}
 
 		r, err := name.NewRegistry(registry)
@@ -60,7 +61,7 @@ func WithRegistryAuth(registry string) DriverOpts {
 			return err
 		}
 
-		d.cliCfg.Auths[registry] = dockerAuthEntry{
+		d.cliCfg.Auths[registry] = docker.DockerAuthConfig{
 			Username: acfg.Username,
 			Password: acfg.Password,
 			Auth:     acfg.Auth,

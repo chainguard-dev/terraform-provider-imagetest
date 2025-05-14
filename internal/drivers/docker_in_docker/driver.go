@@ -35,7 +35,7 @@ type driver struct {
 	name      string
 	stack     *harness.Stack
 	cli       *docker.Client
-	cliCfg    *dockerConfig
+	cliCfg    *docker.DockerConfig
 	daemonCfg *daemonConfig
 	ropts     []remote.Option
 }
@@ -56,7 +56,7 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 				Architecture: runtime.GOARCH,
 			}),
 		},
-		cliCfg: &dockerConfig{},
+		cliCfg: &docker.DockerConfig{},
 		daemonCfg: &daemonConfig{
 			// DefaultAddressPool needs to be RFC 1918 compliant that doesn't overlap with the default dockerd's pool (172.17.0.0/16)
 			DefaultAddressPools: []daemonConfigDefaultAddressPool{defaultAddressPool},
@@ -253,25 +253,6 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	}
 
 	return result, nil
-}
-
-type dockerConfig struct {
-	Auths map[string]dockerAuthEntry `json:"auths,omitempty"`
-}
-
-type dockerAuthEntry struct {
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	Auth     string `json:"auth,omitempty"`
-}
-
-func (c dockerConfig) Content() (*docker.Content, error) {
-	data, err := json.Marshal(c)
-	if err != nil {
-		return nil, err
-	}
-
-	return docker.NewContentFromString(string(data), "/root/.docker/config.json"), nil
 }
 
 type daemonConfigDefaultAddressPool struct {

@@ -578,3 +578,24 @@ func (d *Client) withDefaultLabels(labels map[string]string) map[string]string {
 
 	return labels
 }
+
+// DockerConfig is the structure of the config file used at
+// ~/.docker/config.json.
+type DockerConfig struct {
+	Auths map[string]DockerAuthConfig `json:"auths,omitempty"`
+}
+
+type DockerAuthConfig struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	Auth     string `json:"auth,omitempty"`
+}
+
+func (d *DockerConfig) Content() (*Content, error) {
+	data, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewContentFromString(string(data), "/root/.docker/config.json"), nil
+}

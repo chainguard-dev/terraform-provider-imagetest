@@ -292,12 +292,28 @@ func (k *driver) Teardown(ctx context.Context) error {
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
+	dcfg := &docker.DockerConfig{
+		Auths: make(map[string]docker.DockerAuthConfig, len(k.Registries)),
+	}
+	for reg, cfg := range k.Registries {
+		if cfg.Auth == nil {
+			continue
+		}
+
+		dcfg.Auths[reg] = docker.DockerAuthConfig{
+			Username: cfg.Auth.Username,
+			Password: cfg.Auth.Password,
+			Auth:     cfg.Auth.Auth,
+		}
+	}
+
 	return pod.Run(ctx, k.kcfg,
 		pod.WithImageRef(ref),
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "k3s_in_docker",
 		}),
 		pod.WithExtraEnvs(k.SandboxEnvs),
+		pod.WithRegistryStaticAuth(dcfg),
 	)
 }
 
