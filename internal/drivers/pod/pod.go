@@ -191,20 +191,18 @@ func (o *opts) preflight(ctx context.Context) error {
 			return fmt.Errorf("failed to marshal docker config: %w", err)
 		}
 
-		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: o.Namespace,
-			},
-			Type: corev1.SecretTypeDockerConfigJson,
-			Data: map[string][]byte{
+		sa := corev1apply.Secret(o.Name, o.Namespace).
+			WithName(secretName).
+			WithType(corev1.SecretTypeDockerConfigJson).
+			WithData(map[string][]byte{
 				".dockerconfigjson": dockerConfigJSON,
-			},
-		}
+			})
 
-		_, err = o.client.CoreV1().Secrets(o.Namespace).Create(ctx, secret, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create docker config secret: %w", err)
+		if _, err := o.client.CoreV1().Secrets(o.Namespace).Apply(ctx, sa, metav1.ApplyOptions{
+			FieldManager: "imagetest",
+			Force:        true,
+		}); err != nil {
+			return fmt.Errorf("failed to apply docker config secret: %w", err)
 		}
 	}
 
