@@ -60,10 +60,11 @@ type DockerInDockerDriverResourceModel struct {
 }
 
 type EKSWithEksctlDriverResourceModel struct {
-	Region   types.String                       `tfsdk:"region"`
-	NodeAMI  types.String                       `tfsdk:"node_ami"`
-	NodeType types.String                       `tfsdk:"node_type"`
-	Storage  *EKSWithEksctlStorageResourceModel `tfsdk:"storage"`
+	Region    types.String                       `tfsdk:"region"`
+	NodeAMI   types.String                       `tfsdk:"node_ami"`
+	NodeType  types.String                       `tfsdk:"node_type"`
+	NodeCount types.Int64                        `tfsdk:"node_count"`
+	Storage   *EKSWithEksctlStorageResourceModel `tfsdk:"storage"`
 }
 
 type EKSWithEksctlStorageResourceModel struct {
@@ -202,10 +203,11 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		}
 
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
-			Region:   cfg.Region.ValueString(),
-			NodeAMI:  cfg.NodeAMI.ValueString(),
-			NodeType: cfg.NodeType.ValueString(),
-			Storage:  storageOpts,
+			Region:    cfg.Region.ValueString(),
+			NodeAMI:   cfg.NodeAMI.ValueString(),
+			NodeType:  cfg.NodeType.ValueString(),
+			NodeCount: int(cfg.NodeCount.ValueInt64()),
+			Storage:   storageOpts,
 		})
 
 	default:
