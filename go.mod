@@ -23,7 +23,7 @@ require (
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
-	k8s.io/kubectl v0.33.0
+	k8s.io/kubectl v0.33.1
 	k8s.io/kubelet v0.33.1
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
 )
