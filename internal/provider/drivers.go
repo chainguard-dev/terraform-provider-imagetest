@@ -60,9 +60,16 @@ type DockerInDockerDriverResourceModel struct {
 }
 
 type EKSWithEksctlDriverResourceModel struct {
-	Region   types.String `tfsdk:"region"`
-	NodeAMI  types.String `tfsdk:"node_ami"`
-	NodeType types.String `tfsdk:"node_type"`
+	Region    types.String                       `tfsdk:"region"`
+	NodeAMI   types.String                       `tfsdk:"node_ami"`
+	NodeType  types.String                       `tfsdk:"node_type"`
+	NodeCount types.Int64                        `tfsdk:"node_count"`
+	Storage   *EKSWithEksctlStorageResourceModel `tfsdk:"storage"`
+}
+
+type EKSWithEksctlStorageResourceModel struct {
+	Size types.String `tfsdk:"size"`
+	Type types.String `tfsdk:"type"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -182,10 +189,25 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		return dockerindocker.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
+		cfg := drivers.EKSWithEksctl
+		if cfg == nil {
+			cfg = &EKSWithEksctlDriverResourceModel{}
+		}
+
+		var storageOpts *ekswitheksctl.StorageOptions
+		if cfg.Storage != nil {
+			storageOpts = &ekswitheksctl.StorageOptions{
+				Size: cfg.Storage.Size.ValueString(),
+				Type: cfg.Storage.Type.ValueString(),
+			}
+		}
+
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
-			Region:   drivers.EKSWithEksctl.Region.ValueString(),
-			NodeAMI:  drivers.EKSWithEksctl.NodeAMI.ValueString(),
-			NodeType: drivers.EKSWithEksctl.NodeType.ValueString(),
+			Region:    cfg.Region.ValueString(),
+			NodeAMI:   cfg.NodeAMI.ValueString(),
+			NodeType:  cfg.NodeType.ValueString(),
+			NodeCount: int(cfg.NodeCount.ValueInt64()),
+			Storage:   storageOpts,
 		})
 
 	default:
@@ -282,9 +304,27 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Description: "The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)",
 						Optional:    true,
 					},
+					"node_count": schema.Int64Attribute{
+						Description: "The number of nodes to use for the eks_with_eksctl driver (default is 1)",
+						Optional:    true,
+					},
 					"node_type": schema.StringAttribute{
 						Description: "The instance type to use for the eks_with_eksctl driver (default is m5.large)",
 						Optional:    true,
+					},
+					"storage": schema.SingleNestedAttribute{
+						Description: "Storage configuration for the eks_with_eksctl driver",
+						Optional:    true,
+						Attributes: map[string]schema.Attribute{
+							"size": schema.StringAttribute{
+								Description: "The size of the storage volume (e.g., '20Gi')",
+								Optional:    true,
+							},
+							"type": schema.StringAttribute{
+								Description: "The type of storage to use (e.g., 'gp2', 'gp3')",
+								Optional:    true,
+							},
+						},
 					},
 				},
 			},

@@ -58,8 +58,19 @@ Optional:
 Optional:
 
 - `node_ami` (String) The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)
+- `node_count` (Number) The number of nodes to use for the eks_with_eksctl driver (default is 1)
 - `node_type` (String) The instance type to use for the eks_with_eksctl driver (default is m5.large)
 - `region` (String) The AWS region to use for the eks_with_eksctl driver (default is us-west-2)
+- `storage` (Attributes) Storage configuration for the eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--storage))
+
+<a id="nestedatt--drivers--eks_with_eksctl--storage"></a>
+### Nested Schema for `drivers.eks_with_eksctl.storage`
+
+Optional:
+
+- `size` (String) The size of the storage volume (e.g., '20Gi')
+- `type` (String) The type of storage to use (e.g., 'gp2', 'gp3')
+
 
 
 <a id="nestedatt--drivers--k3s_in_docker"></a>
