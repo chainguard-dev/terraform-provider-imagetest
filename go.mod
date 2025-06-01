@@ -4,7 +4,9 @@ go 1.24.2
 
 require (
 	chainguard.dev/apko v0.27.3
+	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.218.0
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.71.2
 	github.com/chainguard-dev/clog v1.7.0
 	github.com/docker/cli v28.1.1+incompatible
@@ -20,6 +22,7 @@ require (
 	github.com/moby/docker-image-spec v1.3.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/sync v0.14.0
+	gotest.tools/v3 v3.5.1
 	k8s.io/api v0.33.0
 	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.33.0
@@ -39,7 +42,6 @@ require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
 	github.com/Kunde21/markdownfmt/v3 v3.1.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.36.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.10 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.67 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.30 // indirect
@@ -226,3 +228,5 @@ require (
 	google.golang.org/grpc v1.72.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
+
+tool github.com/chainguard-dev/terraform-provider-imagetest/cmd/instgen

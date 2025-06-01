@@ -12,6 +12,11 @@ terraform-provider-imagetest: goimports lint testacc
 clean:
 	rm -v terraform-provider-imagetest || true
 
+# Generate curated EC2 instance information.
+.PHONE: instgen
+instgen:
+	go tool instgen -p ./internal/drivers/ec2 -fn instances.go -n ec2
+
 .PHONY: go-generate
 go-generate:
 	go generate -v ./...
