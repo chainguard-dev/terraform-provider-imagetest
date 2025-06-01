@@ -8,8 +8,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
+	ec2d "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -23,12 +26,14 @@ const (
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
+	DriverEC2            DriverResourceModel = "ec2"
 )
 
 type TestsDriversResourceModel struct {
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
+	EC2            *ec2d.Driver                       `tfsdk:"ec2"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -188,6 +193,28 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 			NodeType: drivers.EKSWithEksctl.NodeType.ValueString(),
 		})
 
+	case DriverEC2:
+		// Init a default AWS config
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load default AWS config: %s", err)
+		}
+
+		// Init an EC2 client, assign it to the driver instance
+		client := ec2.NewFromConfig(cfg)
+
+		if drivers.EC2 == nil {
+			// If we received no inbound driver configuration, use the default
+			driver := ec2d.DriverDefault
+			driver.SetClient(client)
+			return driver, nil
+
+		} else {
+			// If we received inbound driver configuration, use that
+			drivers.EC2.SetClient(client)
+			return drivers.EC2, nil
+		}
+
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
@@ -267,6 +294,72 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 					"mirrors": schema.ListAttribute{
 						ElementType: types.StringType,
 						Optional:    true,
+					},
+				},
+			},
+			"ec2": schema.SingleNestedAttribute{
+				Description: "The Amazon AWS EC2 driver.",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"ami": schema.StringAttribute{
+						Description: "The Amazon Machine Image (AMI) to use with this instance.",
+						Required:    true,
+					},
+					"instance_type": schema.StringAttribute{
+						Description: "The desired EC2 instance type. NOTE: If this is " +
+							"provided it will supersede all other instance type constraints.",
+						Optional: true,
+					},
+					"free_tier_eligible": schema.BoolAttribute{
+						Description: "If set, the selected instance type must be free-tier eligible.",
+						Optional:    true,
+					},
+					"proc": schema.SingleNestedAttribute{
+						Description: "Constraints for the EC2 instance's processor",
+						Attributes: map[string]schema.Attribute{
+							"arch": schema.StringAttribute{
+								Description: "The desired EC2 instance processor architecture.",
+								Optional:    true,
+							},
+							"vcpus": schema.Int32Attribute{
+								Description: "The desired number of virtual processors for the EC2 instance.",
+								Optional:    true,
+							},
+						},
+					},
+					"memory": schema.SingleNestedAttribute{
+						Description: "Constraints for the EC2 instance's memory configuration.",
+						Attributes: map[string]schema.Attribute{
+							"capacity": schema.StringAttribute{
+								Description: "The desired instance memory capacity. Can be " +
+									"entered as any of 'GB', 'MB', 'KB', 'GiB', 'MiB', 'KiB'. " +
+									"Examples: '4gb', '4GB', '4000MB', '3192mIb'. " +
+									"Capacity units are not case sensitive. " +
+									"If a capacity unit is not specified (ex: '4') gigabytes " +
+									"are assumed.",
+								Required: false,
+							},
+						},
+					},
+					"disks": schema.ListNestedAttribute{
+						Description: "Constraints for the EC2 instance's storage configuration.",
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"kind": schema.StringAttribute{
+									Description: "The EC2 instance disk kind. Can be one of: " +
+										"'hdd', 'ssd' or 'nvme'.",
+									Optional: true,
+								},
+								"capacity": schema.Int32Attribute{
+									Description: "The desired EC2 instance disk capacity (in GB).",
+									Optional:    true,
+								},
+								"nvme_support": schema.BoolAttribute{
+									Description: "Whether the EC2 instance supports NVME disks.",
+									Optional:    true,
+								},
+							},
+						},
 					},
 				},
 			},

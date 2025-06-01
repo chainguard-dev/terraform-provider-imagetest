@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.218.0
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.71.2
+	github.com/aws/aws-sdk-go-v2/service/pricing v1.34.3
 	github.com/chainguard-dev/clog v1.7.0
 	github.com/docker/cli v28.1.1+incompatible
 	github.com/docker/go-connections v0.5.0

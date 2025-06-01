@@ -2,13 +2,11 @@ package main
 
 import (
 	"io"
-	"log"
 	"math"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/terraform-provider-imagetest/cmd/instgen/emitter"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 )
 
 func emitInstances(
@@ -55,64 +53,64 @@ func emitFileHeader(e *emitter.Emitter, packageName string) {
 	e.Writeln("var Instances = []Instance{")           // var Instances = []Instance{
 }
 
-var (
-	// Map the instance type prefixes ("families"), as returned by the AWS V2 SDK
-	// to the correlative InstanceFamily constants in the `ec2` package.
-	instFamilyMap = map[string]ec2.InstanceFamily{
-		"g5":   ec2.InstanceFamilyG5,
-		"g6":   ec2.InstanceFamilyG6,
-		"g6e":  ec2.InstanceFamilyG6E,
-		"p4":   ec2.InstanceFamilyP4,
-		"p5":   ec2.InstanceFamilyP5,
-		"p5e":  ec2.InstanceFamilyP5E,
-		"p5en": ec2.InstanceFamilyP5EN,
-	}
-	// This is here as a warning signal and will produce an error if the ordering
-	// of the InstanceFamily type constants in the `ec2` package change.
-	//
-	// MAINTENANCE:
-	// - The value in the index expression should always be the largest constant
-	//   value for the type, subtracted by that value literal
-	// - Be sure to reflect any changes in the map above, as well
-	_ = [1]uint8{}[ec2.InstanceFamilyP5EN-7]
-)
+// var (
+// 	// Map the instance type prefixes ("families"), as returned by the AWS V2 SDK
+// 	// to the correlative InstanceFamily constants in the `ec2` package.
+// 	instFamilyMap = map[string]ec2.InstanceFamily{
+// 		"g5":   ec2.InstanceFamilyG5,
+// 		"g6":   ec2.InstanceFamilyG6,
+// 		"g6e":  ec2.InstanceFamilyG6E,
+// 		"p4":   ec2.InstanceFamilyP4,
+// 		"p5":   ec2.InstanceFamilyP5,
+// 		"p5e":  ec2.InstanceFamilyP5E,
+// 		"p5en": ec2.InstanceFamilyP5EN,
+// 	}
+// 	// This is here as a warning signal and will produce an error if the ordering
+// 	// of the InstanceFamily type constants in the `ec2` package change.
+// 	//
+// 	// MAINTENANCE:
+// 	// - The value in the index expression should always be the largest constant
+// 	//   value for the type, subtracted by that value literal
+// 	// - Be sure to reflect any changes in the map above, as well
+// 	_ = [1]uint8{}[ec2.InstanceFamilyP5EN-7]
+// )
 
 func emitInstanceFamily(e *emitter.Emitter, t *types.InstanceTypeInfo) {
 	name := string(t.InstanceType)
 	family := name[:strings.IndexByte(name, '.')]
 
 	// Remap family to the destination package constant representation
-	if mapped, ok := instFamilyMap[family]; ok {
-		e.Indent()
-		e.Writefln("Family: %s,", mapped)
-	} else {
-		log.Fatalf("Found unexpected instance family [%s].", family)
-	}
+	// if mapped, ok := instFamilyMap[family]; ok {
+	e.Indent()
+	e.Writefln("Family: %s,", family)
+	// } else {
+	// log.Fatalf("Found unexpected instance family [%s].", family)
+	// }
 }
 
-var (
-	// Map the instance type suffixes ("kinds"), as returned by the AWS V2 SDK,
-	// to the correlative InstanceKind constant in the `ec2` package.
-	instKindMap = map[string]ec2.InstanceKind{
-		"large":    ec2.InstanceKindL,
-		"xlarge":   ec2.InstanceKindXL,
-		"2xlarge":  ec2.InstanceKind2XL,
-		"4xlarge":  ec2.InstanceKind4XL,
-		"8xlarge":  ec2.InstanceKind8XL,
-		"12xlarge": ec2.InstanceKind12XL,
-		"16xlarge": ec2.InstanceKind16XL,
-		"24xlarge": ec2.InstanceKind24XL,
-		"48xlarge": ec2.InstanceKind48XL,
-	}
-	// This is here as a warning signal and will produce an error if the ordering
-	// of the InstanceKind constants in the `ec2` package change.
-	//
-	// MAINTENANCE:
-	// - The value in the index expression should always be the largest constant
-	//   value for the type, subtracted by that value literal
-	// - Be sure to reflect any changes in the map above, as well
-	_ = [1]any{}[ec2.InstanceKind48XL-10]
-)
+// var (
+// 	// Map the instance type suffixes ("kinds"), as returned by the AWS V2 SDK,
+// 	// to the correlative InstanceKind constant in the `ec2` package.
+// 	instKindMap = map[string]ec2.InstanceKind{
+// 		"large":    ec2.InstanceKindL,
+// 		"xlarge":   ec2.InstanceKindXL,
+// 		"2xlarge":  ec2.InstanceKind2XL,
+// 		"4xlarge":  ec2.InstanceKind4XL,
+// 		"8xlarge":  ec2.InstanceKind8XL,
+// 		"12xlarge": ec2.InstanceKind12XL,
+// 		"16xlarge": ec2.InstanceKind16XL,
+// 		"24xlarge": ec2.InstanceKind24XL,
+// 		"48xlarge": ec2.InstanceKind48XL,
+// 	}
+// 	// This is here as a warning signal and will produce an error if the ordering
+// 	// of the InstanceKind constants in the `ec2` package change.
+// 	//
+// 	// MAINTENANCE:
+// 	// - The value in the index expression should always be the largest constant
+// 	//   value for the type, subtracted by that value literal
+// 	// - Be sure to reflect any changes in the map above, as well
+// 	_ = [1]any{}[ec2.InstanceKind48XL-10]
+// )
 
 func emitInstanceKind(e *emitter.Emitter, t *types.InstanceTypeInfo) {
 	var (
@@ -120,12 +118,12 @@ func emitInstanceKind(e *emitter.Emitter, t *types.InstanceTypeInfo) {
 		kind = name[strings.IndexByte(name, '.')+1:]
 	)
 
-	if mapped, ok := instKindMap[kind]; ok {
-		e.Indent()
-		e.Writefln("Kind: %s,", mapped)
-	} else {
-		log.Fatalf("Found unexpected instance kind [%s].", kind)
-	}
+	// if mapped, ok := instKindMap[kind]; ok {
+	e.Indent()
+	e.Writefln("Kind: \"%s\",", kind)
+	// } else {
+	// 	log.Fatalf("Found unexpected instance kind [%s].", kind)
+	// }
 }
 
 func emitInstanceVCPUs(e *emitter.Emitter, t *types.InstanceTypeInfo) {
@@ -150,6 +148,9 @@ func emitInstanceOptimizedEBSSupport(e *emitter.Emitter, t *types.InstanceTypeIn
 }
 
 func emitInstanceEBSThroughput(e *emitter.Emitter, t *types.InstanceTypeInfo) {
+	if t.EbsInfo == nil || t.EbsInfo.EbsOptimizedInfo == nil {
+		return
+	}
 	e.Indent().Writefln(
 		"EBSThroughput: %d, // (GBps)",
 		int(math.Ceil((float64(*t.EbsInfo.EbsOptimizedInfo.BaselineThroughputInMBps) / 1024))),
@@ -163,61 +164,66 @@ func emitInstanceCost(e *emitter.Emitter, t *types.InstanceTypeInfo) {
 }
 
 var (
-	// Map the instance type suffixes ("kinds"), as returned by the AWS V2 SDK,
-	// to the correlative InstanceKind constant in the `ec2` package.
-	gpuKindMap = map[string]ec2.GPUKind{
-		"A10G": ec2.GPUKindA10G,
-		"L40S": ec2.GPUKindL40S,
-		"L4":   ec2.GPUKindL4,
-		"H100": ec2.GPUKindH100,
-		"H200": ec2.GPUKindH200,
-	}
-	// This is here as a warning signal and will produce an error if the ordering
-	// of the GPUKind constants in the `input` package change
-	//
-	// MAINTENANCE:
-	// - The value in the index expression should always be the largest constant
-	//   value for the type, subtracted by that value literal
-	// - Be sure to reflect any changes in the map above, as well
-	_ = [1]any{}[ec2.GPUKindH200-9]
+// Map the instance type suffixes ("kinds"), as returned by the AWS V2 SDK,
+// to the correlative InstanceKind constant in the `ec2` package.
+//
+//	gpuKindMap = map[string]ec2.GPUKind{
+//		"A10G": ec2.GPUKindA10G,
+//		"L40S": ec2.GPUKindL40S,
+//		"L4":   ec2.GPUKindL4,
+//		"H100": ec2.GPUKindH100,
+//		"H200": ec2.GPUKindH200,
+//	}
+//
+// This is here as a warning signal and will produce an error if the ordering
+// of the GPUKind constants in the `input` package change
+//
+// MAINTENANCE:
+//   - The value in the index expression should always be the largest constant
+//     value for the type, subtracted by that value literal
+//   - Be sure to reflect any changes in the map above, as well
+//
+// _ = [1]any{}[ec2.GPUKindH200-9]
 )
 
 func emitInstanceGPUSupport(e *emitter.Emitter, t *types.InstanceTypeInfo) {
-	if len(t.GpuInfo.Gpus) == 0 {
+	if t.GpuInfo == nil || len(t.GpuInfo.Gpus) == 0 {
 		return
 	}
 
-	if len(t.GpuInfo.Gpus) > 1 {
-		// Stringify GPU kinds
-		gpuKinds := make([]byte, 0, len(t.GpuInfo.Gpus)*5)
-		for i, gpu := range t.GpuInfo.Gpus {
-			gpuKinds = append(gpuKinds, *gpu.Name...)
-			if i < len(t.GpuInfo.Gpus) {
-				gpuKinds = append(gpuKinds, ',', ' ')
-			}
-		}
-		log.Fatalf(
-			"ERROR: Found instance [%s] with >1 distinct GPU kinds [%s].",
-			t.InstanceType, gpuKinds,
-		)
-	}
+	// if len(t.GpuInfo.Gpus) > 1 {
+	// 	// Stringify GPU kinds
+	// 	gpuKinds := make([]byte, 0, len(t.GpuInfo.Gpus)*5)
+	// 	for i, gpu := range t.GpuInfo.Gpus {
+	// 		gpuKinds = append(gpuKinds, *gpu.Name...)
+	// 		if i < len(t.GpuInfo.Gpus) {
+	// 			gpuKinds = append(gpuKinds, ',', ' ')
+	// 		}
+	// 	}
+	// 	log.Fatalf(
+	// 		"ERROR: Found instance [%s] with >1 distinct GPU kinds [%s].",
+	// 		t.InstanceType, gpuKinds,
+	// 	)
+	// }
 
 	// Select the first (should be _only_) GPU in the slice
-	gpu := t.GpuInfo.Gpus[0]
+	// gpu := t.GpuInfo.Gpus[0]
 
 	// Match the GPU name to the correlative GPUKind constant
-	kind, ok := gpuKindMap[*gpu.Name]
-	if !ok {
-		log.Fatalf("Found unexpected GPU kind [%s].", kind)
-	}
+	// kind, ok := gpuKindMap[*gpu.Name]
+	// if !ok {
+	// 	log.Fatalf("Found unexpected GPU kind [%s].", kind)
+	// }
 
-	e.
-		Indent().Writeln("GPU: GPU{").
-		In().
-		Indent().Writefln("Count: %d,", *gpu.Count).
-		Indent().Writefln("Kind:  GPUKind%s,", *gpu.Name).
-		Out().
-		Indent().Writeln("},")
+	for _, gpu := range t.GpuInfo.Gpus {
+		e.
+			Indent().Writeln("GPU: GPU{").
+			In().
+			Indent().Writefln("Count: %d,", *gpu.Count).
+			Indent().Writefln("Kind:  GPUKind%s,", *gpu.Name).
+			Out().
+			Indent().Writeln("},")
+	}
 }
 
 func emitFileFooter(e *emitter.Emitter) {
