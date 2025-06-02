@@ -38,9 +38,7 @@ const (
 	ArtifactContainerName = "artifacts"
 )
 
-var (
-	ipv4AddressRegexp = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}/32$`)
-)
+var ipv4AddressRegexp = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}/32$`)
 
 type opts struct {
 	Name             string
