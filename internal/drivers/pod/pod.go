@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/chainguard-dev/clog"
@@ -34,6 +37,8 @@ const (
 	SandboxContainerName  = "sandbox"
 	ArtifactContainerName = "artifacts"
 )
+
+var ipv4AddressRegexp = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}/32$`)
 
 type opts struct {
 	Name             string
@@ -422,6 +427,14 @@ func (o *opts) pod() *corev1.Pod {
 		wref = override
 	}
 
+	hostAliases := []corev1.HostAlias{}
+	if ip := getHostIPAddress(); ip != "" {
+		hostAliases = append(hostAliases, corev1.HostAlias{
+			IP:        ip,
+			Hostnames: []string{"host.docker.internal"},
+		})
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-", o.Name),
@@ -562,6 +575,7 @@ func (o *opts) pod() *corev1.Pod {
 					},
 				},
 			},
+			HostAliases: hostAliases,
 		},
 	}
 
@@ -710,4 +724,54 @@ func (e PodMonitorError) Error() string {
 
 func (e PodMonitorError) Unwrap() error {
 	return e.e
+}
+
+func getHostIPAddress() string {
+	// allow overriding host IP address via environment variable
+	if ip := os.Getenv("IMAGETEST_HOST_IP"); ip != "" {
+		return ip
+	}
+
+	// only run this on linux for now
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+
+	// get all network interfaces
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+
+	// iterate over interfaces and determine first with IPv4 address, ignoring loopback and docker interfaces
+	for _, iface := range ifaces {
+		// ignore interfaces not up
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		// ignore loopback interfaces and docker interfaces
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if strings.HasPrefix(iface.Name, "docker") {
+			continue
+		}
+		if strings.HasPrefix(iface.Name, "veth") {
+			continue
+		}
+
+		// get addresses for the interface and check for IPv4 address, return if found
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			if ipv4AddressRegexp.MatchString(addr.String()) {
+				ip := strings.Split(addr.String(), "/")[0]
+				return ip
+			}
+		}
+	}
+	return ""
 }
