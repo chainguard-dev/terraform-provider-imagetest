@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -236,18 +235,6 @@ managedNodeGroups:
 		k.nodeCount,
 		k.launchTemplateId,
 	)
-
-	if k.nodeAMI != "" {
-		amiConfig := fmt.Sprintf(`  ami: %s
-  amiFamily: AmazonLinux2023
-`, k.nodeAMI)
-		configContent = strings.Replace(
-			configContent,
-			"  launchTemplate:",
-			amiConfig+"  launchTemplate:",
-			1,
-		)
-	}
 
 	log.Infof("Using nodegroup config:\n%s", configContent)
 
