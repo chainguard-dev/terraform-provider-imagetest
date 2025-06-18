@@ -35,8 +35,9 @@ type driver struct {
 	kubeconfig       string
 	kcli             kubernetes.Interface
 	kcfg             *rest.Config
+	ec2Client        *ec2.Client
 	launchTemplate   string
-	launchTemplateId string // Add this field to store the launch template ID
+	launchTemplateId string
 	nodeGroup        string
 }
 
@@ -100,13 +101,6 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 
 func (k *driver) createLaunchTemplate(ctx context.Context) error {
 	log := clog.FromContext(ctx)
-
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(k.region))
-	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
-	}
-
-	ec2Client := ec2.NewFromConfig(cfg)
 
 	templateName := fmt.Sprintf("imagetest-%s", uuid.New().String())
 	k.launchTemplate = templateName
@@ -179,7 +173,7 @@ func (k *driver) createLaunchTemplate(ctx context.Context) error {
 		input.LaunchTemplateData.ImageId = aws.String(k.nodeAMI)
 	}
 
-	result, err := ec2Client.CreateLaunchTemplate(ctx, input)
+	result, err := k.ec2Client.CreateLaunchTemplate(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to create launch template: %w", err)
 	}
@@ -198,14 +192,7 @@ func (k *driver) deleteLaunchTemplate(ctx context.Context) error {
 
 	log := clog.FromContext(ctx)
 
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(k.region))
-	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
-	}
-
-	ec2Client := ec2.NewFromConfig(cfg)
-
-	_, err = ec2Client.DeleteLaunchTemplate(ctx, &ec2.DeleteLaunchTemplateInput{
+	_, err := k.ec2Client.DeleteLaunchTemplate(ctx, &ec2.DeleteLaunchTemplateInput{
 		LaunchTemplateName: aws.String(k.launchTemplate),
 	})
 	if err != nil {
@@ -312,6 +299,12 @@ func (k *driver) Setup(ctx context.Context) error {
 	}
 	log.Infof("Using kubeconfig: %s", cfg.Name())
 	k.kubeconfig = cfg.Name()
+
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(k.region))
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+	k.ec2Client = ec2.NewFromConfig(awsCfg)
 
 	usingExistingCluster := false
 	if _, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
