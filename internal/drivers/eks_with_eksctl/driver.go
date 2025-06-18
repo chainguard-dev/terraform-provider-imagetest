@@ -121,7 +121,7 @@ func (k *driver) createLaunchTemplate(ctx context.Context) error {
 	if k.storage != nil && k.storage.Size != "" {
 		var sizeGB int
 
-		_, err = fmt.Sscanf(k.storage.Size, "%dGB", &sizeGB)
+		_, err := fmt.Sscanf(k.storage.Size, "%dGB", &sizeGB)
 		if err != nil {
 			return fmt.Errorf("failed to parse storage size '%s': %w", k.storage.Size, err)
 		}
