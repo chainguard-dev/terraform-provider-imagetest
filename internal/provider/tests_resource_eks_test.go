@@ -30,7 +30,7 @@ resource "imagetest_tests" "foo" {
   }
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
 
   tests = [
@@ -66,7 +66,7 @@ resource "imagetest_tests" "foo_with_storage" {
   }
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:07d60d734cbfb135653ba8a0823b2d5b6b2b68b248912ba624470de9926294bf"
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
 
   tests = [
