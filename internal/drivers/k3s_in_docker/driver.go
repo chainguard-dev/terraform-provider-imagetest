@@ -274,6 +274,24 @@ configs:
 		return fmt.Errorf("waiting for k3s to be ready: %w", err)
 	}
 
+	// Ensure some common mount propagation fixes are applied to make this feel
+	// more like a "real" cluster
+	defaultMountCommands := []string{
+		"mount --make-rshared /",
+		"mount --make-rshared /run",
+		"mount --make-shared /tmp",
+	}
+
+	clog.InfoContext(ctx, "applying default mount propagation settings")
+	for _, cmd := range defaultMountCommands {
+		if err := resp.Run(ctx, harness.Command{
+			Args: cmd,
+		}); err != nil {
+			clog.WarnContext(ctx, "failed to apply mount propagation", "command", cmd, "error", err)
+		}
+	}
+
+	// Run user-defined post-start hooks after default setup
 	if k.Hooks != nil {
 		for _, hook := range k.Hooks.PostStart {
 			if err := resp.Run(ctx, harness.Command{
