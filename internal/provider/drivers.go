@@ -149,7 +149,42 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("invalid registry: %s", t.repo.RegistryStr())
 			}
+			// Configure containerd to use host.docker.internal as the default registry mirror
 			opts = append(opts, k3sindocker.WithRegistryMirror(t.repo.RegistryStr(), fmt.Sprintf("http://host.docker.internal:%s", parts[1])))
+
+			// Configure the test pods to resolve host.docker.internal to the host's gateway IP
+			coreDNSHook := `
+HOST_IP=$(grep "host.docker.internal" /etc/hosts | awk '{print $1}' | head -1)
+if [ -z "$HOST_IP" ]; then
+  echo "Failed to resolve host.docker.internal"
+  exit 1
+fi
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  hostdocker.server: |
+    host.docker.internal:53 {
+      hosts {
+        $HOST_IP host.docker.internal
+        fallthrough
+      }
+    }
+EOF
+
+# Restart CoreDNS pods to immediately load the new configuration # NOTE:
+CoreDNS has no _good_ way to validate the configuration has reloaded. This
+looks ugly, but in practice its the cheapest reliable way to ensure the new
+configuration is loaded, and only takes a few seconds since the image is
+already pulled.
+kubectl rollout restart deployment/coredns -n kube-system
+kubectl rollout status deployment/coredns -n kube-system --timeout=60s
+`
+			opts = append(opts, k3sindocker.WithPostStartHook(coreDNSHook))
 		}
 
 		return k3sindocker.NewDriver(id, opts...)
@@ -163,6 +198,10 @@ func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversReso
 		opts := []dockerindocker.DriverOpts{
 			dockerindocker.WithRemoteOptions(t.ropts...),
 			dockerindocker.WithRegistryAuth(t.repo.RegistryStr()),
+		}
+
+		for _, repo := range t.extraRepos {
+			opts = append(opts, dockerindocker.WithRegistryAuth(repo.RegistryStr()))
 		}
 
 		if cfg.Image.ValueString() != "" {
