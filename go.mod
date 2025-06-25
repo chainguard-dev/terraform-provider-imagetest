@@ -22,9 +22,9 @@ require (
 	github.com/moby/docker-image-spec v1.3.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/sync v0.15.0
-	k8s.io/api v0.33.1
-	k8s.io/apimachinery v0.33.1
-	k8s.io/client-go v0.33.1
+	k8s.io/api v0.33.2
+	k8s.io/apimachinery v0.33.2
+	k8s.io/client-go v0.33.2
 	k8s.io/kubectl v0.33.1
 	k8s.io/kubelet v0.33.1
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
