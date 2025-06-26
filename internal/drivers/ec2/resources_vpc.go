@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/chainguard-dev/clog"
 )
 
 type NetworkStack struct {
@@ -18,7 +19,15 @@ type NetworkStack struct {
 	SubnetID string
 }
 
-func initDefaultNetwork(ctx context.Context, d *Driver, vpcName, networkCIDR string, subnetCIDRs ...string) (vpcID string, subnetIDs []string, sgID string, err error) {
+var (
+	ErrNoSubnets                   = fmt.Errorf("received no subnets")
+	ErrSecurityGroupRuleAddFailure = fmt.Errorf("failed to add the default security group rules")
+)
+
+func initDefaultNetwork(ctx context.Context, d *Driver, vpcName, networkCIDR string, subnetCIDRs []string) (vpcID string, subnetIDs []string, sgID string, err error) {
+	log := clog.FromContext(ctx)
+	log.Debug("initializing default network stack")
+
 	// Create the VPC
 	var vpc *ec2.CreateVpcOutput
 	vpc, err = createVPC(ctx, d, vpcName, networkCIDR)
@@ -27,8 +36,17 @@ func initDefaultNetwork(ctx context.Context, d *Driver, vpcName, networkCIDR str
 		return
 	}
 	vpcID = *vpc.Vpc.VpcId
+	log.Debug("created VPC", "vpc_id", vpcID)
+	// Queue the VPC for destruction
+	d.stack.Push(NewGenericResource(vpcName, func(ctx context.Context) error {
+		_, err := deleteVPC(ctx, d, vpcID)
+		return err
+	}))
 
 	// Create the VPC subnet(s)
+	if len(subnetCIDRs) == 0 {
+		return "", nil, "", ErrNoSubnets
+	}
 	for i, subnetCIDR := range subnetCIDRs {
 		snName := vpcName + "_" + strconv.Itoa(i)
 		var subnet *ec2.CreateSubnetOutput
@@ -37,7 +55,17 @@ func initDefaultNetwork(ctx context.Context, d *Driver, vpcName, networkCIDR str
 			// TODO: Annotate
 			return
 		}
-		subnetIDs = append(subnetIDs, *subnet.Subnet.SubnetId)
+		subnetID := *subnet.Subnet.SubnetId
+		log.Debug(
+			"created VPC subnet",
+			fmt.Sprintf("%s_subnet_%d_id", vpcName, i), subnetID,
+		)
+		subnetIDs = append(subnetIDs, subnetID)
+		// Queue the subnet for destruction
+		d.stack.Push(NewGenericResource(subnetID, func(ctx context.Context) error {
+			_, err := deleteVPCSubnet(ctx, d, subnetID)
+			return err
+		}))
 	}
 
 	// Create the security group
@@ -48,6 +76,7 @@ func initDefaultNetwork(ctx context.Context, d *Driver, vpcName, networkCIDR str
 		return
 	}
 	sgID = *sg.GroupId
+	log.Debug("created security group", "security_group_id", sgID)
 
 	// Apply default security group rules (this can't be done in the initial
 	// request - dumb right?)
@@ -62,18 +91,21 @@ func initDefaultNetwork(ctx context.Context, d *Driver, vpcName, networkCIDR str
 	if err != nil {
 		return "", nil, "", err
 	}
+	log.Debug("identified local station public IP address", "ipv4_addr", pubIP)
 
 	// Add the security group rule
-	addSecurityGroupRules(ctx, d, sgID, types.SecurityGroupRuleUpdate{
-		SecurityGroupRuleId: aws.String("default_ssh"),
-		SecurityGroupRule: &types.SecurityGroupRuleRequest{
-			CidrIpv4:    aws.String(fmt.Sprintf("%s/32", pubIP)),
-			Description: aws.String("SSH from caller"),
-			FromPort:    aws.Int32(22),
-			ToPort:      aws.Int32(22),
-			IpProtocol:  aws.String("tcp"),
-		},
+	const portSSH = 22
+	_, err = addInboundSecurityGroupRule(ctx, d, sgID, ec2.AuthorizeSecurityGroupIngressInput{
+		CidrIp:            aws.String(fmt.Sprintf("%s/32", pubIP)),
+		FromPort:          aws.Int32(portSSH),
+		ToPort:            aws.Int32(portSSH),
+		GroupId:           &sgID,
+		IpProtocol:        aws.String("tcp"),
+		TagSpecifications: defaultTagSpecification(types.ResourceTypeSecurityGroupRule),
 	})
+	if err != nil {
+		return "", nil, "", fmt.Errorf("%w: %w", ErrSecurityGroupRuleAddFailure, err)
+	}
 
 	return
 }
@@ -88,6 +120,12 @@ func createVPC(ctx context.Context, d *Driver, name, cidr string) (*ec2.CreateVp
 	})
 }
 
+func deleteVPC(ctx context.Context, d *Driver, id string) (*ec2.DeleteVpcOutput, error) {
+	return d.client.DeleteVpc(ctx, &ec2.DeleteVpcInput{
+		VpcId: aws.String(id),
+	})
+}
+
 func createVPCSubnet(ctx context.Context, d *Driver, vpcID, name, cidr string) (*ec2.CreateSubnetOutput, error) {
 	return d.client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:     aws.String(vpcID),
@@ -96,6 +134,12 @@ func createVPCSubnet(ctx context.Context, d *Driver, vpcID, name, cidr string) (
 			Key:   aws.String("Name"),
 			Value: aws.String(name),
 		}),
+	})
+}
+
+func deleteVPCSubnet(ctx context.Context, d *Driver, subnetID string) (*ec2.DeleteSubnetOutput, error) {
+	return d.client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
+		SubnetId: aws.String(subnetID),
 	})
 }
 
@@ -111,12 +155,8 @@ func createSecurityGroup(ctx context.Context, d *Driver, vpcID, name string) (*e
 	})
 }
 
-func addSecurityGroupRules(ctx context.Context, d *Driver, groupID string, rules ...types.SecurityGroupRuleUpdate) error {
-	_, err := d.client.ModifySecurityGroupRules(ctx, &ec2.ModifySecurityGroupRulesInput{
-		GroupId:            aws.String(groupID),
-		SecurityGroupRules: rules,
-	})
-	return err
+func addInboundSecurityGroupRule(ctx context.Context, d *Driver, groupID string, rule ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+	return d.client.AuthorizeSecurityGroupIngress(ctx, &rule)
 }
 
 func defaultTagSpecification(rt types.ResourceType, withTags ...types.Tag) []types.TagSpecification {
@@ -150,16 +190,13 @@ func publicAddr() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrPublicAddrLookupFailure, err)
 	} else if res.StatusCode >= http.StatusBadRequest {
-		return "", fmt.Errorf(
-			"%w: received HTTP status code %d",
-			ErrPublicAddrLookupFailure, res.StatusCode,
-		)
+		return "", fmt.Errorf("received HTTP status code %d", res.StatusCode)
 	}
 	defer res.Body.Close()
 
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrPublicAddrLookupFailure, err)
+		return "", fmt.Errorf("%w", err)
 	}
 
 	return string(data), nil

@@ -16,6 +16,7 @@ func init() {
 }
 
 func TestSetup(t *testing.T) {
+
 	x := &Driver{
 		AMI: "ami-05f991c49d264708f",
 		Proc: Proc{

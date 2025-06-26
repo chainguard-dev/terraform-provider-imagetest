@@ -20,15 +20,18 @@ var (
 )
 
 func (self *Driver) Setup(ctx context.Context) error {
-	log := slog.With("driver", "ec2")
+	log := clog.FromContext(ctx).With("driver", "ec2")
 
 	// Bootstrap the VPC
+	//
+	// TODO: In the future this can be extended to allow VPC+Subnet+Security
+	// Group configurability from the caller (as inputs)
 	_, subnetIDs, sgID, err := initDefaultNetwork(
 		ctx,
 		self,
 		"imagetest-demo",
 		"172.25.0.0/24",
-		"172.25.0.0/25",
+		[]string{"172.25.0.0/24"},
 	)
 	if err != nil {
 		return fmt.Errorf(

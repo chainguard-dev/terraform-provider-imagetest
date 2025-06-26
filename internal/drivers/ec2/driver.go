@@ -51,6 +51,10 @@ type Driver struct {
 
 	// instanceAddr holds the public IP address of the launched instance
 	instanceAddr *string
+
+	// stack is a LIFO queue of resources we create which will be destroyed in
+	// the reverse order when finished
+	stack ResourceStack
 }
 
 func (self *Driver) SetClient(client *ec2.Client) {
