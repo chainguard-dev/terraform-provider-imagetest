@@ -83,6 +83,42 @@ resource "imagetest_tests" "foo_with_storage" {
 }
 `, nodeAMI)
 
+	tfWithPodIdentityAssociation := fmt.Sprintf(`
+resource "imagetest_tests" "foo_with_pod_identity" {
+  name   = "foo"
+  driver = "eks_with_eksctl"
+
+  drivers = {
+    eks_with_eksctl = {
+      node_ami = %q
+      pod_identity_associations = [
+        {
+          permission_policy_arn = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess",
+          service_account_name = "default",
+          namespace = "default",
+        },
+      ]
+    }
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev@sha256:1d8c1f0c437628aafa1bca52c41ff310aea449423cce9b2feae2767ac53c336f"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "/imagetest/k3s-in-docker-basic.sh"
+    }
+  ]
+
+  // Creating the cluster takes ~15m... 🐌
+  timeout = "30m"
+}
+`, nodeAMI)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
@@ -93,6 +129,7 @@ resource "imagetest_tests" "foo_with_storage" {
 		Steps: []resource.TestStep{
 			{Config: tf},
 			{Config: tfWithStorage},
+			{Config: tfWithPodIdentityAssociation},
 		},
 	})
 }

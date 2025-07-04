@@ -60,16 +60,23 @@ type DockerInDockerDriverResourceModel struct {
 }
 
 type EKSWithEksctlDriverResourceModel struct {
-	Region    types.String                       `tfsdk:"region"`
-	NodeAMI   types.String                       `tfsdk:"node_ami"`
-	NodeType  types.String                       `tfsdk:"node_type"`
-	NodeCount types.Int64                        `tfsdk:"node_count"`
-	Storage   *EKSWithEksctlStorageResourceModel `tfsdk:"storage"`
+	Region                  types.String                                         `tfsdk:"region"`
+	NodeAMI                 types.String                                         `tfsdk:"node_ami"`
+	NodeType                types.String                                         `tfsdk:"node_type"`
+	NodeCount               types.Int64                                          `tfsdk:"node_count"`
+	Storage                 *EKSWithEksctlStorageResourceModel                   `tfsdk:"storage"`
+	PodIdentityAssociations []*EKSWithEksctlPodIdentityAssociationResourceModule `tfsdk:"pod_identity_associations"`
 }
 
 type EKSWithEksctlStorageResourceModel struct {
 	Size types.String `tfsdk:"size"`
 	Type types.String `tfsdk:"type"`
+}
+
+type EKSWithEksctlPodIdentityAssociationResourceModule struct {
+	PermissionPolicyARN types.String `tfsdk:"permission_policy_arn"`
+	ServiceAccountName  types.String `tfsdk:"service_account_name"`
+	Namespace           types.String `tfsdk:"namespace"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -241,12 +248,25 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			}
 		}
 
+		podIdentityAssociations := []*ekswitheksctl.PodIdentityAssociationOptions{}
+		if cfg.PodIdentityAssociations != nil {
+			for _, v := range cfg.PodIdentityAssociations {
+				association := new(ekswitheksctl.PodIdentityAssociationOptions)
+				association.ServiceAccountName = v.ServiceAccountName.ValueString()
+				association.Namespace = v.Namespace.ValueString()
+				association.PermissionPolicyARN = v.PermissionPolicyARN.ValueString()
+
+				podIdentityAssociations = append(podIdentityAssociations, association)
+			}
+		}
+
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
-			Region:    cfg.Region.ValueString(),
-			NodeAMI:   cfg.NodeAMI.ValueString(),
-			NodeType:  cfg.NodeType.ValueString(),
-			NodeCount: int(cfg.NodeCount.ValueInt64()),
-			Storage:   storageOpts,
+			Region:                  cfg.Region.ValueString(),
+			NodeAMI:                 cfg.NodeAMI.ValueString(),
+			NodeType:                cfg.NodeType.ValueString(),
+			NodeCount:               int(cfg.NodeCount.ValueInt64()),
+			PodIdentityAssociations: podIdentityAssociations,
+			Storage:                 storageOpts,
 		})
 
 	default:
@@ -362,6 +382,26 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 							"type": schema.StringAttribute{
 								Description: "The type of storage to use (e.g., 'gp2', 'gp3')",
 								Optional:    true,
+							},
+						},
+					},
+					"pod_identity_associations": schema.ListNestedAttribute{
+						Description: "Pod Identity Associations for the EKS driver",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"permission_policy_arn": schema.StringAttribute{
+									Description: "ARN of the permission policy",
+									Optional:    true,
+								},
+								"service_account_name": schema.StringAttribute{
+									Description: "Name of the Kubernetes service account",
+									Optional:    true,
+								},
+								"namespace": schema.StringAttribute{
+									Description: "Kubernetes namespace of the service account",
+									Optional:    true,
+								},
 							},
 						},
 					},
