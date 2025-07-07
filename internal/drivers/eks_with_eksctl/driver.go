@@ -307,6 +307,11 @@ func (k *driver) deleteNodeGroup(ctx context.Context) error {
 //
 //	https://docs.aws.amazon.com/eks/latest/eksctl/pod-identity-associations.html
 func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
+	// The Pod Identity agent addon must be installed first.
+	if err := k.eksctl(ctx, "create", "addon", "--cluster="+k.clusterName, "--name=eks-pod-identity-agent"); err != nil {
+		return fmt.Errorf("eksctl create addon eks-pod-identity-agent: %w", err)
+	}
+
 	if k.podIdentityAssociations == nil {
 		return fmt.Errorf("pod identity associations is nil")
 	}
@@ -332,6 +337,10 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 
 // deletePodIdentityAssociation deletes a pod identity association for EKS workload.
 func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
+	if err := k.eksctl(ctx, "delete", "addon", "--cluster="+k.clusterName, "--name=eks-pod-identity-agent"); err != nil {
+		return fmt.Errorf("eksctl delete addon eks-pod-identity-agent: %w", err)
+	}
+
 	if k.podIdentityAssociations == nil {
 		return fmt.Errorf("pod identity associations is nil")
 	}
@@ -345,7 +354,7 @@ func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
 			"--cluster="+k.clusterName,
 			"--service-account-name="+v.serviceAccountName,
 			"--namespace="+v.namespace); err != nil {
-			return fmt.Errorf("eksctl delete podidentityassociation : %w", err)
+			return fmt.Errorf("eksctl delete podidentityassociation: %w", err)
 		}
 		log.Infof("Deleted pod identity associations for service account %s/%s for cluster %s",
 			v.namespace, v.serviceAccountName, k.nodeCount, v.permissionPolicyARN, k.clusterName)
