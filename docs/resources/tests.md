@@ -60,8 +60,19 @@ Optional:
 - `node_ami` (String) The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)
 - `node_count` (Number) The number of nodes to use for the eks_with_eksctl driver (default is 1)
 - `node_type` (String) The instance type to use for the eks_with_eksctl driver (default is m5.large)
+- `pod_identity_associations` (Attributes List) Pod Identity Associations for the EKS driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--pod_identity_associations))
 - `region` (String) The AWS region to use for the eks_with_eksctl driver (default is us-west-2)
 - `storage` (Attributes) Storage configuration for the eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--storage))
+
+<a id="nestedatt--drivers--eks_with_eksctl--pod_identity_associations"></a>
+### Nested Schema for `drivers.eks_with_eksctl.pod_identity_associations`
+
+Optional:
+
+- `namespace` (String) Kubernetes namespace of the service account
+- `permission_policy_arn` (String) ARN of the permission policy
+- `service_account_name` (String) Name of the Kubernetes service account
+
 
 <a id="nestedatt--drivers--eks_with_eksctl--storage"></a>
 ### Nested Schema for `drivers.eks_with_eksctl.storage`

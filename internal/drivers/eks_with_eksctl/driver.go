@@ -14,11 +14,18 @@ import (
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
+	"github.com/charmbracelet/log"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+)
+
+const (
+	regionDefault    = "us-west-2"
+	namespaceDefault = "imagetest"
+	nodeTypeDefault  = "m5.large"
 )
 
 type driver struct {
@@ -38,20 +45,35 @@ type driver struct {
 	launchTemplate   string
 	launchTemplateId string
 	nodeGroup        string
+
+	podIdentityAssociations []*podIdentityAssociation
 }
 
 type Options struct {
-	Region    string
-	NodeType  string
-	NodeAMI   string
-	NodeCount int
-	Namespace string
-	Storage   *StorageOptions
+	Region                  string
+	NodeType                string
+	NodeAMI                 string
+	NodeCount               int
+	Namespace               string
+	Storage                 *StorageOptions
+	PodIdentityAssociations []*PodIdentityAssociationOptions
 }
 
 type StorageOptions struct {
 	Size string
 	Type string
+}
+
+type PodIdentityAssociationOptions struct {
+	PermissionPolicyARN string // For now we support attaching just policies.
+	ServiceAccountName  string
+	Namespace           string
+}
+
+type podIdentityAssociation struct {
+	permissionPolicyARN string // For now we support attaching just policies.
+	serviceAccountName  string
+	namespace           string
 }
 
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
@@ -65,16 +87,28 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		storage:   opts.Storage,
 	}
 	if k.region == "" {
-		k.region = "us-west-2"
+		k.region = regionDefault
 	}
 	if k.namespace == "" {
-		k.namespace = "imagetest"
+		k.namespace = namespaceDefault
 	}
 	if k.nodeType == "" {
-		k.nodeType = "m5.large"
+		k.nodeType = nodeTypeDefault
 	}
 	if k.nodeCount <= 0 {
 		k.nodeCount = 1 // Default to 1 node if not specified
+	}
+	if opts.PodIdentityAssociations != nil {
+		for _, v := range opts.PodIdentityAssociations {
+			if v == nil {
+				continue
+			}
+			k.podIdentityAssociations = append(k.podIdentityAssociations, &podIdentityAssociation{
+				namespace:           v.Namespace,
+				permissionPolicyARN: v.PermissionPolicyARN,
+				serviceAccountName:  v.ServiceAccountName,
+			})
+		}
 	}
 
 	if _, err := exec.LookPath("eksctl"); err != nil {
@@ -268,6 +302,67 @@ func (k *driver) deleteNodeGroup(ctx context.Context) error {
 	return nil
 }
 
+// createPodIdentityAssociation creates a pod identity association for EKS workload.
+// Please refer to the official documentation of eksctl:
+//
+//	https://docs.aws.amazon.com/eks/latest/eksctl/pod-identity-associations.html
+func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
+	// The Pod Identity agent addon must be installed first.
+	if err := k.eksctl(ctx, "create", "addon", "--cluster="+k.clusterName, "--name=eks-pod-identity-agent"); err != nil {
+		return fmt.Errorf("eksctl create addon eks-pod-identity-agent: %w", err)
+	}
+
+	if k.podIdentityAssociations == nil {
+		return fmt.Errorf("pod identity associations is nil")
+	}
+
+	for _, v := range k.podIdentityAssociations {
+		if v == nil {
+			continue
+		}
+		if err := k.eksctl(ctx, "create", "podidentityassociation",
+			"--region="+k.region,
+			"--cluster="+k.clusterName,
+			"--service-account-name="+v.serviceAccountName,
+			"--namespace="+v.namespace,
+			"--permission-policy-arns="+v.permissionPolicyARN); err != nil {
+			return fmt.Errorf("eksctl create podidentityassociation: %w", err)
+		}
+		log.Infof("Created pod identity association for service account %s/%s and policy ARN %s for cluster %s",
+			v.namespace, v.serviceAccountName, k.nodeCount, v.permissionPolicyARN, k.clusterName)
+	}
+
+	return nil
+}
+
+// deletePodIdentityAssociation deletes a pod identity association for EKS workload.
+func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
+	if err := k.eksctl(ctx, "delete", "addon", "--cluster="+k.clusterName, "--name=eks-pod-identity-agent"); err != nil {
+		return fmt.Errorf("eksctl delete addon eks-pod-identity-agent: %w", err)
+	}
+
+	if k.podIdentityAssociations == nil {
+		return fmt.Errorf("pod identity associations is nil")
+	}
+
+	for _, v := range k.podIdentityAssociations {
+		if v == nil {
+			continue
+		}
+		if err := k.eksctl(ctx, "delete", "podidentityassociation",
+			"--region="+k.region,
+			"--cluster="+k.clusterName,
+			"--service-account-name="+v.serviceAccountName,
+			"--namespace="+v.namespace); err != nil {
+			return fmt.Errorf("eksctl delete podidentityassociation: %w", err)
+		}
+		log.Infof("Deleted pod identity associations for service account %s/%s for cluster %s",
+			v.namespace, v.serviceAccountName, k.nodeCount, v.permissionPolicyARN, k.clusterName)
+	}
+
+	return nil
+}
+
 func (k *driver) Setup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
@@ -326,6 +421,12 @@ func (k *driver) Setup(ctx context.Context) error {
 		return err
 	}
 
+	if k.podIdentityAssociations != nil {
+		if err = k.createPodIdentityAssociation(ctx); err != nil {
+			return fmt.Errorf("creating pod identity association: %w", err)
+		}
+	}
+
 	config, err := clientcmd.BuildConfigFromFlags("", k.kubeconfig)
 	if err != nil {
 		return fmt.Errorf("building kubeconfig: %w", err)
@@ -360,6 +461,12 @@ func (k *driver) Teardown(ctx context.Context) error {
 	if k.launchTemplate != "" {
 		if err := k.deleteLaunchTemplate(ctx); err != nil {
 			return err
+		}
+	}
+
+	if k.podIdentityAssociations != nil {
+		if err := k.deletePodIdentityAssociation(ctx); err != nil {
+			return fmt.Errorf("deleting pod identity association: %w", err)
 		}
 	}
 
