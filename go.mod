@@ -22,7 +22,7 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.13.2
 	github.com/moby/docker-image-spec v1.3.1
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.16.0
 	k8s.io/api v0.33.2
 	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.2
