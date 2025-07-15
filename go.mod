@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.72.0
 	github.com/chainguard-dev/clog v1.7.0
 	github.com/charmbracelet/log v0.4.2
-	github.com/docker/cli v28.3.0+incompatible
+	github.com/docker/cli v28.3.2+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.5
 	github.com/google/uuid v1.6.0
