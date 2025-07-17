@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -365,7 +366,7 @@ func (d *Client) Connect(ctx context.Context, cid string) (*Response, error) {
 func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 	var buf bytes.Buffer
 	if _, err := d.inner.ImageInspect(ctx, ref.Name(), client.ImageInspectWithRawResponse(&buf)); err != nil {
-		if !client.IsErrNotFound(err) {
+		if !cerrdefs.IsNotFound(err) {
 			return fmt.Errorf("checking if image exists: %w", err)
 		}
 	}
