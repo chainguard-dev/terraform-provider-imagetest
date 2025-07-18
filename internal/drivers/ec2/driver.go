@@ -39,6 +39,9 @@ type Driver struct {
 	// Instance accelerator configuration
 	GPU GPU
 
+	// Post-launch provisioning commands to be executed within the EC2 instance.
+	Commands Commands
+
 	/////////////////////////////////////////////////////////////////////////////
 	// Unexported Fields
 
@@ -51,14 +54,25 @@ type Driver struct {
 
 	// instanceAddr holds the public IP address of the launched instance
 	instanceAddr *string
-}
 
-func (self *Driver) SetClient(client *ec2.Client) {
-	self.client = client
+	// stack is a LIFO queue of 'Destructor's which, when called, perform a
+	// teardown of a resource created during the 'Setup' method call.
+	stack Stack
 }
 
 var DriverDefault = &Driver{
-	AMI:          "TODO",
+	// Ubuntu Server 24.04 (LTS) x86_64 USW2 (AMI IDs are region-specific).
+	AMI:          "ami-05f991c49d264708f",
 	Arch:         types.ArchitectureTypeX8664,
 	InstanceType: types.InstanceTypeT3Medium,
+	Proc: Proc{
+		VCPUs: uint16(4),
+	},
+	Memory: Memory{
+		Capacity: "4GB",
+	},
+	Commands: Commands{
+		Shell:    "bash",
+		Commands: cmdSetInstallDocker,
+	},
 }
