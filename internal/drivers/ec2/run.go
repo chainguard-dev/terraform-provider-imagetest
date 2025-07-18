@@ -8,8 +8,5 @@ import (
 )
 
 func (self Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResult, error) {
-	// ???
-	//
-	// Profit
 	return nil, nil
 }

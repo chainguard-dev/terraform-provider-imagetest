@@ -5,9 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2/filter"
 )
 
 // Memory describes the user-configurable physical memory constraints for a
@@ -15,25 +13,10 @@ import (
 type Memory struct {
 	// The desired instance physical memory capacity
 	//
-	// This is `fmt.Scan`ed and the unit of memory can case-insensitively be
-	// specified like `1000MB` or `1GB`. All units are evaluated as 2^(n) bytes,
+	// This is 'fmt.Scan'ed and the unit of memory can case-insensitively be
+	// specified like '1000MB' or '1GB'. All units are evaluated as 2^(n) bytes,
 	// not bits as lowercase might typically indicate.
 	Capacity string
-}
-
-// buildMemoryFilters appends to provided input slice `filters` any filters
-// implied by values assigned to the `Memory` instance nested in `Driver`.
-func buildMemoryFilters(ctx context.Context, d *Driver, filters []types.Filter) []types.Filter {
-	log := clog.FromContext(ctx)
-
-	if d.Memory.Capacity != "" {
-		// Parse memory capacity input
-		mem := parseMemoryCapacity(ctx, d.Memory.Capacity)
-		log.Debug("appending filter", "memory_capacity_mib", mem)
-		filters = append(filters, filter.Pre.Memory.Capacity(mem))
-	}
-
-	return filters
 }
 
 // We allow string input of memory capacity in any of the following formats:

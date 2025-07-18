@@ -11,49 +11,46 @@ import (
 	"github.com/chainguard-dev/clog"
 )
 
-var ErrNoInstanceTypes = fmt.Errorf(
-	"found no instance types which satisfy all input requirements",
+var (
+	ErrNoInstanceTypes        = fmt.Errorf("found no instance types which satisfy all input requirements")
+	ErrInstanceTypeSelection  = fmt.Errorf("failed instance selection")
+	ErrAMISelection           = fmt.Errorf("failed AMI selection")
+	ErrInstanceLaunch         = fmt.Errorf("failed to launch EC2 instance")
+	ErrNoInstancesAfterLaunch = fmt.Errorf("received no error during instance launch, but no instance was actually created")
 )
 
 func (self *Driver) Setup(ctx context.Context) error {
 	const defaultVPCName = "imagetest-demo"
-	const defaultSubnet = "172.25.0.0/24"
-
+	const defaultVPCCidr = "172.25.0.0/24"
+	const defaultVPCSubnetCIDR = "172.25.0.0/25"
 	log := clog.FromContext(ctx).With("driver", "ec2")
-
-	// Bootstrap the VPC
+	// Bootstrap the virtual network.
 	//
 	// TODO: In the future this can be extended to allow VPC+Subnet+Security
-	// Group configurability from the caller (as inputs)
-	_, subnetIDs, sgID, err := initDefaultNetwork(
+	// Group configurability from the caller (as inputs).
+	network, err := initDefaultNetwork(
 		ctx,
 		self,
 		defaultVPCName,
-		defaultSubnet,
-		[]string{defaultSubnet},
+		defaultVPCSubnetCIDR,
+		[]string{defaultVPCSubnetCIDR},
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"failed to bootstrap VPC, subnets and security group: %w",
-			err,
-		)
+		return err
 	}
-
-	// Select the most cost-effective instance type
+	// Select the most cost-effective instance type.
 	instanceType, err := selectInstanceType(ctx, self)
 	if err != nil {
-		return fmt.Errorf("failed instance selection: %w", err)
+		return fmt.Errorf("%w: %w", ErrInstanceTypeSelection, err)
 	}
 	log = log.With("instance_type", instanceType)
 	log.Info("selected instance type")
-
-	// Query and select AMI
+	// Query and select AMI.
 	ami, err := selectAMI(ctx, self)
 	if err != nil {
-		return fmt.Errorf("failed AMI selection: %w", err)
+		return fmt.Errorf("%w: %w", ErrAMISelection, err)
 	}
-
-	// Launch the instance
+	// Launch the instance.
 	launchResult, err := self.client.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId:      ami,
 		MinCount:     aws.Int32(1),
@@ -62,47 +59,52 @@ func (self *Driver) Setup(ctx context.Context) error {
 		NetworkInterfaces: []types.InstanceNetworkInterfaceSpecification{
 			{
 				DeviceIndex:              aws.Int32(0),
-				SubnetId:                 aws.String(subnetIDs[0]),
+				SubnetId:                 aws.String(network.SubnetIDs[0]),
 				AssociatePublicIpAddress: aws.Bool(true),
-				Groups:                   []string{sgID},
+				Groups:                   []string{network.SecurityGroupID},
 			},
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to launch instance [%s]: %s", instanceType, err)
+		return fmt.Errorf("%w: %s", ErrInstanceLaunch, err)
 	} else if len(launchResult.Instances) != 1 {
-		return fmt.Errorf("received no error during instance launch, but no instance was actually created")
+		return ErrNoInstancesAfterLaunch
+	} else if len(launchResult.Instances) == 0 {
 	}
-
-	// Capture necessary instance metadata
+	// Capture necessary instance metadata.
 	self.instanceID = launchResult.Instances[0].InstanceId
 	self.instanceAddr = launchResult.Instances[0].PublicIpAddress
-
+	// TODO: Once the 'ssh' PR is reconverged, implement command execution on the
+	// instance here.
 	return nil
 }
 
-var ErrNoAMI = fmt.Errorf("an AMI is not configured")
+var ErrNoAMI = fmt.Errorf("an AMI ID was not provided")
 
 func selectAMI(ctx context.Context, d *Driver) (*string, error) {
+	const amiEnvVar = "IMAGE_TEST_AMI"
 	if d.AMI != "" {
 		return aws.String(d.AMI), nil
-	} else if ami, ok := os.LookupEnv("IMAGE_TEST_AMI"); ok {
+	} else if ami, ok := os.LookupEnv(amiEnvVar); ok && ami != "" {
 		return aws.String(ami), nil
 	} else {
 		return nil, ErrNoAMI
 	}
 }
 
+var (
+	ErrPreFiltersBuild       = fmt.Errorf("failed to build instance filters")
+	ErrDescribeInstanceTypes = fmt.Errorf("failed to describe instance types")
+)
+
 func selectInstanceType(ctx context.Context, d *Driver) (types.InstanceType, error) {
 	var err error
 	log := clog.FromContext(ctx)
-
-	// Init the `DescribeInstanceTypesInput`
+	// Init the 'DescribeInstanceTypesInput'.
 	//
-	// `DescribeInstanceTypesInput` is the "request body" used to ask the AWS Go
+	// 'DescribeInstanceTypesInput' is the "request body" used to ask the AWS Go
 	// SDK v2 for a list of EC2 instance types
 	describeInstanceTypesInput := new(ec2.DescribeInstanceTypesInput)
-
 	// Assemble pre filters
 	//
 	// A number of things (GPU kind, disk capacity) cannot be filtered in-request
@@ -111,59 +113,51 @@ func selectInstanceType(ctx context.Context, d *Driver) (types.InstanceType, err
 	//
 	// NOTE: yes, there is a listed filter for storage capacity in the docs - it
 	// does not work. \o/ Also there just are no filters for GPUs.
-	describeInstanceTypesInput.Filters, err = buildPreFilters(ctx, d)
+	describeInstanceTypesInput.Filters, err = filtersPreBuild(ctx, d)
 	if err != nil {
-		return "", fmt.Errorf("failed to build instance filters: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrPreFiltersBuild, err)
 	}
 	log.Debug(
 		"filter_assembly_complete",
 		"filter_count", len(describeInstanceTypesInput.Filters),
 	)
-
-	// Roll all paginated EC2 `InstanceTypeInfo` results up
+	// Roll all paginated EC2 'InstanceTypeInfo' results up.
 	var instanceTypeInfos []types.InstanceTypeInfo
 	var nextToken *string
 	for {
-		// If we caught a next-page token on the previous iteration, apply it
+		// If we caught a next-page token on the previous iteration, apply it.
 		if nextToken != nil {
 			describeInstanceTypesInput.NextToken = nextToken
 		}
-
-		// Fetch the next page of results
+		// Fetch the next page of results.
 		results, err := d.client.DescribeInstanceTypes(ctx, describeInstanceTypesInput)
 		if err != nil {
-			return "", err
-		} else if len(results.InstanceTypes) == 0 {
-			return "", ErrNoInstanceTypes
-		} else if len(instanceTypeInfos) == 0 {
-			instanceTypeInfos = results.InstanceTypes
-		} else {
-			instanceTypeInfos = append(instanceTypeInfos, results.InstanceTypes...)
+			return "", fmt.Errorf("%w: %w", ErrDescribeInstanceTypes, err)
 		}
-
-		// If we don't have a `NextToken` (next page of results hint), we're done
+		instanceTypeInfos = append(instanceTypeInfos, results.InstanceTypes...)
+		// If we don't have a `NextToken` (next page of results hint), we're done.
 		if results.NextToken == nil {
 			break
 		}
-
-		// Set the next-page token for the next iteration
+		// Set the next-page token for the next iteration.
 		nextToken = results.NextToken
 	}
-
+	// Make sure we got a non-zero number of instance types.
+	if len(instanceTypeInfos) == 0 {
+		return "", ErrNoInstanceTypes
+	}
 	// Apply post-request filters
-	instanceTypeInfos = applyPostFilters(ctx, d, instanceTypeInfos)
-
+	instanceTypeInfos = filtersPostApply(ctx, d, instanceTypeInfos)
 	// Of the instance types which fulfill our requirements, select the cheapest
 	instanceTypes := make([]types.InstanceType, len(instanceTypeInfos))
 	for i := range len(instanceTypeInfos) {
 		instanceTypes[i] = instanceTypeInfos[i].InstanceType
 	}
-
+	//
 	// TODO: Select cheapest
-
+	//
 	if len(instanceTypes) == 0 {
 		return "", ErrNoInstanceTypes
 	}
-
 	return instanceTypes[0], nil
 }
