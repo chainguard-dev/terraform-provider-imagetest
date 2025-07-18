@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -21,13 +22,19 @@ func generatePriceList(pkgName, pkgPath, pkgFileName string, pl fmt.GoStringer) 
 	}
 	defer f.Close()
 
+	var errs error
 	// Write the 'DO NOT EDIT' header
-	fmt.Fprintln(f, doNotEdit)
+	_, err = fmt.Fprintln(f, doNotEdit)
+	errs = errors.Join(errs, err)
 	// Write the package name
-	fmt.Fprintf(f, "package %s\n", pkgName)
+	_, err = fmt.Fprintf(f, "package %s\n", pkgName)
+	errs = errors.Join(errs, err)
 	// Write a buffer whitespace
-	fmt.Fprintln(f)
+	_, err = fmt.Fprintln(f)
+	errs = errors.Join(errs, err)
 	// Serialize the PriceList
-	fmt.Fprintf(f, "var priceList = %#v", pl)
-	return nil
+	_, err = fmt.Fprintf(f, "var priceList = %#v", pl)
+	errs = errors.Join(errs, err)
+
+	return errs
 }
