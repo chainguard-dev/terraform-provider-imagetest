@@ -52,6 +52,12 @@ func main() {
 
 	// Fetch the price list
 	pl, err := priceListFetch(ctx, ProductCodeEC2, RegionUSW2)
+	if err != nil {
+		log.Fatal(
+			"failed to fetch price list",
+			"error", err,
+		)
+	}
 
 	// Filter the instance types (products)
 	pl = priceListProductFilter(
@@ -64,6 +70,12 @@ func main() {
 
 	// Convert it to our price list
 	converted, err := priceListConvert(pl)
+	if err != nil {
+		log.Fatal(
+			"failed to perform price list conversion",
+			"error", err,
+		)
+	}
 
 	// Generate the final pricelist
 	if err = generatePriceList(
