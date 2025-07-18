@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -15,10 +16,22 @@ var _ fmt.GoStringer = (*PriceList)(nil)
 type PriceList map[types.InstanceType]float32
 
 func (self PriceList) GoString() string {
+	// A linter on this repository expects `go:generate`d content to be committed
+	// and the `go:generate`d output _in CI_ to match what was committed. This
+	// means we have to sort this slice, for no reason than to satisfy the linter
+	// -_-
+	keys := make([]types.InstanceType, len(self))
+	i := 0
+	for k := range self {
+		keys[i] = k
+		i += 1
+	}
+	slices.Sort(keys)
+	// Now generate the output
 	b := bytes.NewBuffer(make([]byte, 0, 1024*50))
 	fmt.Fprintln(b, reflect.TypeOf(self).Name(), "{")
-	for instanceType, perHourCost := range self {
-		fmt.Fprintf(b, "\t%q: %.2f,\n", instanceType, perHourCost)
+	for _, k := range keys {
+		fmt.Fprintf(b, "\t%q: %.2f,\n", k, self[k])
 	}
 	fmt.Fprintln(b, "}")
 	return b.String()
