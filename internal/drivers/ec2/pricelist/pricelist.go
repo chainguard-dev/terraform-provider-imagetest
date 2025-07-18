@@ -11,6 +11,7 @@ import (
 
 var _ fmt.GoStringer = (*PriceList)(nil)
 
+//go:generate go tool plgen --package-name pricelist --package-path . --file-name prices.go
 type PriceList map[types.InstanceType]float32
 
 func (self PriceList) GoString() string {
