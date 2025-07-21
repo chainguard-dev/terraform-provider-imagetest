@@ -15,6 +15,7 @@ clean:
 .PHONY: go-generate
 go-generate:
 	go generate -v ./...
+	gofmt -w .
 
 .PHONY: goimports
 goimports:
