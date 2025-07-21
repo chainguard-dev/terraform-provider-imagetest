@@ -21,7 +21,7 @@ func asyncRead(t *testing.T, r io.Reader) <-chan string {
 				require.ErrorIs(t, err, io.EOF)
 				return
 			}
-			ch <- string(s)
+			ch <- s
 		}
 	}(ch)
 	return ch
