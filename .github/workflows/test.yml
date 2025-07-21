@@ -73,7 +73,7 @@ jobs:
           terraform_version: "1.10.*"
           terraform_wrapper: false
 
-      - run: go generate ./...
+      - run: make go-generate
 
       - name: git diff
         run: |

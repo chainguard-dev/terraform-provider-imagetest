@@ -15,6 +15,7 @@ clean:
 .PHONY: go-generate
 go-generate:
 	go generate -v ./...
+	gofmt -w .
 
 .PHONY: goimports
 goimports:
@@ -23,3 +24,11 @@ goimports:
 .PHONY: lint
 lint:
 	golangci-lint run
+
+.PHONY: plgen
+plgen:
+	go tool plgen \
+    -pp internal/drivers/ec2/pricelist \
+    -pn pricelist \
+    -fn prices.go
+	gofmt -w .
