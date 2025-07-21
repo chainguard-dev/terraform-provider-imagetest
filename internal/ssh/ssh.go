@@ -105,7 +105,7 @@ func joinHostPort(host string, port uint16) (string, error) {
 		// 'host' is ipv6
 		return fmt.Sprintf("[%s]:%d", ipv6.String(), port), nil
 	} else {
-		panic("impossible")
+		return "", ErrFailedHostParse
 	}
 }
 
