@@ -80,15 +80,6 @@ func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys
 	return client, nil
 }
 
-var (
-	dialer   = &net.Dialer{}
-	resolver = &net.Resolver{
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return dialer.DialContext(ctx, network, address)
-		},
-	}
-)
-
 // joinHostPort parses and validates 'host' is a valid IPv4 or IPv6 address,
 // then joins it with the port in the address-family-specific format.
 //
@@ -201,16 +192,4 @@ func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, er
 		return stdout.String(), stderr.String(), fmt.Errorf("%w: %w", ErrInWait, err)
 	}
 	return stdout.String(), stderr.String(), nil
-}
-
-// marshalCommand appends a newline to 'cmd' then marshals it to the expected
-// SSH wire format (just len(cmd) followed by the actual data).
-func marshalCommand(cmd string) []byte {
-	return ssh.Marshal(struct{ Command string }{cmd + "\n"})
-	// cmd += "\n"
-	// size := uint32(len(cmd))
-	// ret := make([]byte, 0, 4+size)
-	// ret = append(ret, byte(size>>24), byte(size>>16), byte(size>>8), byte(size))
-	// ret = append(ret, cmd...)
-	// return ret
 }
