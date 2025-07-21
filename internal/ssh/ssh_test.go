@@ -123,5 +123,5 @@ func TestJoinHostPort(t *testing.T) {
 	// valid hostname
 	s, err = joinHostPort("localhost", 33)
 	assert.NoError(t, err)
-	assert.Equal(t, "127.0.0.1:33", s)
+	assert.Contains(t, []string{"127.0.0.1:33", "[::1]:33"}, s)
 }
