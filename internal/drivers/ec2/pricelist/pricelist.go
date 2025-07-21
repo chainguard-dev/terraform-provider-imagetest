@@ -10,16 +10,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-var _ fmt.GoStringer = (*PriceList)(nil)
-
 //go:generate go tool plgen --package-name pricelist --package-path . --file-name prices.go
 type PriceList map[types.InstanceType]float32
 
+var _ fmt.GoStringer = (*PriceList)(nil)
+
+// GoString implements 'fmt.GoStringer' for the purposes of stringifying itself
+// during codegen (see: 'cmd/plgen').
 func (self PriceList) GoString() string {
-	// A linter on this repository expects `go:generate`d content to be committed
-	// and the `go:generate`d output _in CI_ to match what was committed. This
-	// means we have to sort this slice, for no reason than to satisfy the linter
-	// -_-
+	// A linter on this repository expects 'go:generate'd content to be committed
+	// and the 'go:generate'd output _in CI_ to match what was committed. This
+	// means we have to sort this slice.
 	keys := make([]types.InstanceType, len(self))
 	i := 0
 	for k := range self {
@@ -39,31 +40,29 @@ func (self PriceList) GoString() string {
 
 var ErrNoResults = fmt.Errorf("no instance types were.. cheapest..?")
 
+// Lookup simply fetches the price of a provided EC2 instance type.
 func Lookup(instanceType types.InstanceType) (float32, bool) {
 	price, ok := priceList[instanceType]
 	return price, ok
 }
 
-func SelectCheapest(itypes []types.InstanceType) (types.InstanceType, float32) {
-	if len(itypes) == 0 {
+// SelectCheapest reviews the cost of each provided instance type, returning
+// the cheapest of the bunch along with its per-hour (on-demand) cost.
+func SelectCheapest(instanceTypes []types.InstanceType) (types.InstanceType, float32) {
+	if len(instanceTypes) == 0 {
 		return "", 0
 	}
-
-	cheapestIndex, cheapestPrice := 0, float32(0)
-	for i := range len(itypes) {
-		price, ok := priceList[itypes[i]]
-		if !ok {
-			continue
-		}
-		if cheapestPrice == 0 || price < cheapestPrice {
-			cheapestIndex = i
+	var cheapestInstanceType types.InstanceType
+	var cheapestPrice float32
+	for _, instanceType := range instanceTypes {
+		price, ok := priceList[instanceType]
+		if ok && (cheapestPrice == 0 || price < cheapestPrice) {
+			cheapestInstanceType = instanceType
 			cheapestPrice = price
 		}
 	}
-
 	if cheapestPrice == 0 {
 		return "", 0
 	}
-
-	return itypes[cheapestIndex], cheapestPrice
+	return cheapestInstanceType, cheapestPrice
 }
