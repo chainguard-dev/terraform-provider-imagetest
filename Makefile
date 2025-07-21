@@ -24,9 +24,10 @@ goimports:
 lint:
 	golangci-lint run
 
-.PHONE: plgen
+.PHONY: plgen
 plgen:
 	go tool plgen \
     -pp internal/drivers/ec2/pricelist \
     -pn pricelist \
     -fn prices.go
+	gofmt -w .
