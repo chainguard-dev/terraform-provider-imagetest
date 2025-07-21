@@ -10,21 +10,22 @@ import (
 
 var ErrUnauthorized = fmt.Errorf("public key is not authorized")
 
+// PublicKeyCallback returns a closure for use with an 'ssh.ServerConfig' to
+// perform validation of offered public keys from inbound SSH connections
+// against the public keys provided in 'allowedPubKeys'.
 func PublicKeyCallback(t *testing.T, allowedPubKeys ...ssh.PublicKey) PubKeyCallback {
 	marshaledPubKeys := make([][]byte, len(allowedPubKeys))
 	for i := range len(marshaledPubKeys) {
 		marshaledPubKeys[i] = allowedPubKeys[i].Marshal()
 	}
 	return func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-		// Expect the "user" public key defined above on SSH connections
+		// Expect the "user" public key to exist in 'allowedPubKeys'.
 		keyMarshaled := key.Marshal()
 		for _, marshaledPubKey := range marshaledPubKeys {
 			if bytes.Equal(marshaledPubKey, keyMarshaled) {
 				return nil, nil
 			}
 		}
-		// require.Contains(t, marshaledPubKeys, key.Marshal(), "public key is not authorized", string(key.Marshal()))
-		// require.True(t, bytes.Equal(userPubKey.Marshal(), key.Marshal()))
 		return nil, ErrUnauthorized
 	}
 }
