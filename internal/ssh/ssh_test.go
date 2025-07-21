@@ -36,6 +36,7 @@ func TestSSH(t *testing.T) {
 	//
 	// The SSH client connection will sign messages with this key.
 	userSigner, err := userKeys.Private.ToSSH()
+	require.NoError(t, err)
 	// Convert the ed25519 public key to an ssh.PublicKey
 	//
 	// The server will authenticate connections with this key.

@@ -78,7 +78,7 @@ func TestGenerateKeyPair(t *testing.T) {
 // of the provided byte slice 'input'.
 //
 // If all bytes are present, they are sliced off the front of the slice and
-// returned
+// returned.
 func expectPrefix(t *testing.T, input []byte, expects ...byte) []byte {
 	t.Helper()
 	require.True(t, len(input) >= len(expects))
@@ -93,7 +93,7 @@ func expectPrefix(t *testing.T, input []byte, expects ...byte) []byte {
 // of the provided byte slice 'input'.
 //
 // If all bytes are present, they are sliced off the back of the slice and
-// returned
+// returned.
 func expectSuffix(t *testing.T, input []byte, expects ...byte) []byte {
 	t.Helper()
 	require.True(t, len(input) >= len(expects))

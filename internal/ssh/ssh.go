@@ -125,6 +125,7 @@ var (
 	ErrInWait          = fmt.Errorf("SSH command did not exit cleanly")
 	ErrStdinWrite      = fmt.Errorf("failed to write command to stdin")
 	ErrStdinShortWrite = fmt.Errorf("short write to stdin")
+	ErrStdStreamClose  = fmt.Errorf("encountered error closing standard stream")
 )
 
 // Exec executes a single command, returning any standard out/err received.
@@ -189,7 +190,12 @@ func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, er
 	//
 	// This will signal an EOF to the 'PipeReader' and is safe to call multiple
 	// times.
-	stdinw.Close()
+	if err = stdinw.Close(); err != nil {
+		return stdout.String(), stderr.String(), fmt.Errorf(
+			"%w: %w",
+			ErrStdStreamClose, err,
+		)
+	}
 	// Wait for the command to send an 'exit-status' request.
 	if err = session.Wait(); err != nil {
 		return stdout.String(), stderr.String(), fmt.Errorf("%w: %w", ErrInWait, err)

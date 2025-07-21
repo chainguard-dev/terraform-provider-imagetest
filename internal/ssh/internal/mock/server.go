@@ -110,7 +110,9 @@ func (self *server) serve(
 			return
 		default:
 			// Don't block forever.
-			listener.SetDeadline(time.Now().Add(100 * time.Millisecond))
+			require.NoError(t, listener.SetDeadline(
+				time.Now().Add(100*time.Millisecond),
+			))
 			conn, err := listener.AcceptTCP()
 			if err != nil {
 				var operr *net.OpError
@@ -161,7 +163,10 @@ func (self *server) handleTCPConn(
 		case newChannelRequest := <-inChanReqChan:
 			// Reject non-session channels
 			if newChannelRequest.ChannelType() != "session" {
-				newChannelRequest.Reject(ssh.UnknownChannelType, "unknown channel type")
+				require.NoError(t, newChannelRequest.Reject(
+					ssh.UnknownChannelType,
+					"unknown channel type",
+				))
 				continue
 			}
 			// Accept 'session' channels.
