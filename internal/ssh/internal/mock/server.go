@@ -71,34 +71,34 @@ func NewServer(t *testing.T, port uint16, signer ssh.Signer, fn PubKeyCallback) 
 	}, nil
 }
 
-func (self *server) ListenAndServe(t *testing.T, ctx context.Context) (ReqChannel, MsgChannel, error) {
+func (s *server) ListenAndServe(t *testing.T, ctx context.Context) (ReqChannel, MsgChannel, error) {
 	// Wrap the context with a cancellation.
 	//
 	// We'll use this 'context.CancelFunc' to shutdown the server in the
 	// 'Shutdown' method.
-	ctx, self.cancel = context.WithCancel(ctx)
+	ctx, s.cancel = context.WithCancel(ctx)
 	// Init the TCP listener
 	listener, err := net.ListenTCP("tcp", &net.TCPAddr{
-		Port: int(self.port),
+		Port: int(s.port),
 	})
-	require.NoError(t, err, "failed to listen on TCP/%d: %s", self.port, err)
+	require.NoError(t, err, "failed to listen on TCP/%d: %s", s.port, err)
 	// Init the channel we'll send a copy of all SSH requests into
 	outReqChan := make(chan *ssh.Request, 64)
 	outMsgChan := make(chan string, 64)
 	// Begin serving SSH requests
-	self.wait.Add()
-	go self.serve(t, ctx, listener, outReqChan, outMsgChan)
+	s.wait.Add()
+	go s.serve(t, ctx, listener, outReqChan, outMsgChan)
 	return outReqChan, outMsgChan, nil
 }
 
-func (self *server) serve(
+func (s *server) serve(
 	t *testing.T,
 	ctx context.Context,
 	listener *net.TCPListener,
 	outReqChan chan<- *ssh.Request,
 	outMsgChan chan<- string,
 ) {
-	defer self.wait.Done()
+	defer s.wait.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -121,8 +121,8 @@ func (self *server) serve(
 				}
 			}
 			require.NoError(t, err)
-			self.wait.Add()
-			go self.handleTCPConn(t, ctx, conn, outReqChan, outMsgChan)
+			s.wait.Add()
+			go s.handleTCPConn(t, ctx, conn, outReqChan, outMsgChan)
 		}
 	}
 }
@@ -134,18 +134,18 @@ func (self *server) serve(
 // in a separate Goroutine.
 //
 // See 'handleChannel' for more details.
-func (self *server) handleTCPConn(
+func (s *server) handleTCPConn(
 	t *testing.T,
 	ctx context.Context,
 	conn *net.TCPConn,
 	outReqChan chan<- *ssh.Request,
 	outMsgChan chan<- string,
 ) {
-	defer self.wait.Done()
+	defer s.wait.Done()
 	// Perform the SSH handshake.
 	sshConn, inChanReqChan, inReqChan, err := ssh.NewServerConn(
 		conn,
-		self.Config,
+		s.Config,
 	)
 	require.NoError(t, err)
 	defer sshConn.Close()
@@ -176,7 +176,7 @@ func (self *server) handleTCPConn(
 			// a channel.
 			inMsgChan := asyncRead(t, channel)
 			// Handle the channel in a separate Goroutine.
-			go self.handleChannel(t, ctx, channel, inMsgChan, inReqChan, outReqChan, outMsgChan)
+			go s.handleChannel(t, ctx, channel, inMsgChan, inReqChan, outReqChan, outMsgChan)
 		}
 	}
 }
@@ -195,7 +195,7 @@ func (self *server) handleTCPConn(
 // This function exits when either the 'context.Context' is marked done, or
 // the 'inMsgChan' is closed, whichever comes first. On exit, the SSH channel
 // is closed. See 'asyncRead' for more details on 'inMsgChan' closure.
-func (self *server) handleChannel(
+func (s *server) handleChannel(
 	t *testing.T,
 	ctx context.Context,
 	channel ssh.Channel,
@@ -205,7 +205,7 @@ func (self *server) handleChannel(
 	outMsgChan chan<- string,
 ) {
 	defer func() {
-		self.wait.Done()
+		s.wait.Done()
 		require.NoError(t, channel.Close())
 	}()
 	for {
@@ -285,10 +285,10 @@ var ErrServerNotStarted = fmt.Errorf(
 )
 
 // Shutdown calls the 'context.CancelFunc' and waits for all Goroutines to exit.
-func (self *server) Shutdown(ctx context.Context) error {
-	if self.cancel == nil {
+func (s *server) Shutdown(ctx context.Context) error {
+	if s.cancel == nil {
 		return ErrServerNotStarted
 	}
-	self.cancel()
-	return self.wait.WaitContext(ctx)
+	s.cancel()
+	return s.wait.WaitContext(ctx)
 }

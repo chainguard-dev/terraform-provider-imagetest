@@ -81,13 +81,13 @@ type ED25519PublicKey struct {
 
 // Verifies signature hash 'sig' against signed message 'msg' using the ed25519
 // public key.
-func (self ED25519PublicKey) Verify(msg, sig []byte) bool {
-	return ed25519.Verify(self.key, msg, sig)
+func (pubKey ED25519PublicKey) Verify(msg, sig []byte) bool {
+	return ed25519.Verify(pubKey.key, msg, sig)
 }
 
 // Converts the 'ed25519.PublicKey' to an 'ssh.PublicKey'.
-func (self ED25519PublicKey) ToSSH() (ssh.PublicKey, error) {
-	pub, err := ssh.NewPublicKey(self.key)
+func (pubKey ED25519PublicKey) ToSSH() (ssh.PublicKey, error) {
+	pub, err := ssh.NewPublicKey(pubKey.key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPubKeyConv, err)
 	}
@@ -95,9 +95,9 @@ func (self ED25519PublicKey) ToSSH() (ssh.PublicKey, error) {
 }
 
 // Marshals the 'ed25519.PublicKey' to the OpenSSH ('authorized_keys') format.
-func (self ED25519PublicKey) MarshalOpenSSH() ([]byte, error) {
+func (pubKey ED25519PublicKey) MarshalOpenSSH() ([]byte, error) {
 	// Convert the 'ed25519.PublicKey' to an 'ssh.PublicKey'.
-	publicKey, err := self.ToSSH()
+	publicKey, err := pubKey.ToSSH()
 	if err != nil {
 		return nil, err
 	}
@@ -116,14 +116,14 @@ type ED25519PrivateKey struct {
 // Signs a message with plain* ED25519 using the 'ed25519.PrivateKey'.
 //
 // * Plain means the message is not SHA-512 pre-hashed ('ed25519ph').
-func (self ED25519PrivateKey) Sign(msg []byte) ([]byte, error) {
-	return self.key.Sign(rand.Reader, msg, crypto.Hash(0))
+func (privKey ED25519PrivateKey) Sign(msg []byte) ([]byte, error) {
+	return privKey.key.Sign(rand.Reader, msg, crypto.Hash(0))
 }
 
 // Marshals the 'ed25519.PrivateKey' to the OpenSSH format.
-func (self ED25519PrivateKey) MarshalOpenSSH(comment string) ([]byte, error) {
+func (privKey ED25519PrivateKey) MarshalOpenSSH(comment string) ([]byte, error) {
 	// Marshal the 'ed25519.PrivateKey' to the standard OpenSSH format.
-	priv, err := ssh.MarshalPrivateKey(self.key, comment)
+	priv, err := ssh.MarshalPrivateKey(privKey.key, comment)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPrivKeyMarshal, err)
 	}
@@ -136,8 +136,8 @@ func (self ED25519PrivateKey) MarshalOpenSSH(comment string) ([]byte, error) {
 }
 
 // Converts the 'ed25519.PrivateKey' to an 'ssh.Signer'.
-func (self ED25519PrivateKey) ToSSH() (ssh.Signer, error) {
-	return ssh.NewSignerFromKey(self.key)
+func (privKey ED25519PrivateKey) ToSSH() (ssh.Signer, error) {
+	return ssh.NewSignerFromKey(privKey.key)
 }
 
 var ErrSSHFailedKeyParse = fmt.Errorf("failed to parse SSH private key")

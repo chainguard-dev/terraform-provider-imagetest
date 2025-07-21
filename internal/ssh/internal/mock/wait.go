@@ -21,12 +21,12 @@ type Waiter struct {
 	active *atomic.Int32
 }
 
-func (self Waiter) Add() {
-	self.active.Add(1)
+func (w Waiter) Add() {
+	w.active.Add(1)
 }
 
-func (self Waiter) Done() {
-	left := self.active.Add(-1)
+func (w Waiter) Done() {
+	left := w.active.Add(-1)
 	_, file, line, _ := runtime.Caller(1)
 	i := strings.LastIndexByte(file, '/')
 	file = file[i+1:]
@@ -34,13 +34,13 @@ func (self Waiter) Done() {
 	log.Debug("waiter.Done() called", "caller", caller, "left", left)
 }
 
-func (self Waiter) WaitContext(ctx context.Context) error {
+func (w Waiter) WaitContext(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return context.DeadlineExceeded
 		case <-time.After(1 * time.Millisecond):
-			if self.active.Load() == 0 {
+			if w.active.Load() == 0 {
 				return nil
 			}
 		}
