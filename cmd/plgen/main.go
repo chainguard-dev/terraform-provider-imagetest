@@ -88,19 +88,19 @@ func main() {
 	}
 }
 
-// Drop non-shared tenancy instances (ex: dedicated hosts)
+// Drop non-shared tenancy instances (ex: dedicated hosts).
 func productFilterIsSharedInstance(p Product) bool {
 	const tenancyShared = "Shared"
 	return p.Attributes.Tenancy == tenancyShared
 }
 
-// Drop reserved instance types
+// Drop reserved instance types.
 func productFilterIsBoxUsageType(p Product) bool {
 	const boxUsage = "-BoxUsage:"
 	return strings.Contains(p.Attributes.UsageType, boxUsage)
 }
 
-// Drop non-Linux instance types
+// Drop non-Linux instance types.
 func productFilterIsLinux(p Product) bool {
 	const osLinux = "Linux"
 	return p.Attributes.OS == osLinux

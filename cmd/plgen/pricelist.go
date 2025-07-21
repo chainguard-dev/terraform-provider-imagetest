@@ -13,7 +13,8 @@ import (
 )
 
 type (
-	// This data structure is a nightmare to work with...
+	// PriceList reflects the shape of the JSON price list returned by the public
+	// AWS API and that data structure sucks to work with...
 	//
 	// What we're after is the USD value for all price dimensions we care about.
 	// In JSONPath terms, what we want looks roughly like this:
@@ -38,8 +39,6 @@ type (
 	//             |                             |              |- We want only 'Shared' tenancy.
 	//             |                             |- We want to record the instance type (ex: 't2.large').
 	//             |- [SKU] - We'll use this to index into the '.terms' object (above).
-	//
-	// The AWS price list
 	PriceList struct {
 		Version  string   `json:"version"`
 		Products Products `json:"products"`
@@ -79,10 +78,10 @@ type (
 )
 
 const (
-	// Regions
+	// Regions.
 	RegionUSW2 = "us-west-2"
 
-	// Product Codes
+	// Product Codes.
 	ProductCodeEC2 = "AmazonEC2"
 )
 
