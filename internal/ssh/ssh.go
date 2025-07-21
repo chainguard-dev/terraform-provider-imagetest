@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
 
@@ -145,7 +144,6 @@ func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, er
 	// Begin a new SSH session.
 	session, err := client.NewSession()
 	if err != nil {
-		log.Fatalf("failed to start SSH session: %s", err)
 		return "", "", fmt.Errorf("%w: %w", ErrSessionInit, err)
 	}
 	defer session.Close()
@@ -163,7 +161,6 @@ func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, er
 	session.Stderr = stderr
 	// Begin the command (we'll pass the input 'cmds' via stdin further down).
 	if err = session.Start(cmd); err != nil {
-		log.Fatalf("failed to start session command: %s", err)
 		return "", "", fmt.Errorf("%w: %w", ErrCMDExec, err)
 	}
 	// Pass all provided commands in via stdin.
