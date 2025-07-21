@@ -118,33 +118,32 @@ var (
 	ErrStdStreamClose  = fmt.Errorf("encountered error closing standard stream")
 )
 
-// Exec executes a single command, returning any standard out/err received.
-func Exec(client *ssh.Client, cmd string) (string, string, error) {
+// Exec executes a single command, directing standard out+error to the provided
+// 'io.Writer's.
+func Exec(client *ssh.Client, cmd string, stdout, stderr io.Writer) error {
 	// Init an SSH session.
 	session, err := client.NewSession()
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %w", ErrSessionInit, err)
+		return fmt.Errorf("%w: %w", ErrSessionInit, err)
 	}
 	defer session.Close()
 	// Wire up standard streams.
-	stdout := new(bytes.Buffer)
 	session.Stdout = stdout
-	stderr := new(bytes.Buffer)
 	session.Stderr = stderr
 	// Execute the provided command.
 	if err = session.Run(cmd); err != nil {
-		return stdout.String(), stderr.String(), fmt.Errorf("%w: %w", ErrCMDExec, err)
+		return fmt.Errorf("%w: %w", ErrCMDExec, err)
 	}
-	return stdout.String(), stderr.String(), nil
+	return nil
 }
 
 // ExecIn executes all provided commands within the provided 'shell'.
-func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, error) {
+func ExecIn(client *ssh.Client, shell Shell, stdout, stderr io.Writer, cmds ...string) error {
 	cmd := "/usr/bin/env " + shell
 	// Begin a new SSH session.
 	session, err := client.NewSession()
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %w", ErrSessionInit, err)
+		return fmt.Errorf("%w: %w", ErrSessionInit, err)
 	}
 	defer session.Close()
 	// Wire up standard streams.
@@ -155,20 +154,18 @@ func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, er
 	defer stdinr.Close()
 	defer stdinw.Close()
 	session.Stdin = stdinr
-	stdout := new(bytes.Buffer)
 	session.Stdout = stdout
-	stderr := new(bytes.Buffer)
 	session.Stderr = stderr
 	// Begin the command (we'll pass the input 'cmds' via stdin further down).
 	if err = session.Start(cmd); err != nil {
-		return "", "", fmt.Errorf("%w: %w", ErrCMDExec, err)
+		return fmt.Errorf("%w: %w", ErrCMDExec, err)
 	}
 	// Pass all provided commands in via stdin.
 	for _, cmd := range cmds {
 		// "Execute" the command.
 		_, err := stdinw.Write([]byte(cmd + "\n"))
 		if err != nil {
-			return stdout.String(), stderr.String(), fmt.Errorf(
+			return fmt.Errorf(
 				"%w: %w",
 				ErrStdinWrite, err,
 			)
@@ -179,14 +176,14 @@ func ExecIn(client *ssh.Client, shell Shell, cmds ...string) (string, string, er
 	// This will signal an EOF to the 'PipeReader' and is safe to call multiple
 	// times.
 	if err = stdinw.Close(); err != nil {
-		return stdout.String(), stderr.String(), fmt.Errorf(
+		return fmt.Errorf(
 			"%w: %w",
 			ErrStdStreamClose, err,
 		)
 	}
 	// Wait for the command to send an 'exit-status' request.
 	if err = session.Wait(); err != nil {
-		return stdout.String(), stderr.String(), fmt.Errorf("%w: %w", ErrInWait, err)
+		return fmt.Errorf("%w: %w", ErrInWait, err)
 	}
-	return stdout.String(), stderr.String(), nil
+	return nil
 }

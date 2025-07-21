@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"log/slog"
@@ -81,9 +82,12 @@ func TestSSH(t *testing.T) {
 	// those returned values.
 	const cmd1 = "echo 'Hello, world!'"
 	const cmd2 = "echo 'Goodbyte, world!'"
-	_, _, err = ExecIn(
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	err = ExecIn(
 		client,
 		ShellBash,
+		stdout,
+		stderr,
 		cmd1,
 		cmd2,
 	)
