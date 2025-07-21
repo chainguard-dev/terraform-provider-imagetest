@@ -17,22 +17,22 @@ var _ fmt.GoStringer = (*PriceList)(nil)
 
 // GoString implements 'fmt.GoStringer' for the purposes of stringifying itself
 // during codegen (see: 'cmd/plgen').
-func (self PriceList) GoString() string {
+func (pl PriceList) GoString() string {
 	// A linter on this repository expects 'go:generate'd content to be committed
 	// and the 'go:generate'd output _in CI_ to match what was committed. This
 	// means we have to sort this slice.
-	keys := make([]types.InstanceType, len(self))
+	keys := make([]types.InstanceType, len(pl))
 	i := 0
-	for k := range self {
+	for k := range pl {
 		keys[i] = k
 		i += 1
 	}
 	slices.Sort(keys)
 	// Now generate the output
 	b := bytes.NewBuffer(make([]byte, 0, 1024*50))
-	fmt.Fprintln(b, reflect.TypeOf(self).Name(), "{")
+	fmt.Fprintln(b, reflect.TypeOf(pl).Name(), "{")
 	for _, k := range keys {
-		fmt.Fprintf(b, "\t%q: %.2f,\n", k, self[k])
+		fmt.Fprintf(b, "\t%q: %.2f,\n", k, pl[k])
 	}
 	fmt.Fprintln(b, "}")
 	return b.String()
