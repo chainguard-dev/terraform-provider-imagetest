@@ -18,7 +18,7 @@ const sshDefaultTimeout = 3 * time.Second
 
 var (
 	ErrSSHFailedDial   = fmt.Errorf("failed to establish TCP/22 connection")
-	ErrFailedHostParse = fmt.Errorf("failed to parse ")
+	ErrFailedHostParse = fmt.Errorf("failed to parse hostname")
 	ErrHostKeyInvalid  = fmt.Errorf("target's host key is invalid")
 )
 
