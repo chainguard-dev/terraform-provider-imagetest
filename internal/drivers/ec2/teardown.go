@@ -6,7 +6,7 @@ import (
 	"github.com/chainguard-dev/clog"
 )
 
-func (d Driver) Teardown(ctx context.Context) error {
+func (d *Driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 	log.Info("beginning resource teardown")
 	if err := d.stack.Destroy(ctx); err != nil {

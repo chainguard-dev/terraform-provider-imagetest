@@ -4,34 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
 )
-
-type NetworkDeployment struct {
-	// VPC
-	VPCName string
-	VPCID   string
-	VPCCIDR string
-	// Subnet
-	SubnetName string
-	SubnetID   string
-	SubnetCIDR string
-	// Internet Gateway
-	IGWName string
-	IGWID   string
-	// Route Table
-	RTBID string
-	// Security Group
-	SGID string
-	// Elastic IP
-	ElasticIP   string
-	ElasticIPID string
-	// Network Interface
-	InterfaceID string
-}
 
 func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	log := clog.FromContext(ctx)
@@ -125,19 +99,22 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	//
 	// TODO: This seems like something we're going to want to create a dumb but
 	// self-hosted service to handle.
-	pubIP, err := publicAddr()
+	localPublicAddr, err := publicAddr()
 	if err != nil {
 		return net, fmt.Errorf("%w: %w", ErrPublicIPLookup, err)
 	}
-	log.Info("identified local station public IP address", "ipv4_addr", pubIP)
+	log.Info(
+		"identified local station public IP address",
+		"addr", localPublicAddr,
+	)
 	// Create a single-address CIDR notation representation of the public address.
-	pubIPCIDR, err := singleIPCIDR(pubIP)
+	localPublicAddrCIDR, err := singleAddrCIDR(localPublicAddr)
 	if err != nil {
 		return net, err
 	}
-	log.Info("generated single-IP CIDR", "cidr", pubIPCIDR)
+	log.Info("generated local public address CIDR", "cidr", localPublicAddrCIDR)
 	// Get the VPC's default security group.
-	net.SGID, err = vpcDefaultSecurityGroupGet(ctx, d.client, net.VPCID)
+	net.SGID, err = vpcDefaultSecurityGroup(ctx, d.client, net.VPCID)
 	if err != nil {
 		return net, err
 	}
@@ -146,20 +123,13 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	//
 	// By default we'll only open TCP/22 (SSH)/ to the host we're calling from.
 	// Unfortunately, this can't be done in the initial request.
-	err = securityGroupInboundRuleCreate(ctx, d.client, ec2.AuthorizeSecurityGroupIngressInput{
-		CidrIp:            aws.String(pubIPCIDR),
-		FromPort:          aws.Int32(portSSH),
-		ToPort:            aws.Int32(portSSH),
-		GroupId:           &net.SGID,
-		IpProtocol:        aws.String("tcp"),
-		TagSpecifications: tagSpecificationWithDefaults(types.ResourceTypeSecurityGroupRule),
-	})
+	err = sgInboundRuleCreate(ctx, d.client, localPublicAddrCIDR, portSSH, net.SGID)
 	if err != nil {
 		return net, err
 	}
 	log.Info(
 		"created inbound security group SSH rule",
-		"from", pubIPCIDR,
+		"from", localPublicAddrCIDR,
 		"port", portSSH,
 		"proto", "tcp",
 		"security_group_id", net.SGID,
@@ -209,4 +179,27 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 
 	/* 3.. hours.. later.. */
 	return net, nil
+}
+
+type NetworkDeployment struct {
+	// VPC
+	VPCName string
+	VPCID   string
+	VPCCIDR string
+	// Subnet
+	SubnetName string
+	SubnetID   string
+	SubnetCIDR string
+	// Internet Gateway
+	IGWName string
+	IGWID   string
+	// Route Table
+	RTBID string
+	// Security Group
+	SGID string
+	// Elastic IP
+	ElasticIP   string
+	ElasticIPID string
+	// Network Interface
+	InterfaceID string
 }

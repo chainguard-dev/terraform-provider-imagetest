@@ -10,9 +10,6 @@ import (
 	"github.com/chainguard-dev/clog"
 )
 
-////////////////////////////////////////////////////////////////////////////////
-// VPC
-
 var (
 	ErrVPCCreate = fmt.Errorf("failed VPC creation")
 	ErrNilVPCID  = fmt.Errorf("received no error in VPC create, but the VPC ID returned was nil")
@@ -58,7 +55,7 @@ var (
 	ErrVPCDefaultSecurityGroupGetNoResults = fmt.Errorf("found no security groups for the provided VPC")
 )
 
-func vpcDefaultSecurityGroupGet(ctx context.Context, client *ec2.Client, vpcID string) (string, error) {
+func vpcDefaultSecurityGroup(ctx context.Context, client *ec2.Client, vpcID string) (string, error) {
 	result, err := client.GetSecurityGroupsForVpc(ctx, &ec2.GetSecurityGroupsForVpcInput{
 		VpcId: &vpcID,
 	})

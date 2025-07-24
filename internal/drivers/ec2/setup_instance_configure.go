@@ -23,7 +23,11 @@ func (d *Driver) prepareInstance(ctx context.Context, inst InstanceDeployment, n
 	if err != nil {
 		return err // No wrapping required.
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Warn("failed to close SSH connection", "error", err)
+		}
+	}()
 	log.Debug("instance SSH connection is successful")
 	// TODO: Obviously don't use 'os.Stdout' and 'os.Stderr' for prod lol.
 	fmt.Println("BEGIN SSH <:---------------------------------------------------")

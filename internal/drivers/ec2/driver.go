@@ -36,26 +36,8 @@ type Driver struct {
 	// The AMI to launch the instance with
 	AMI string
 
-	// The instance architecture
-	Arch types.ArchitectureType
-
-	// The desired instance type (ex: 't3.medium').
-	//
-	// NOTE: If provided, this input supersedes all other configuration (VCPUs,
-	// memory, GPUs, etc.)!
+	// The desired EC2 instance type (ex: 't3.medium').
 	InstanceType types.InstanceType
-
-	// Instance virtual processor configuration
-	Proc Proc
-
-	// Instance physical memory configuration
-	Memory Memory
-
-	// Instance storage configuration
-	Disks []Disk
-
-	// Instance accelerator configuration
-	GPU GPU
 
 	// Post-launch provisioning commands to be executed within the EC2 instance.
 	Commands Commands
@@ -78,58 +60,9 @@ type Driver struct {
 	// 'Teardown', we're not able to make the whole driver workflow functional.
 	// Everything below this line is stuff we might mutate within this driver's
 	// lifecycle.
-
 	instance InstanceDeployment
 	net      NetworkDeployment
-
-	// The provisioned public IP address of the network interface we attach to the
-	// instance.
-	// instanceAddr string
-
-	// The ED25519 keypair we create and upload to AWS to use for SSH into the EC2
-	// instance.
-	// keys ssh.ED25519KeyPair
-
-	// The name we provided as the identifier for the keypair when importing it
-	// to AWS.
-	// keyName string
-
-	// The ID we received back for the keypair after importing it to AWS.
-	// keyID string
 }
-
-// GPU describes an input-configurable GPU which will be applied as a constraint
-// against the selectable instances
-type GPU struct {
-	// The desired GPU kind.
-	//
-	// Default: 'GPUKindNone'.
-	Kind GPUKind
-
-	// The number of desired GPUs for the instance.
-	//
-	// If 'Kind' is set but this is not, it will default to '1'.
-	Count uint8
-
-	// The desired GPU driver version
-	Driver string
-}
-
-// Describes the kinds of GPUs from which we can choose.
-type GPUKind = string
-
-const (
-	GPUKindNone GPUKind = "none"
-	GPUKindM60  GPUKind = "M60"
-	GPUKindK80  GPUKind = "K80"
-	GPUKindA10G GPUKind = "A10G"
-	GPUKindL4   GPUKind = "L4"
-	GPUKindL40S GPUKind = "L40S"
-	GPUKindV100 GPUKind = "V100"
-	GPUKindA100 GPUKind = "A100"
-	GPUKindH100 GPUKind = "H100"
-	GPUKindH200 GPUKind = "H200"
-)
 
 // Commands maps to user-configurable inputs which will be executed on the
 // launched EC2 instance.

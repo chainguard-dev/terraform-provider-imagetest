@@ -3,26 +3,12 @@ package ec2
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2/pricelist"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 )
-
-type InstanceDeployment struct {
-	// Instance
-	InstanceName string
-	InstanceID   string
-	InstanceType types.InstanceType
-	// Keys
-	Keys    ssh.ED25519KeyPair
-	KeyName string
-	KeyID   string
-}
 
 func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (InstanceDeployment, error) {
 	log := clog.FromContext(ctx)
@@ -42,22 +28,16 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 	// Launch the EC2 instance.
 	//
 	// Select the most cost-effective instance type.
-	inst.InstanceType, err = d.selectInstanceType(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("%w: %w", ErrInstanceTypeSelection, err)
-	}
+	inst.InstanceType = d.InstanceType
 	log.Info("selected instance type", "instance_type", inst.InstanceType)
 	// Select AMI.
-	ami, err := d.selectAMI(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("%w: %w", ErrAMISelection, err)
-	}
-	log.Info("selected machine image", "ami_id", ami)
+	inst.AMI = d.AMI
+	log.Info("selected machine image", "ami_id", inst.AMI)
 	// Launch the instanceID.
 	instanceID, err := instanceCreateWithNetIF(
 		ctx,
 		d.client,
-		inst.InstanceType, ami, inst.KeyName, net.InterfaceID,
+		inst.InstanceType, inst.AMI, inst.KeyName, net.InterfaceID,
 	)
 	if err != nil {
 		return inst, err
@@ -137,106 +117,14 @@ func (d *Driver) provisionKeys(ctx context.Context) (ssh.ED25519KeyPair, string,
 	return keys, keyID, keyName, nil
 }
 
-var ErrNoAMI = fmt.Errorf("an AMI ID was not provided")
-
-func (d *Driver) selectAMI(ctx context.Context) (string, error) {
-	const amiEnvVar = "IMAGE_TEST_AMI"
-	log := clog.FromContext(ctx)
-	if d.AMI != "" {
-		log.Debug("using user-provided machine image")
-		return d.AMI, nil
-	} else if ami, ok := os.LookupEnv(amiEnvVar); ok && ami != "" {
-		log.Debug("using machine image provided via environment")
-		return ami, nil
-	} else {
-		log.Error("failed to identify a machine image")
-		return "", ErrNoAMI
-	}
-}
-
-var (
-	ErrPreFiltersBuild       = fmt.Errorf("failed to build instance filters")
-	ErrDescribeInstanceTypes = fmt.Errorf("failed to describe instance types")
-	ErrNoInstanceTypes       = fmt.Errorf("found no instance types which satisfy all input requirements")
-)
-
-func (d *Driver) selectInstanceType(ctx context.Context) (types.InstanceType, error) {
-	log := clog.FromContext(ctx)
-	// If the 'Driver' has 'InstanceType' set, skip the selection process and use
-	// that.
-	if d.InstanceType != "" {
-		log.Info("using provided EC2 instance type", "instance_type", d.InstanceType)
-		return d.InstanceType, nil
-	}
-	log.Debug("proceeding to automatic instance type selection")
-	// Assemble pre filters
-	//
-	// A number of things (GPU kind, disk capacity) cannot be filtered in-request
-	// so we try to pack as much into the request as we can, then filter the rest
-	// further down.
-	//
-	// NOTE: yes, there is a listed filter for storage capacity in the docs - it
-	// does not work. \o/ Also there just are no filters for GPUs.
-	filters, err := filtersPreBuild(ctx, d)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrPreFiltersBuild, err)
-	}
-	log.Info("assembled filters for instance type selection", "count", len(filters))
-	// Init the 'DescribeInstanceTypesInput'.
-	//
-	// 'DescribeInstanceTypesInput' is the "request body" used to ask the AWS Go
-	// SDK v2 for a list of EC2 instance types
-	describe := &ec2.DescribeInstanceTypesInput{
-		Filters: filters,
-	}
-	// Roll all paginated EC2 'InstanceTypeInfo' results up.
-	var instanceTypeInfos []types.InstanceTypeInfo
-	var nextToken *string
-	for {
-		// If we caught a next-page token on the previous iteration, apply it.
-		if nextToken != nil {
-			describe.NextToken = nextToken
-		}
-		// Fetch the next page of results.
-		results, err := d.client.DescribeInstanceTypes(ctx, describe)
-		if err != nil {
-			return "", fmt.Errorf("%w: %w", ErrDescribeInstanceTypes, err)
-		}
-		instanceTypeInfos = append(instanceTypeInfos, results.InstanceTypes...)
-		// If we don't have a 'NextToken' (next page of results hint), we're done.
-		if results.NextToken == nil {
-			break
-		}
-		// Set the next-page token for the next iteration.
-		nextToken = results.NextToken
-	}
-	log.Info(
-		"completed EC2 instance type fetch",
-		"instance_type_count", len(instanceTypeInfos),
-	)
-	// Make sure we received a non-zero number of instance types.
-	if len(instanceTypeInfos) == 0 {
-		return "", ErrNoInstanceTypes
-	}
-	// Apply post-request filters.
-	instanceTypeInfos = filtersPostApply(ctx, d, instanceTypeInfos)
-	log.Debug(
-		"post-request filters applied",
-		"remaining_instance_count", len(instanceTypeInfos),
-	)
-	// Of the instance types which fulfill our requirements, select the cheapest.
-	instanceTypes := make([]types.InstanceType, len(instanceTypeInfos))
-	for i := range len(instanceTypeInfos) {
-		instanceTypes[i] = instanceTypeInfos[i].InstanceType
-	}
-	instanceType, price := pricelist.SelectCheapest(instanceTypes)
-	if instanceType == "" || price == 0 {
-		return "", ErrNoInstanceTypes
-	}
-	log.Info(
-		"selected EC2 instance type",
-		"type", instanceType,
-		"cost", fmt.Sprintf("$%.2f/hr", price),
-	)
-	return instanceType, nil
+type InstanceDeployment struct {
+	// Instance
+	AMI          string
+	InstanceName string
+	InstanceID   string
+	InstanceType types.InstanceType
+	// Keys
+	Keys    ssh.ED25519KeyPair
+	KeyName string
+	KeyID   string
 }

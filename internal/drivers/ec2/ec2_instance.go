@@ -51,7 +51,11 @@ func instanceCreateWithNetIF(
 
 var ErrInstanceDelete = fmt.Errorf("failed to delete EC2 instance")
 
-func instanceDelete(ctx context.Context, client *ec2.Client, instanceID string) error {
+func instanceDelete(
+	ctx context.Context,
+	client *ec2.Client,
+	instanceID string,
+) error {
 	_, err := client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	})

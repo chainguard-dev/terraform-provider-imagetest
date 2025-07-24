@@ -9,9 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-////////////////////////////////////////////////////////////////////////////////
-// Subnet
-
 var (
 	ErrSubnetCreate = fmt.Errorf("failed to create subnet")
 	ErrNilSubnetID  = fmt.Errorf("received no error in subnet create, but the subnet ID returned was nil")

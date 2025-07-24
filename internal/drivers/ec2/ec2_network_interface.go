@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
@@ -14,7 +13,11 @@ var (
 		" create, but the returned interface ID was nil")
 )
 
-func netIFCreate(ctx context.Context, client *ec2.Client, subnetID string) (string, error) {
+func netIFCreate(
+	ctx context.Context,
+	client *ec2.Client,
+	subnetID string,
+) (string, error) {
 	result, err := client.CreateNetworkInterface(ctx, &ec2.CreateNetworkInterfaceInput{
 		SubnetId: &subnetID,
 	})
@@ -25,19 +28,6 @@ func netIFCreate(ctx context.Context, client *ec2.Client, subnetID string) (stri
 		return "", ErrNetIFCreateIDNil
 	}
 	return *result.NetworkInterface.NetworkInterfaceId, nil
-}
-
-var ErrNetIFDetach = fmt.Errorf("failed to detach elastic network interface")
-
-func netIFDetach(ctx context.Context, client *ec2.Client, netIFID string) error {
-	_, err := client.DetachNetworkInterface(ctx, &ec2.DetachNetworkInterfaceInput{
-		AttachmentId: &netIFID,
-		Force:        aws.Bool(true),
-	})
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrNetIFDetach, err)
-	}
-	return nil
 }
 
 var ErrNetIFDelete = fmt.Errorf("failed to delete elastic network interface")

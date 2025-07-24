@@ -23,7 +23,9 @@ func publicAddr() (string, error) {
 	} else if res.StatusCode >= http.StatusBadRequest {
 		return "", fmt.Errorf("%w: received HTTP status code %d", ErrPublicIPLookup, res.StatusCode)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrPublicIPLookup, err)
@@ -33,7 +35,7 @@ func publicAddr() (string, error) {
 
 var ErrPublicIPCheck = fmt.Errorf("failed to determine public IP address")
 
-func singleIPCIDR(addr string) (string, error) {
+func singleAddrCIDR(addr string) (string, error) {
 	family, err := addrFamily(addr)
 	if err != nil {
 		return "", err // No annotation required.

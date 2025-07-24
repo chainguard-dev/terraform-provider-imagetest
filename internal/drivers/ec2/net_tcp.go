@@ -45,7 +45,9 @@ func tcpPortOpen(ctx context.Context, target string) bool {
 		log.Debug("target is not yet reachable", "error", err)
 		return false
 	}
-	conn.Close()
+	if err := conn.Close(); err != nil {
+		log.Warn("encountered error closing TCP connection", "error", err)
+	}
 	log.Debug("target is now reachable")
 	return true
 }

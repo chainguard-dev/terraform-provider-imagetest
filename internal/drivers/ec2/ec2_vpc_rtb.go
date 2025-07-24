@@ -9,9 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-////////////////////////////////////////////////////////////////////////////////
-// Route Table
-
 var (
 	ErrRouteTableGetForVPC = fmt.Errorf("failed to fetch route table for VPC")
 	ErrNoRouteTable        = fmt.Errorf("found no route tables for the provided VPC ID")
@@ -43,7 +40,7 @@ func routeTableGetForVPC(ctx context.Context, client *ec2.Client, vpcID string) 
 var ErrRouteTableRouteCreate = fmt.Errorf("failed to add route to route table")
 
 // Open to suggestions on names! 'addRouteTableDefaultRouteToInternetGateway'
-// seemed a bit much. x'D
+// seemed a bit much.
 func routeTableIGWRouteCreate(ctx context.Context, client *ec2.Client, rtbID, destCIDR, igwID string) error {
 	result, err := client.CreateRoute(ctx, &ec2.CreateRouteInput{
 		RouteTableId:         &rtbID,
