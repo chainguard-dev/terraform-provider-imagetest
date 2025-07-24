@@ -25,7 +25,7 @@ type Memory struct {
 // - 2000MB (parsed as megabytes)
 // - 2GB    (parsed as gigabytes)
 //
-// The `uint32` returned is the input converted to `mib` which is what AWS
+// The 'uint32' returned is the input converted to 'mib' which is what AWS
 // expects when sizing physical memory.
 func parseMemoryCapacity(ctx context.Context, input string) uint32 {
 	log := clog.FromContext(ctx).With("input", input)

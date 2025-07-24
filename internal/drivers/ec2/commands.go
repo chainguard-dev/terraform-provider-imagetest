@@ -1,25 +1,15 @@
 package ec2
 
-// Commands maps to user-configurable inputs which will be executed on the
-// launched EC2 instance.
-type Commands struct {
-	// If specified, commands will be executed in the context of this user.
-	User string
+// commands.go defines some well-known command sequences for easy addition
+// to the 'Driver' and bootstrap within the created EC2 instance.
 
-	// If 'Shell' is provided, commands will be run in the shell specified.
-	//
-	// NOTE: 'Shell', if provided, must be one of: 'sh', 'bash', 'zsh' or 'fish'.
-	Shell Shell // TODO: Reconverge after 'ssh' PR is merged.
+import _ "embed"
 
-	// Commands which will be run in sequence. If 'Shell' is provided, these will
-	// be run within a single SSH and terminal session. If 'Shell' is NOT
-	// provided, these will be executed across individual SSH channels.
-	Commands []string
+// Performs an install of the Docker CLI, containerd runtime and the buildx
+// plugin.
+//
+// This mirrors the steps defined on the Docker website for Debian hosts:
+// https://docs.docker.com/engine/install/debian/
 
-	// Env reflects environment variables which will be exported in the SSH
-	// session on the EC2 instance.
-	Env map[string]string
-}
-
-// TODO: Reconverge after 'ssh' PR is merged.
-type Shell = string
+//go:embed provision/ubuntu/install-docker.sh
+var cmdSetInstallDockerUbuntu string

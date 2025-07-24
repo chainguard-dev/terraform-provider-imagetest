@@ -3,161 +3,54 @@ package ec2
 import (
 	"context"
 	"fmt"
-	"os"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
 )
 
 var (
-	ErrNoInstanceTypes        = fmt.Errorf("found no instance types which satisfy all input requirements")
-	ErrInstanceTypeSelection  = fmt.Errorf("failed instance selection")
-	ErrAMISelection           = fmt.Errorf("failed AMI selection")
-	ErrInstanceLaunch         = fmt.Errorf("failed to launch EC2 instance")
-	ErrNoInstancesAfterLaunch = fmt.Errorf("received no error during instance launch, but no instance was actually created")
+	ErrInstanceTypeSelection = fmt.Errorf("failed instance selection")
+	ErrAMISelection          = fmt.Errorf("failed AMI selection")
+	ErrInWait                = fmt.Errorf("deadlined while waiting for EC2 instance to become reachable via SSH")
 )
 
-func (self *Driver) Setup(ctx context.Context) error {
-	const defaultVPCName = "imagetest-demo"
-	const defaultVPCCidr = "172.25.0.0/24"
-	const defaultVPCSubnetCIDR = "172.25.0.0/25"
-	log := clog.FromContext(ctx).With("driver", "ec2")
+func (d *Driver) Setup(ctx context.Context) (err error) {
+	log := clog.FromContext(ctx).With("driver", "ec2", "run_id", d.runID)
+	log.Info("beginning driver setup")
+	// 'Setup' uses a named return on the error specifically for this function. By
+	// giving it a name, we can defer a check of that variable. If it's not nil,
+	// we can teardown any resources we created.
+	defer func() {
+		if err != nil {
+			log.Error("error encountered in driver setup, beginning teardown")
+			if err := d.stack.Destroy(ctx); err != nil {
+				log.Error("encountered error in stack teardown", "error", err)
+			} else {
+				log.Info("stack teardown successful")
+			}
+		} else {
+			log.Info("driver setup complete")
+		}
+	}()
 	// Bootstrap the virtual network.
 	//
-	// TODO: In the future this can be extended to allow VPC+Subnet+Security
-	// Group configurability from the caller (as inputs).
-	network, err := initDefaultNetwork(
-		ctx,
-		self,
-		defaultVPCName,
-		defaultVPCSubnetCIDR,
-		[]string{defaultVPCSubnetCIDR},
-	)
+	// TODO: In the future it'd be great to be able to bring-your-own VPC subnet
+	// ID and just attach the EC2 instance to that.
+	d.net, err = d.deployNetwork(ctx)
 	if err != nil {
 		return err
 	}
-	// Select the most cost-effective instance type.
-	instanceType, err := selectInstanceType(ctx, self)
+	log.Info("virtual network setup complete")
+	// Deploy the EC2 instance.
+	d.instance, err = d.deployInstance(ctx, d.net)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInstanceTypeSelection, err)
+		return err
 	}
-	log = log.With("instance_type", instanceType)
-	log.Info("selected instance type")
-	// Query and select AMI.
-	ami, err := selectAMI(ctx, self)
+	log.Info("EC2 instance deployment complete")
+	// Prepare up the EC2 instance.
+	err = d.prepareInstance(ctx, d.instance, d.net)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrAMISelection, err)
+		return err
 	}
-	// Launch the instance.
-	launchResult, err := self.client.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      ami,
-		MinCount:     aws.Int32(1),
-		MaxCount:     aws.Int32(1),
-		InstanceType: instanceType,
-		NetworkInterfaces: []types.InstanceNetworkInterfaceSpecification{
-			{
-				DeviceIndex:              aws.Int32(0),
-				SubnetId:                 aws.String(network.SubnetIDs[0]),
-				AssociatePublicIpAddress: aws.Bool(true),
-				Groups:                   []string{network.SecurityGroupID},
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInstanceLaunch, err)
-	} else if len(launchResult.Instances) != 1 {
-		return ErrNoInstancesAfterLaunch
-	} else if len(launchResult.Instances) == 0 {
-	}
-	// Capture necessary instance metadata.
-	self.instanceID = launchResult.Instances[0].InstanceId
-	self.instanceAddr = launchResult.Instances[0].PublicIpAddress
-	// TODO: Once the 'ssh' PR is reconverged, implement command execution on the
-	// instance here.
+	log.Info("EC2 instance configuration complete")
 	return nil
-}
-
-var ErrNoAMI = fmt.Errorf("an AMI ID was not provided")
-
-func selectAMI(ctx context.Context, d *Driver) (*string, error) {
-	const amiEnvVar = "IMAGE_TEST_AMI"
-	if d.AMI != "" {
-		return aws.String(d.AMI), nil
-	} else if ami, ok := os.LookupEnv(amiEnvVar); ok && ami != "" {
-		return aws.String(ami), nil
-	} else {
-		return nil, ErrNoAMI
-	}
-}
-
-var (
-	ErrPreFiltersBuild       = fmt.Errorf("failed to build instance filters")
-	ErrDescribeInstanceTypes = fmt.Errorf("failed to describe instance types")
-)
-
-func selectInstanceType(ctx context.Context, d *Driver) (types.InstanceType, error) {
-	var err error
-	log := clog.FromContext(ctx)
-	// Init the 'DescribeInstanceTypesInput'.
-	//
-	// 'DescribeInstanceTypesInput' is the "request body" used to ask the AWS Go
-	// SDK v2 for a list of EC2 instance types
-	describeInstanceTypesInput := new(ec2.DescribeInstanceTypesInput)
-	// Assemble pre filters
-	//
-	// A number of things (GPU kind, disk capacity) cannot be filtered in-request
-	// so we try to pack as much into the request as we can, then filter the rest
-	// further down.
-	//
-	// NOTE: yes, there is a listed filter for storage capacity in the docs - it
-	// does not work. \o/ Also there just are no filters for GPUs.
-	describeInstanceTypesInput.Filters, err = filtersPreBuild(ctx, d)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrPreFiltersBuild, err)
-	}
-	log.Debug(
-		"filter_assembly_complete",
-		"filter_count", len(describeInstanceTypesInput.Filters),
-	)
-	// Roll all paginated EC2 'InstanceTypeInfo' results up.
-	var instanceTypeInfos []types.InstanceTypeInfo
-	var nextToken *string
-	for {
-		// If we caught a next-page token on the previous iteration, apply it.
-		if nextToken != nil {
-			describeInstanceTypesInput.NextToken = nextToken
-		}
-		// Fetch the next page of results.
-		results, err := d.client.DescribeInstanceTypes(ctx, describeInstanceTypesInput)
-		if err != nil {
-			return "", fmt.Errorf("%w: %w", ErrDescribeInstanceTypes, err)
-		}
-		instanceTypeInfos = append(instanceTypeInfos, results.InstanceTypes...)
-		// If we don't have a `NextToken` (next page of results hint), we're done.
-		if results.NextToken == nil {
-			break
-		}
-		// Set the next-page token for the next iteration.
-		nextToken = results.NextToken
-	}
-	// Make sure we got a non-zero number of instance types.
-	if len(instanceTypeInfos) == 0 {
-		return "", ErrNoInstanceTypes
-	}
-	// Apply post-request filters
-	instanceTypeInfos = filtersPostApply(ctx, d, instanceTypeInfos)
-	// Of the instance types which fulfill our requirements, select the cheapest
-	instanceTypes := make([]types.InstanceType, len(instanceTypeInfos))
-	for i := range len(instanceTypeInfos) {
-		instanceTypes[i] = instanceTypeInfos[i].InstanceType
-	}
-	//
-	// TODO: Select cheapest
-	//
-	if len(instanceTypes) == 0 {
-		return "", ErrNoInstanceTypes
-	}
-	return instanceTypes[0], nil
 }

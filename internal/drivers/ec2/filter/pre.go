@@ -1,33 +1,29 @@
 package filter
 
 import (
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 // Pre filters are handled by the AWS backend as part of the
-// `DescribeInstanceTypes` request.
+// 'DescribeInstanceTypes' request.
 var Pre struct {
-	General filtersGeneralPre
 	Proc    filtersProcPre
 	Memory  filtersMemoryPre
 	Storage filtersStoragePre
 }
 
-// newFilterPre produces a generic `ec2/types.newFilterPre`, handling the string-to-string
+// newFilterPre produces a generic 'ec2/types.newFilterPre', handling the string-to-string
 // -pointer conversion and adding a bit of composability by moving the values
 // definition to a variadic arg.
 func newFilterPre(name string, values ...string) types.Filter {
 	return types.Filter{
-		Name:   aws.String(name),
+		Name:   &name,
 		Values: values,
 	}
 }
 
-// !
 // For posterity, below are all the unimplemented filters supported when
 // querying EC2 instances.
-// !
 
 // CPU Features
 //

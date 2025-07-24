@@ -19,6 +19,23 @@ func (*filtersProcPre) Architecture(kind types.ArchitectureType) types.Filter {
 	return newFilterPre(name, string(kind))
 }
 
+type BootMode = string
+
+const (
+	BootModeLegacy = "legacy-bios"
+	BootModeUEFI   = "uefi"
+)
+
+// The boot mode.
+//
+// Values:
+// | uefi
+// | legacy
+func (*filtersProcPre) BootMode(mode BootMode) types.Filter {
+	const name = "supported-boot-mode"
+	return newFilterPre(name, mode)
+}
+
 // The number of cores that can be configured for the instance type.
 func (*filtersProcPre) VCPUCores(count uint16) types.Filter {
 	const name = "vcpu-info.valid-cores"

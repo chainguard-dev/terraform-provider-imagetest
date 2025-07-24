@@ -25,7 +25,6 @@ import (
 func filtersPreBuild(ctx context.Context, d *Driver) ([]types.Filter, error) {
 	filters := make([]types.Filter, 0, 24) // TODO: Get the max filter count.
 
-	filters = filtersPreGeneral(ctx, d, filters)
 	filters = filtersPreStorage(ctx, d, filters)
 	filters = filtersPreProc(ctx, d, filters)
 	filters = filtersPreMemory(ctx, d, filters)
@@ -35,17 +34,8 @@ func filtersPreBuild(ctx context.Context, d *Driver) ([]types.Filter, error) {
 	return filters, nil
 }
 
-func filtersPreGeneral(ctx context.Context, d *Driver, filters []types.Filter) []types.Filter {
-	log := clog.FromContext(ctx)
-	if d.FreeTierEligible {
-		log.Debug("appending filter", "is_free_tier_eligible", true)
-		filters = append(filters, filter.Pre.General.IsFreeTierEligible(true))
-	}
-	return filters
-}
-
-// filtersPreStorage appends to provided input slice `filters` any filters
-// implied by values assigned to the `Disk` instances nested in `Driver`.
+// filtersPreStorage appends to provided input slice 'filters' any filters
+// implied by values assigned to the 'Disk' instances nested in 'Driver'.
 func filtersPreStorage(ctx context.Context, d *Driver, filters []types.Filter) []types.Filter {
 	log := clog.FromContext(ctx)
 	if len(d.Disks) == 0 {
@@ -77,8 +67,8 @@ func filtersPreStorage(ctx context.Context, d *Driver, filters []types.Filter) [
 	return filters
 }
 
-// filtersPreProc appends to provided input slice `filters` any filters
-// implied by values assigned to the `Proc` instance nested in `Driver`.
+// filtersPreProc appends to provided input slice 'filters' any filters
+// implied by values assigned to the 'Proc' instance nested in 'Driver'.
 func filtersPreProc(ctx context.Context, d *Driver, filters []types.Filter) []types.Filter {
 	// log := clog.FromContext(ctx)
 
@@ -95,8 +85,8 @@ func filtersPreProc(ctx context.Context, d *Driver, filters []types.Filter) []ty
 	return filters
 }
 
-// filtersPreMemory appends to provided input slice `filters` any filters
-// implied by values assigned to the `Memory` instance nested in `Driver`.
+// filtersPreMemory appends to provided input slice 'filters' any filters
+// implied by values assigned to the 'Memory' instance nested in 'Driver'.
 func filtersPreMemory(ctx context.Context, d *Driver, filters []types.Filter) []types.Filter {
 	log := clog.FromContext(ctx)
 

@@ -4,7 +4,11 @@ import "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 type filtersStoragePre struct{}
 
-// The storage technology for the local instance storage disks (hdd | ssd).
+// The storage technology for the local instance storage disks.
+//
+// Values:
+// | hdd
+// | ssd
 func (*filtersStoragePre) DiskType(typ types.DiskType) types.Filter {
 	const name = "instance-storage-info.disk.type"
 	return newFilterPre(name, string(typ))
