@@ -3,23 +3,28 @@ package ec2
 import (
 	"context"
 	"errors"
+	"slices"
 )
 
 type (
-	Stack struct {
-		Destructors []Destructor
+	stack struct {
+		Destructors []destructor
 	}
-	Destructor func(ctx context.Context) error
+	destructor func(ctx context.Context) error
 )
 
-func (s *Stack) Push(d Destructor) {
+// Push adds a destructor to the 'Destructors' slice, to be destroyed in the
+// reverse order they were added.
+func (s *stack) Push(d destructor) {
 	s.Destructors = append(s.Destructors, d)
 }
 
-func (s *Stack) Destroy(ctx context.Context) error {
+// Destroy calls all accumulated destructors in the reverse order they were
+// added, returning all encountered errors joined.
+func (s *stack) Destroy(ctx context.Context) error {
 	var errs error
-	for i := len(s.Destructors) - 1; i >= 0; i -= 1 {
-		errs = errors.Join(errs, s.Destructors[i](ctx))
+	for _, destructor := range slices.Backward(s.Destructors) {
+		errs = errors.Join(errs, destructor(ctx))
 	}
 	return errs
 }

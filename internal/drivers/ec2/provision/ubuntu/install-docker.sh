@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+# >> Overview
+#
+#   install-docker.sh is a script which:
+#   - Installs the Docker GPG key.
+#   - Adds the Docker apt repository.
+#   - Installs the core Docker components.
+#   - Adds the current (if non-root) user to the 'docker' group.
+
 ################################################################################
 # Logging
 
@@ -127,6 +135,8 @@ add_user_to_docker_group () {
     info "Adding [${USER}] to the 'docker' group."
     sudo usermod -aG docker "${USER}" \
       || fatal "Failed to add [${USER}] to the 'docker' group."
+  else
+    info "User is [root], skipping 'docker' group add."
   fi
 }
 
@@ -139,3 +149,4 @@ install_docker_gpg_key
 add_docker_repo
 update_package_cache
 install_docker
+add_user_to_docker_group

@@ -35,6 +35,10 @@ func publicAddr() (string, error) {
 
 var ErrPublicIPCheck = fmt.Errorf("failed to determine public IP address")
 
+// singleAddrCIDR produces a CIDR-notation string which represents provided
+// address 'addr' as a CIDR block with a single IP.
+//
+// This function mainly handles the IPv4 vs. IPv6 representation of the notation.
 func singleAddrCIDR(addr string) (string, error) {
 	family, err := addrFamily(addr)
 	if err != nil {
@@ -59,6 +63,7 @@ const (
 	IPv6
 )
 
+// addrFamily identifies whether provided IP address 'addr' is IPv4 or IPv6.
 func addrFamily(addr string) (AddressFamily, error) {
 	ip := net.ParseIP(addr)
 	if ip.DefaultMask() != nil {

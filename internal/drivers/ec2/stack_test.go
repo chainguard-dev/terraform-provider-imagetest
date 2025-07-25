@@ -11,7 +11,7 @@ import (
 func TestStack(t *testing.T) {
 	t.Run("ensure-LIFO-order", func(t *testing.T) {
 		bits := uint8(0b11111111)
-		stack := new(Stack)
+		stack := new(stack)
 		stack.Push(func(ctx context.Context) error {
 			bits &^= 1 << 5
 			require.Equal(t, uint8(0b00011111), bits, "%08b", bits)
@@ -32,7 +32,7 @@ func TestStack(t *testing.T) {
 	t.Run("ensure-errors-joined", func(t *testing.T) {
 		err1 := fmt.Errorf("one")
 		err2 := fmt.Errorf("two")
-		stack := new(Stack)
+		stack := new(stack)
 		stack.Push(func(ctx context.Context) error {
 			return err1
 		})

@@ -13,10 +13,9 @@ const portSSH = 22
 
 // waitTCP waits for a TCP port to become reachable on provided target 'host'.
 //
-// If an error is returned by this function it will be 'context.Deadline'.
+// The only error returned by this function is 'context.Deadline'.
 func waitTCP(ctx context.Context, host string, port uint16) error {
 	log := clog.FromContext(ctx).With("host", host, "port", port)
-	log.Debug("beginning wait for EC2 instance to become reachable via SSH")
 	target := net.JoinHostPort(host, strconv.Itoa(int(port)))
 	for {
 		select {
@@ -37,17 +36,18 @@ var dialer = &net.Dialer{
 	Timeout: 3 * time.Second,
 }
 
+// tcpPortOpen checks TCP reachability of the provided 'target', which must be a
+// 'host:port' representation of a target we want to probe.
 func tcpPortOpen(ctx context.Context, target string) bool {
 	log := clog.FromContext(ctx).With("target", target)
 	log.Debug("checking target TCP port reachability")
 	conn, err := dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
-		log.Debug("target is not yet reachable", "error", err)
 		return false
 	}
 	if err := conn.Close(); err != nil {
 		log.Warn("encountered error closing TCP connection", "error", err)
 	}
-	log.Debug("target is now reachable")
+	log.Debug("target is reachable")
 	return true
 }
