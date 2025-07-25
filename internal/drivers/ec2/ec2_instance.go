@@ -17,12 +17,7 @@ var (
 		"launch, but the returned instance ID was nil")
 )
 
-func instanceCreateWithNetIF(
-	ctx context.Context,
-	client *ec2.Client,
-	instanceType types.InstanceType,
-	ami, keyPairName, netIFID string,
-) (string, error) {
+func instanceCreateWithNetIF(ctx context.Context, client *ec2.Client, instanceType types.InstanceType, ami, keyPairName, netIFID string) (string, error) {
 	launchResult, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId:      &ami,
 		MinCount:     aws.Int32(1),
@@ -51,11 +46,7 @@ func instanceCreateWithNetIF(
 
 var ErrInstanceDelete = fmt.Errorf("failed to delete EC2 instance")
 
-func instanceDelete(
-	ctx context.Context,
-	client *ec2.Client,
-	instanceID string,
-) error {
+func instanceDelete(ctx context.Context, client *ec2.Client, instanceID string) error {
 	_, err := client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
@@ -67,16 +58,15 @@ func instanceDelete(
 
 var (
 	ErrInstanceState               = fmt.Errorf("failed to fetch instance state")
-	ErrInstanceStateNoReservations = fmt.Errorf("TODO")
-	ErrInstanceStateNoInstances    = fmt.Errorf("TODO")
-	ErrInstanceStateNoState        = fmt.Errorf("TODO")
+	ErrInstanceStateNoReservations = fmt.Errorf("describe instances call " +
+		"produced no errors, but returned no reservations")
+	ErrInstanceStateNoInstances = fmt.Errorf("describe instances call produced " +
+		"no errors, but returned no instances")
+	ErrInstanceStateStateNil = fmt.Errorf("describe instances call produced no " +
+		"errors, but the returned instance state was nil")
 )
 
-func instanceState(
-	ctx context.Context,
-	client *ec2.Client,
-	instanceID string,
-) (types.InstanceStateName, error) {
+func instanceState(ctx context.Context, client *ec2.Client, instanceID string) (types.InstanceStateName, error) {
 	result, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
@@ -92,7 +82,7 @@ func instanceState(
 	}
 	instance := reservation.Instances[0]
 	if instance.State == nil {
-		return "", ErrInstanceStateNoState
+		return "", ErrInstanceStateStateNil
 	}
 	return instance.State.Name, nil
 }

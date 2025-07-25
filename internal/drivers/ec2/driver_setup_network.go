@@ -24,10 +24,10 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("created VPC", "id", net.VPCID)
+	log.Info("VPC creation is successful", "id", net.VPCID)
 	// Queue the VPC delete.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info("deleting VPC", "id", net.VPCID)
+		log.Info("deleting VPC", "id", net.VPCID)
 		return vpcDelete(ctx, d.client, net.VPCID)
 	})
 
@@ -36,10 +36,10 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("created VPC subnet", "id", net.SubnetID)
+	log.Info("VPC subnet creation is successful", "id", net.SubnetID)
 	// Queue the VPC subnet delete.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info("deleting VPC subnet", "id", net.SubnetID)
+		log.Info("deleting VPC subnet", "id", net.SubnetID)
 		return subnetDelete(ctx, d.client, net.SubnetID)
 	})
 
@@ -48,10 +48,10 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("created internet gateway", "id", net.IGWID)
+	log.Info("internet gateway creation is successful", "id", net.IGWID)
 	// Queue the internet gateway destructor.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info("deleting internet gateway", "id", net.IGWID)
+		log.Info("deleting internet gateway", "id", net.IGWID)
 		return internetGatewayDelete(ctx, d.client, net.IGWID)
 	})
 
@@ -63,13 +63,13 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 		return net, err
 	}
 	log.Info(
-		"internet gateway attached to VPC",
+		"internet gateway attachment to VPC subnet is successful",
 		"internet_gateway_id", net.IGWID,
 		"vpc_id", net.VPCID,
 	)
 	// Queue the internet gateway VPC detach.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info("detaching internet gateway", "id", net.IGWID)
+		log.Info("detaching internet gateway", "id", net.IGWID)
 		return internetGatewayDetach(ctx, d.client, net.VPCID, net.IGWID)
 	})
 
@@ -88,10 +88,13 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err // No annotation required.
 	}
-	log.Info("created default route to internet gateway", "rtb_id", net.RTBID)
+	log.Info(
+		"default route creation to internet gateway is successful",
+		"rtb_id", net.RTBID,
+	)
 	// Queue the route table route delete.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info("deleting route table route", "rtb_id", net.RTBID)
+		log.Info("deleting route table route", "rtb_id", net.RTBID)
 		return routeTableRouteDelete(ctx, d.client, net.RTBID, defaultRouteCIDR)
 	})
 
@@ -104,7 +107,7 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 		return net, fmt.Errorf("%w: %w", ErrPublicIPLookup, err)
 	}
 	log.Info(
-		"identified local station public IP address",
+		"local station public IP address identification is successful",
 		"addr", localPublicAddr,
 	)
 	// Create a single-address CIDR notation representation of the public address.
@@ -112,13 +115,13 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("generated local public address CIDR", "cidr", localPublicAddrCIDR)
+	log.Debug("generated local public address CIDR", "cidr", localPublicAddrCIDR)
 	// Get the VPC's default security group.
 	net.SGID, err = vpcDefaultSecurityGroup(ctx, d.client, net.VPCID)
 	if err != nil {
 		return net, err
 	}
-	log.Info("retrieved default VPC security group", "id", net.SGID)
+	log.Info("default VPC security group retrieval is successful", "id", net.SGID)
 	// Apply default security group rules.
 	//
 	// By default we'll only open TCP/22 (SSH)/ to the host we're calling from.
@@ -128,7 +131,7 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 		return net, err
 	}
 	log.Info(
-		"created inbound security group SSH rule",
+		"default VPC security group inbound rule creation is successful",
 		"from", localPublicAddrCIDR,
 		"port", portSSH,
 		"proto", "tcp",
@@ -140,10 +143,10 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("created elastic IP", "id", net.ElasticIPID)
+	log.Info("elastic IP creation is successful", "id", net.ElasticIPID)
 	// Queue elastic IP delete.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info("deleting elastic IP", "id", net.ElasticIPID)
+		log.Info("deleting elastic IP", "id", net.ElasticIPID)
 		return elasticIPDelete(ctx, d.client, net.ElasticIPID)
 	})
 
@@ -152,10 +155,13 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("created EC2 instance network interface", "id", net.InterfaceID)
+	log.Info(
+		"elastic network interface creation is successful",
+		"id", net.InterfaceID,
+	)
 	// Queue the elastic network interface destructor.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info(
+		log.Info(
 			"deleting EC2 network interface",
 			"id", net.InterfaceID,
 		)
@@ -167,10 +173,13 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	if err != nil {
 		return net, err
 	}
-	log.Info("attaching elastic IP to network interface", "attach_id", attachID)
+	log.Info(
+		"elastic IP attachment to elastic network interface is successful",
+		"attach_id", attachID,
+	)
 	// Queue the elastic IP detach.
 	d.stack.Push(func(ctx context.Context) error {
-		clog.FromContext(ctx).Info(
+		log.Info(
 			"detaching elastic IP from network interface",
 			"attach_id", attachID,
 		)

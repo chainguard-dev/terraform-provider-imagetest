@@ -16,6 +16,12 @@ var (
 		"address creation, but the returned public IP was nil")
 )
 
+// elasticIPCreate creates an Elastic IP address, which is a public IPv4 address
+// that can be allocated to a number of resource types.
+//
+// The returned strings are the allocation ID and the public IP address. The
+// allocation ID is the "handle" to the elastic IP for use in assignment of that
+// IP address to a resource.
 func elasticIPCreate(
 	ctx context.Context,
 	client *ec2.Client,
@@ -41,13 +47,7 @@ var (
 		"association ID was nil")
 )
 
-// elasticIPAttach attaches an allocated elastic IP address to an elastic
-// network interface.
-func elasticIPAttach(
-	ctx context.Context,
-	client *ec2.Client,
-	eipID, interfaceID string,
-) (string, error) {
+func elasticIPAttach(ctx context.Context, client *ec2.Client, eipID, interfaceID string) (string, error) {
 	result, err := client.AssociateAddress(ctx, &ec2.AssociateAddressInput{
 		AllocationId:       &eipID,
 		AllowReassociation: aws.Bool(false),
@@ -62,11 +62,7 @@ func elasticIPAttach(
 var ErrElasticIPDetach = fmt.Errorf("failed to detach elastic IP address" +
 	" from the provided instance")
 
-func elasticIPDetach(
-	ctx context.Context,
-	client *ec2.Client,
-	attachID string,
-) error {
+func elasticIPDetach(ctx context.Context, client *ec2.Client, attachID string) error {
 	_, err := client.DisassociateAddress(ctx, &ec2.DisassociateAddressInput{
 		AssociationId: &attachID,
 	})
@@ -78,11 +74,7 @@ func elasticIPDetach(
 
 var ErrElasticIPDelete = fmt.Errorf("failed to delete elastic IP address")
 
-func elasticIPDelete(
-	ctx context.Context,
-	client *ec2.Client,
-	eipID string,
-) error {
+func elasticIPDelete(ctx context.Context, client *ec2.Client, eipID string) error {
 	_, err := client.ReleaseAddress(ctx, &ec2.ReleaseAddressInput{
 		AllocationId: &eipID,
 	})

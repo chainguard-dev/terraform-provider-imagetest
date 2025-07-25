@@ -13,11 +13,7 @@ var (
 	ErrNilKeyPairID  = fmt.Errorf("encountered no error in keypair import, but the returned keypair ID was nil")
 )
 
-func keypairImport(
-	ctx context.Context,
-	client *ec2.Client,
-	keyPairName string, pubKey []byte,
-) (kpID string, err error) {
+func keypairImport(ctx context.Context, client *ec2.Client, keyPairName string, pubKey []byte) (kpID string, err error) {
 	result, err := client.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
 		KeyName:           &keyPairName,
 		PublicKeyMaterial: pubKey,
@@ -36,11 +32,7 @@ func keypairImport(
 
 var ErrKeypairDelete = fmt.Errorf("failed to delete keypair")
 
-func keypairDelete(
-	ctx context.Context,
-	client *ec2.Client,
-	keyPairID string,
-) error {
+func keypairDelete(ctx context.Context, client *ec2.Client, keyPairID string) error {
 	_, err := client.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{
 		KeyPairId: &keyPairID,
 	})

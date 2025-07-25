@@ -10,9 +10,14 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 )
 
+// deployInstance provisions an ED25519 keypair (for SSH), imports it to AWS and
+// launches an EC2 instance assigned this keypair, as well as the Elastic
+// Network Interface constructed earlier in 'deployNetwork'.
 func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (InstanceDeployment, error) {
 	log := clog.FromContext(ctx)
+
 	var inst InstanceDeployment
+
 	// Provision an ED25519 keypair for SSH.
 	var err error
 	inst.Keys, inst.KeyID, inst.KeyName, err = d.provisionKeys(ctx)
@@ -25,15 +30,15 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		log.Info("deleting keypair", "id", inst.KeyID)
 		return keypairDelete(ctx, d.client, inst.KeyID)
 	})
+
 	// Launch the EC2 instance.
-	//
-	// Select the most cost-effective instance type.
 	inst.InstanceType = d.InstanceType
-	log.Info("selected instance type", "instance_type", inst.InstanceType)
-	// Select AMI.
 	inst.AMI = d.AMI
-	log.Info("selected machine image", "ami_id", inst.AMI)
-	// Launch the instanceID.
+	log.Info(
+		"launching EC2 instance",
+		"instance_type", inst.InstanceType,
+		"ami", inst.AMI,
+	)
 	instanceID, err := instanceCreateWithNetIF(
 		ctx,
 		d.client,
@@ -73,15 +78,13 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 			}
 		}
 	})
+
 	// Wait for the host to become reachable via SSH.
 	if err = waitTCP(ctx, net.ElasticIP, portSSH); err != nil {
-		log.Error(
-			"encountered error waiting for SSH to become available",
-			"error", err,
-		)
 		return inst, fmt.Errorf("%w: %w", ErrInWait, err)
 	}
 	log.Info("instance is reachable via SSH")
+
 	return inst, nil
 }
 
@@ -89,18 +92,21 @@ var ErrKeyImport = fmt.Errorf("failed public key import to AWS")
 
 func (d *Driver) provisionKeys(ctx context.Context) (ssh.ED25519KeyPair, string, string, error) {
 	log := clog.FromContext(ctx)
+
 	// Provision an SSH key to connect to the instance.
 	keys, err := ssh.NewED25519KeyPair()
 	if err != nil {
 		return keys, "", "", err // No wrapping required here.
 	}
-	log.Info("keypair generated successfully")
+	log.Info("ED25519 keypair generate is successful")
+
 	// Marshal the public key to the PEM-encoded OpenSSH format.
 	pubKey, err := keys.Public.MarshalOpenSSH()
 	if err != nil {
 		return keys, "", "", err // No wrapping required here.
 	}
-	log.Debug("successfully marshaled public key")
+	log.Debug("ED25519 public key marshal to PEM-encoded OpenSSH format is successful")
+
 	// Import the keypair to AWS.
 	//
 	// This allows us to assign it to the EC2 instance when we launch it.
@@ -110,10 +116,11 @@ func (d *Driver) provisionKeys(ctx context.Context) (ssh.ED25519KeyPair, string,
 		return keys, "", "", err // No wrapping required here.
 	}
 	log.Info(
-		"successfully imported generated keypair",
+		"ED25519 keypair import to AWS is successful",
 		"id", keyID,
 		"name", keyName,
 	)
+
 	return keys, keyID, keyName, nil
 }
 

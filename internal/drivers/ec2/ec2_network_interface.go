@@ -13,11 +13,7 @@ var (
 		" create, but the returned interface ID was nil")
 )
 
-func netIFCreate(
-	ctx context.Context,
-	client *ec2.Client,
-	subnetID string,
-) (string, error) {
+func netIFCreate(ctx context.Context, client *ec2.Client, subnetID string) (string, error) {
 	result, err := client.CreateNetworkInterface(ctx, &ec2.CreateNetworkInterfaceInput{
 		SubnetId: &subnetID,
 	})

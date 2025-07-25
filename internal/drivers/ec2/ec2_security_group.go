@@ -11,11 +11,7 @@ import (
 
 var ErrSecurityGroupInboundRuleCreate = fmt.Errorf("failed to add security group rule")
 
-func sgInboundRuleCreate(
-	ctx context.Context,
-	client *ec2.Client,
-	from string, port int32, sgID string,
-) error {
+func sgInboundRuleCreate(ctx context.Context, client *ec2.Client, from string, port int32, sgID string) error {
 	_, err := client.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
 		CidrIp:            aws.String(from),
 		FromPort:          aws.Int32(port),
