@@ -20,6 +20,8 @@ TF_ACC=1 \
 
 import (
 	_ "embed"
+	"log/slog"
+	"os"
 	"regexp"
 	"testing"
 
@@ -39,6 +41,11 @@ var (
 
 func TestAccTestDriverEC2(t *testing.T) {
 	const registryURI = "cgr.dev/chainguard-eng"
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level:     slog.LevelDebug,
+		AddSource: true,
+	})))
 
 	// Construct the provider server.
 	pserver := providerserver.NewProtocol6WithError(
