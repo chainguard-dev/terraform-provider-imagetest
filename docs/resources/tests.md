@@ -40,6 +40,7 @@ description: |-
 Optional:
 
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
+- `ec2` (Attributes) The AWS EC2 driver. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
 
@@ -50,6 +51,30 @@ Optional:
 
 - `image` (String) The image reference to use for the docker-in-docker driver
 - `mirrors` (List of String)
+
+
+<a id="nestedatt--drivers--ec2"></a>
+### Nested Schema for `drivers.ec2`
+
+Optional:
+
+- `ami` (String) The AMI to use for the AMI driver (default is Ubuntu-24.04).
+- `device_mounts` (List of String)
+- `exec` (Attributes) Comamnds to execute on the EC2 instance after launch. (see [below for nested schema](#nestedatt--drivers--ec2--exec))
+- `instance_type` (String) The AWS EC2 instance type to launch (default is TODO).
+- `region` (String) The AWS region to use for the EC2 driver (default is us-west-2).
+- `volume_mounts` (List of String)
+
+<a id="nestedatt--drivers--ec2--exec"></a>
+### Nested Schema for `drivers.ec2.exec`
+
+Optional:
+
+- `commands` (List of String)
+- `env` (Map of String)
+- `shell` (String)
+- `user` (String)
+
 
 
 <a id="nestedatt--drivers--eks_with_eksctl"></a>
