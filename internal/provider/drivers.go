@@ -8,10 +8,15 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
+	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -23,12 +28,14 @@ const (
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
+	DriverEC2            DriverResourceModel = "ec2"
 )
 
 type TestsDriversResourceModel struct {
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
+	EC2            *EC2DriverResourceModel            `tfsdk:"ec2"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -77,6 +84,22 @@ type EKSWithEksctlPodIdentityAssociationResourceModule struct {
 	PermissionPolicyARN types.String `tfsdk:"permission_policy_arn"`
 	ServiceAccountName  types.String `tfsdk:"service_account_name"`
 	Namespace           types.String `tfsdk:"namespace"`
+}
+
+type EC2DriverResourceModel struct {
+	Region       types.String               `tfsdk:"region"`
+	AMI          types.String               `tfsdk:"ami"`
+	InstanceType types.String               `tfsdk:"instance_type"`
+	Exec         EC2DriverExecResourceModel `tfsdk:"exec"`
+	VolumeMounts []types.String             `tfsdk:"volume_mounts"`
+	DeviceMounts []types.String             `tfsdk:"device_mounts"`
+}
+
+type EC2DriverExecResourceModel struct {
+	User     types.String   `tfsdk:"user"`
+	Shell    types.String   `tfsdk:"shell"`
+	Commands []types.String `tfsdk:"commands"`
+	Env      types.Map      `tfsdk:"env"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -269,6 +292,79 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			Storage:                 storageOpts,
 		})
 
+	case DriverEC2:
+		// This driver can't do its job without user input.
+		if drivers.EC2 == nil {
+			return nil, fmt.Errorf(
+				"the EC2 driver was specified, but no configuration was provided",
+			)
+		}
+
+		// Init a default AWS config.
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS configuration: %w", err)
+		}
+
+		// Init an EC2 client.
+		client := ec2.NewFromConfig(cfg)
+
+		// Init the EC2 driver.
+		d, err := mc2.NewDriver(client)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize EC2 driver: %w", err)
+		}
+
+		// Capture basic string inputs.
+		d.InstanceType = ec2types.InstanceType(drivers.EC2.InstanceType.ValueString())
+		d.AMI = drivers.EC2.AMI.ValueString()
+		d.Region = drivers.EC2.Region.ValueString()
+
+		// Capture volume mounts.
+		for _, mount := range drivers.EC2.VolumeMounts {
+			d.VolumeMounts = append(d.VolumeMounts, mount.ValueString())
+		}
+
+		// Capture device mounts.
+		for _, mount := range drivers.EC2.DeviceMounts {
+			d.DeviceMounts = append(d.DeviceMounts, mount.ValueString())
+		}
+
+		// Translate all user-provided 'exec' objects to 'internal/drivers/ec2.Exec'.
+		exec := mc2.Exec{}
+		// Capture 'user'.
+		exec.User = drivers.EC2.Exec.User.ValueString()
+		if exec.User == "" {
+			exec.User = "ubuntu"
+		}
+
+		// Capture 'shell'.
+		exec.Shell = drivers.EC2.Exec.Shell.ValueString()
+		if exec.Shell == "" {
+			exec.Shell = ssh.ShellBash
+		}
+
+		// Capture any provided environment variables.
+		exec.Env = make(map[string]string)
+		// Sprinkle on top user provided pairs.
+		for k, v := range drivers.EC2.Exec.Env.Elements() {
+			if v.IsNull() || v.IsUnknown() {
+				continue
+			}
+			exec.Env[k] = v.String()
+		}
+
+		// Capture commands.
+		exec.Commands = make([]string, len(drivers.EC2.Exec.Commands))
+		for i, cmd := range drivers.EC2.Exec.Commands {
+			exec.Commands[i] = cmd.ValueString()
+		}
+
+		// Assign the assembled 'Exec' instance.
+		d.Exec = exec
+
+		return d, nil
+
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
 	}
@@ -407,8 +503,56 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 					},
 				},
 			},
+			"ec2": driverResourceSchemaEC2,
 		},
 	}
+}
+
+var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
+	Description: "The AWS EC2 driver.",
+	Optional:    true,
+	Attributes: map[string]schema.Attribute{
+		"region": schema.StringAttribute{
+			Description: "The AWS region to use for the EC2 driver (default is us-west-2).",
+			Optional:    true,
+		},
+		"ami": schema.StringAttribute{
+			Description: "The AMI to use for the AMI driver (default is Ubuntu-24.04).",
+			Optional:    true,
+		},
+		"instance_type": schema.StringAttribute{
+			Description: "The AWS EC2 instance type to launch (default is TODO).",
+			Optional:    true,
+		},
+		"exec": schema.SingleNestedAttribute{
+			Description: "Comamnds to execute on the EC2 instance after launch.",
+			Optional:    true,
+			Attributes: map[string]schema.Attribute{
+				"shell": schema.StringAttribute{
+					Optional: true,
+				},
+				"user": schema.StringAttribute{
+					Optional: true,
+				},
+				"env": schema.MapAttribute{
+					ElementType: types.StringType,
+					Optional:    true,
+				},
+				"commands": schema.ListAttribute{
+					ElementType: types.StringType,
+					Optional:    true,
+				},
+			},
+		},
+		"volume_mounts": schema.ListAttribute{
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"device_mounts": schema.ListAttribute{
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+	},
 }
 
 // https://github.com/google/go-containerregistry/blob/098045d5e61ff426a61a0eecc19ad0c433cd35a9/pkg/name/registry.go
