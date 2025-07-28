@@ -1,5 +1,5 @@
 resource "imagetest_tests" "foo" {
-  name   = "ec2-driver-basic"
+  name   = "driver-ec2-volume-mount"
   driver = "ec2"
 
   drivers = {
@@ -12,11 +12,13 @@ resource "imagetest_tests" "foo" {
         user  = "ubuntu"
         shell = "bash"
         commands = [
-          # These two commands are just a silly little examle to demonstrate
-          # the persistence of state across commands since everything in
-          # 'commands' is executed within the scope of a single SSH session.
-          "some=1337",
-          "[ $some -eq 1337 ] && exit 0 || exit 1",
+          # Place a file on the host and bind mount it to the container.
+          "sudo mkdir -p /data",
+          "echo -n 'Hello, world!' | sudo tee /data/test",
+          "sudo chmod 666 /data/test"
+        ]
+        volume_mounts = [
+          "/data:/data"
         ]
       }
     }
@@ -27,9 +29,9 @@ resource "imagetest_tests" "foo" {
   }
 
   tests = [{
-    name  = "sample"
+    name  = "driver-ec2-volume-mount"
     image = "cgr.dev/chainguard/busybox:latest"
-    cmd   = "echo 'Hello, world!'; exit 0"
+    cmd   = "content=$(cat /data/test); [ $content == 'Hello, world!' ] && exit 0 || exit 1"
   }]
 
   // Something before GHA timeouts

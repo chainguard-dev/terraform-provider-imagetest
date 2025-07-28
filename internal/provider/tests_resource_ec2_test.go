@@ -31,6 +31,12 @@ import (
 )
 
 var (
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-basic.tf
+	configDriverEC2Basic string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-driver-commands-fail.tf
+	configDriverEC2DriverCommandsFail string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-test-commands-fail.tf
+	configDriverEC2TestCommandsFail string
 	//go:embed testdata/TestAccTestsConfigs/ec2-basic.tf
 	configEC2Basic string
 	//go:embed testdata/TestAccTestsConfigs/ec2-driver-commands-fail.tf
@@ -65,17 +71,17 @@ func TestAccTestDriverEC2(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Verifies a simple 'exit 0' passes.
 			{
-				Config: configEC2Basic,
+				Config: configDriverEC2Basic,
 			},
 			// Verifies a failure which occurs in the 'drivers' object commands fails
 			// the run.
 			{
-				Config:      configEC2DriverCommandsFail,
+				Config:      configDriverEC2DriverCommandsFail,
 				ExpectError: regexp.MustCompile("Process exited with status 1"),
 			},
 			// Verifies a test failure is properly caught as a failure.
 			{
-				Config:      configEC2DriverTestFails,
+				Config:      configDriverEC2TestCommandsFail,
 				ExpectError: regexp.MustCompile("container exited with code: 1"),
 			},
 		},

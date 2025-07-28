@@ -1,5 +1,5 @@
 resource "imagetest_tests" "foo" {
-  name   = "ec2-driver-basic"
+  name   = "driver-ec2-basic"
   driver = "ec2"
 
   drivers = {
@@ -12,7 +12,11 @@ resource "imagetest_tests" "foo" {
         user  = "ubuntu"
         shell = "bash"
         commands = [
-          "exit 1",
+          # These two commands are just a silly little examle to demonstrate
+          # the persistence of state across commands since everything in
+          # 'commands' is executed within the scope of a single SSH session.
+          "some=1337",
+          "[ $some -eq 1337 ] && exit 0 || exit 1",
         ]
       }
     }
@@ -23,7 +27,7 @@ resource "imagetest_tests" "foo" {
   }
 
   tests = [{
-    name  = "sample"
+    name  = "driver-ec2-basic"
     image = "cgr.dev/chainguard/busybox:latest"
     cmd   = "echo 'Hello, world!'; exit 0"
   }]
