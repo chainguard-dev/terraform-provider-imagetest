@@ -331,37 +331,33 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 
 		// Translate all user-provided 'exec' objects to 'internal/drivers/ec2.Exec'.
-		exec := mc2.Exec{}
 		// Capture 'user'.
-		exec.User = drivers.EC2.Exec.User.ValueString()
-		if exec.User == "" {
-			exec.User = "ubuntu"
+		d.Exec.User = drivers.EC2.Exec.User.ValueString()
+		if d.Exec.User == "" {
+			d.Exec.User = "ubuntu"
 		}
 
 		// Capture 'shell'.
-		exec.Shell = drivers.EC2.Exec.Shell.ValueString()
-		if exec.Shell == "" {
-			exec.Shell = ssh.ShellBash
+		d.Exec.Shell = drivers.EC2.Exec.Shell.ValueString()
+		if d.Exec.Shell == "" {
+			d.Exec.Shell = ssh.ShellBash
 		}
 
 		// Capture any provided environment variables.
-		exec.Env = make(map[string]string)
+		d.Exec.Env = make(map[string]string)
 		// Sprinkle on top user provided pairs.
 		for k, v := range drivers.EC2.Exec.Env.Elements() {
 			if v.IsNull() || v.IsUnknown() {
 				continue
 			}
-			exec.Env[k] = v.String()
+			d.Exec.Env[k] = v.String()
 		}
 
 		// Capture commands.
-		exec.Commands = make([]string, len(drivers.EC2.Exec.Commands))
+		d.Exec.Commands = make([]string, len(drivers.EC2.Exec.Commands))
 		for i, cmd := range drivers.EC2.Exec.Commands {
-			exec.Commands[i] = cmd.ValueString()
+			d.Exec.Commands[i] = cmd.ValueString()
 		}
-
-		// Assign the assembled 'Exec' instance.
-		d.Exec = exec
 
 		return d, nil
 
