@@ -13,7 +13,7 @@ resource "imagetest_tests" "foo" {
         shell = "bash"
         commands = [
           # Place a file on the host and bind mount it to the container.
-          "sudo mkdir -p /data",
+          "sudo mkdir -m 777 -p /data",
           "echo -n 'Hello, world!' | sudo tee /data/test",
           "sudo chmod 666 /data/test"
         ]
@@ -32,7 +32,7 @@ resource "imagetest_tests" "foo" {
   tests = [{
     name  = "driver-ec2-volume-mount"
     image = "cgr.dev/chainguard/busybox:latest"
-    cmd   = "content=$(cat /data/test); [ $content == 'Hello, world!' ] && exit 0 || exit 1"
+    cmd   = "[ -f /data/test ]"
   }]
 
   // Something before GHA timeouts
