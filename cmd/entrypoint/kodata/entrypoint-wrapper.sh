@@ -17,7 +17,7 @@ error() {
 usage() {
   error "Usage: $0 <test-script-path>"
   error "Environment variables:"
-  error "  IMAGETEST_DRIVER: Type of test environment (docker_in_docker, k3s_in_docker, eks_with_eksctl)"
+  error "  IMAGETEST_DRIVER: Type of test environment (docker_in_docker, k3s_in_docker, eks_with_eksctl, ec2)"
   exit 1
 }
 
@@ -147,6 +147,10 @@ k3s_in_docker)
   ;;
 eks_with_eksctl)
   init_eks_with_eksctl "$cmd"
+  ;;
+ec2)
+  # Nothing needs to be setup for this driver!
+  eval "$cmd"
   ;;
 *)
   error "Unknown driver '$IMAGETEST_DRIVER'"
