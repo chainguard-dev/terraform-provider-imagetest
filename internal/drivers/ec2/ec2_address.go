@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 var (
@@ -25,8 +26,11 @@ var (
 func elasticIPCreate(
 	ctx context.Context,
 	client *ec2.Client,
+	tags ...types.Tag,
 ) (string, string, error) {
-	result, err := client.AllocateAddress(ctx, nil)
+	result, err := client.AllocateAddress(ctx, &ec2.AllocateAddressInput{
+		TagSpecifications: tagSpecificationWithDefaults(types.ResourceTypeElasticIp, tags...),
+	})
 	if err != nil {
 		return "", "", fmt.Errorf("%w: %w", ErrElasticIPCreate, err)
 	}

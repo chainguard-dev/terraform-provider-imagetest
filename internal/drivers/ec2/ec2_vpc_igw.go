@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -14,14 +13,11 @@ var (
 	ErrNilInternetGatewayID  = fmt.Errorf("received no error in internet gateway create, but the internet gateway ID returned was nil")
 )
 
-func internetGatewayCreate(ctx context.Context, client *ec2.Client, name string) (string, error) {
+func internetGatewayCreate(ctx context.Context, client *ec2.Client, tags ...types.Tag) (string, error) {
 	igwResult, err := client.CreateInternetGateway(ctx, &ec2.CreateInternetGatewayInput{
 		TagSpecifications: tagSpecificationWithDefaults(
 			types.ResourceTypeInternetGateway,
-			types.Tag{
-				Key:   aws.String("Name"),
-				Value: &name,
-			},
+			tags...,
 		),
 	})
 	if err != nil {

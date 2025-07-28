@@ -11,14 +11,14 @@ import (
 
 var ErrSecurityGroupInboundRuleCreate = fmt.Errorf("failed to add security group rule")
 
-func sgInboundRuleCreate(ctx context.Context, client *ec2.Client, from string, port int32, sgID string) error {
+func sgInboundRuleCreate(ctx context.Context, client *ec2.Client, from string, port int32, sgID string, tags ...types.Tag) error {
 	_, err := client.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
 		CidrIp:            aws.String(from),
 		FromPort:          aws.Int32(port),
 		ToPort:            aws.Int32(port),
 		GroupId:           &sgID,
 		IpProtocol:        aws.String("tcp"),
-		TagSpecifications: tagSpecificationWithDefaults(types.ResourceTypeSecurityGroupRule),
+		TagSpecifications: tagSpecificationWithDefaults(types.ResourceTypeSecurityGroupRule, tags...),
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSecurityGroupInboundRuleCreate, err)

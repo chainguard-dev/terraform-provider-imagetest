@@ -13,12 +13,13 @@ var (
 	ErrNilKeyPairID  = fmt.Errorf("encountered no error in keypair import, but the returned keypair ID was nil")
 )
 
-func keypairImport(ctx context.Context, client *ec2.Client, keyPairName string, pubKey []byte) (kpID string, err error) {
+func keypairImport(ctx context.Context, client *ec2.Client, keyPairName string, pubKey []byte, tags ...types.Tag) (kpID string, err error) {
 	result, err := client.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
 		KeyName:           &keyPairName,
 		PublicKeyMaterial: pubKey,
 		TagSpecifications: tagSpecificationWithDefaults(
 			types.ResourceTypeKeyPair,
+			tags...,
 		),
 	})
 	if err != nil {

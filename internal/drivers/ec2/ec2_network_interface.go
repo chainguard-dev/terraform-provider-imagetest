@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 var (
@@ -13,9 +14,13 @@ var (
 		" create, but the returned interface ID was nil")
 )
 
-func netIFCreate(ctx context.Context, client *ec2.Client, subnetID string) (string, error) {
+func netIFCreate(ctx context.Context, client *ec2.Client, subnetID string, tags ...types.Tag) (string, error) {
 	result, err := client.CreateNetworkInterface(ctx, &ec2.CreateNetworkInterfaceInput{
 		SubnetId: &subnetID,
+		TagSpecifications: tagSpecificationWithDefaults(
+			types.ResourceTypeNetworkInterface,
+			tags...,
+		),
 	})
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrNetIFCreate, err)

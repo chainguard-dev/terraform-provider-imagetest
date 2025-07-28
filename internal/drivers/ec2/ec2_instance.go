@@ -19,7 +19,13 @@ var (
 		"launch, but the returned instance ID was nil")
 )
 
-func instanceCreateWithNetIF(ctx context.Context, client *ec2.Client, instanceType types.InstanceType, ami, keyPairName, netIFID string) (string, error) {
+func instanceCreateWithNetIF(
+	ctx context.Context,
+	client *ec2.Client,
+	instanceType types.InstanceType,
+	ami, keyPairName, netIFID string,
+	tags ...types.Tag,
+) (string, error) {
 	launchResult, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId:      &ami,
 		MinCount:     aws.Int32(1),
@@ -32,6 +38,10 @@ func instanceCreateWithNetIF(ctx context.Context, client *ec2.Client, instanceTy
 				DeviceIndex:        aws.Int32(0),
 			},
 		},
+		TagSpecifications: tagSpecificationWithDefaults(
+			types.ResourceTypeInstance,
+			tags...,
+		),
 	})
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInstanceCreate, err)

@@ -15,15 +15,15 @@ var (
 	ErrNilVPCID  = fmt.Errorf("received no error in VPC create, but the VPC ID returned was nil")
 )
 
-func vpcCreate(ctx context.Context, client *ec2.Client, vpcName, vpcCIDR string) (string, error) {
+func vpcCreate(ctx context.Context, client *ec2.Client, vpcName, vpcCIDR string, tags ...types.Tag) (string, error) {
 	log := clog.FromContext(ctx).With("name", vpcName, "cidr", vpcCIDR)
 	log.Debug("creating VPC")
 	result, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{
 		CidrBlock: aws.String(vpcCIDR),
-		TagSpecifications: tagSpecificationWithDefaults(types.ResourceTypeVpc, types.Tag{
-			Key:   aws.String("Name"),
-			Value: &vpcName,
-		}),
+		TagSpecifications: tagSpecificationWithDefaults(
+			types.ResourceTypeVpc,
+			tags...,
+		),
 	})
 	if err != nil {
 		log.Error("VPC creation failed", "error", err)

@@ -11,16 +11,23 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	log := clog.FromContext(ctx)
 
 	net := NetworkDeployment{
-		VPCName:    d.runID + "-vpc",
-		SubnetName: d.runID + "-subnet",
-		IGWName:    d.runID + "-igw",
-		VPCCIDR:    "172.25.0.0/24",
-		SubnetCIDR: "172.25.0.0/25",
+		VPCName:       d.runID + "-vpc",
+		SubnetName:    d.runID + "-subnet",
+		IGWName:       d.runID + "-igw",
+		InterfaceName: d.runID + "-if",
+		VPCCIDR:       "172.25.0.0/24",
+		SubnetCIDR:    "172.25.0.0/25",
+		ElasticIPName: d.runID + "-eip",
 	}
 
 	// Create the VPC.
 	var err error
-	net.VPCID, err = vpcCreate(ctx, d.client, net.VPCName, net.VPCCIDR)
+	net.VPCID, err = vpcCreate(
+		ctx,
+		d.client,
+		net.VPCName, net.VPCCIDR,
+		tagName(net.VPCName),
+	)
 	if err != nil {
 		return net, err
 	}
@@ -32,7 +39,12 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	})
 
 	// Create the VPC subnet.
-	net.SubnetID, err = subnetCreate(ctx, d.client, net.VPCID, net.SubnetName, net.SubnetCIDR)
+	net.SubnetID, err = subnetCreate(
+		ctx,
+		d.client,
+		net.VPCID, net.SubnetCIDR,
+		tagName(net.SubnetName),
+	)
 	if err != nil {
 		return net, err
 	}
@@ -44,7 +56,11 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	})
 
 	// Create the internet gateway.
-	net.IGWID, err = internetGatewayCreate(ctx, d.client, net.IGWName)
+	net.IGWID, err = internetGatewayCreate(
+		ctx,
+		d.client,
+		tagName(net.IGWName),
+	)
 	if err != nil {
 		return net, err
 	}
@@ -84,7 +100,11 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 		return net, err // No annotation required.
 	}
 	const defaultRouteCIDR = "0.0.0.0/0"
-	err = routeTableIGWRouteCreate(ctx, d.client, net.RTBID, defaultRouteCIDR, net.IGWID)
+	err = routeTableIGWRouteCreate(
+		ctx,
+		d.client,
+		net.RTBID, defaultRouteCIDR, net.IGWID,
+	)
 	if err != nil {
 		return net, err // No annotation required.
 	}
@@ -126,7 +146,10 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	//
 	// By default we'll only open TCP/22 (SSH)/ to the host we're calling from.
 	// Unfortunately, this can't be done in the initial request.
-	err = sgInboundRuleCreate(ctx, d.client, localPublicAddrCIDR, portSSH, net.SGID)
+	err = sgInboundRuleCreate(
+		ctx,
+		d.client, localPublicAddrCIDR, portSSH, net.SGID,
+	)
 	if err != nil {
 		return net, err
 	}
@@ -139,7 +162,11 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	)
 
 	// Allocate an elastic IP address (public IP) for this EC2 instance.
-	net.ElasticIPID, net.ElasticIP, err = elasticIPCreate(ctx, d.client)
+	net.ElasticIPID, net.ElasticIP, err = elasticIPCreate(
+		ctx,
+		d.client,
+		tagName(net.ElasticIPName),
+	)
 	if err != nil {
 		return net, err
 	}
@@ -151,7 +178,11 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	})
 
 	// Create an elastic network interface for the instance.
-	net.InterfaceID, err = netIFCreate(ctx, d.client, net.SubnetID)
+	net.InterfaceID, err = netIFCreate(
+		ctx,
+		d.client, net.SubnetID,
+		tagName(net.InterfaceName),
+	)
 	if err != nil {
 		return net, err
 	}
@@ -207,8 +238,10 @@ type NetworkDeployment struct {
 	// Security Group
 	SGID string
 	// Elastic IP
-	ElasticIP   string
-	ElasticIPID string
+	ElasticIPName string
+	ElasticIP     string
+	ElasticIPID   string
 	// Network Interface
-	InterfaceID string
+	InterfaceName string
+	InterfaceID   string
 }

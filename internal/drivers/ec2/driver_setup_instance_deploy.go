@@ -32,6 +32,7 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 	})
 
 	// Launch the EC2 instance.
+	inst.InstanceName = d.runID + "-instance"
 	inst.InstanceType = d.InstanceType
 	inst.AMI = d.AMI
 	log.Info(
@@ -43,6 +44,7 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		ctx,
 		d.client,
 		inst.InstanceType, inst.AMI, inst.KeyName, net.InterfaceID,
+		tagName(inst.InstanceName),
 	)
 	if err != nil {
 		return inst, err

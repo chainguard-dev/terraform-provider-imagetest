@@ -51,3 +51,14 @@ func tagsDefault() []types.Tag {
 		},
 	}
 }
+
+// tagsName produces the AWS standard 'Name' tag.
+//
+// 'Name' is a well-known tag key which will render as the human-readable name
+// for many resource types in the AWS console.
+func tagName(name string) types.Tag {
+	return types.Tag{
+		Key:   aws.String(tagKeyName),
+		Value: &name,
+	}
+}
