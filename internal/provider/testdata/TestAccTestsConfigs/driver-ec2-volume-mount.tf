@@ -17,10 +17,11 @@ resource "imagetest_tests" "foo" {
           "echo -n 'Hello, world!' | sudo tee /data/test",
           "sudo chmod 666 /data/test"
         ]
-        volume_mounts = [
-          "/data:/data"
-        ]
       }
+
+      volume_mounts = [
+        "/data:/data"
+      ]
     }
   }
 

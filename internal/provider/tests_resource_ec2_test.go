@@ -41,6 +41,28 @@ var (
 	configDriverEC2VolumeMount string
 )
 
+var tests = map[string][]resource.TestStep{
+	// Verifies a simple 'exit 0' passes.
+	// "driver-ec2-basic": {{
+	// Config: configDriverEC2Basic,
+	// }},
+	// Verifies a failure which occurs in the 'drivers' object commands fails
+	// the run.
+	// "driver-ec2-driver-commands-fail": {{
+	// Config:      configDriverEC2DriverCommandsFail,
+	// ExpectError: regexp.MustCompile("Process exited with status 1"),
+	// }},
+	// Verifies a test failure is properly caught as a failure.
+	// "driver-ec2-test-commands-fail": {{
+	// Config:      configDriverEC2TestCommandsFail,
+	// ExpectError: regexp.MustCompile("container exited with code: 1"),
+	// }},
+	// Verifies a volume mount is successful.
+	"driver-ec2-with-volume-mount": {{
+		Config: configDriverEC2VolumeMount,
+	}},
+}
+
 func TestAccTestDriverEC2(t *testing.T) {
 	const registryURI = "cgr.dev/chainguard-eng"
 
@@ -62,28 +84,12 @@ func TestAccTestDriverEC2(t *testing.T) {
 		"imagetest": pserver,
 	}
 
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: factories,
-		Steps: []resource.TestStep{
-			// Verifies a simple 'exit 0' passes.
-			{
-				Config: configDriverEC2Basic,
-			},
-			// Verifies a failure which occurs in the 'drivers' object commands fails
-			// the run.
-			{
-				Config:      configDriverEC2DriverCommandsFail,
-				ExpectError: regexp.MustCompile("Process exited with status 1"),
-			},
-			// Verifies a test failure is properly caught as a failure.
-			{
-				Config:      configDriverEC2TestCommandsFail,
-				ExpectError: regexp.MustCompile("container exited with code: 1"),
-			},
-			// Verifies a volume mount is successful.
-			{
-				Config: configDriverEC2VolumeMount,
-			},
-		},
-	})
+	for name, steps := range tests {
+		t.Run(name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				ProtoV6ProviderFactories: factories,
+				Steps:                    steps,
+			})
+		})
+	}
 }

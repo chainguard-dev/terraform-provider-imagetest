@@ -94,6 +94,7 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal registry auth payload: %w", err)
 	}
+	log.Info("registry auth marshal is successful")
 
 	// Pull the image.
 	pullResult, err := client.ImagePull(ctx, name.Name(), image.PullOptions{
