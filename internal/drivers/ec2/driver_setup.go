@@ -9,11 +9,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 )
 
-var (
-	ErrInstanceTypeSelection = fmt.Errorf("failed instance selection")
-	ErrAMISelection          = fmt.Errorf("failed AMI selection")
-	ErrInWait                = fmt.Errorf("deadlined while waiting for EC2 instance to become reachable via SSH")
-)
+var ErrInWait = fmt.Errorf("deadlined while waiting for EC2 instance to become reachable via SSH")
 
 func (d *Driver) Setup(ctx context.Context) error {
 	ctx = clog.WithLogger(ctx, clog.DefaultLogger())
