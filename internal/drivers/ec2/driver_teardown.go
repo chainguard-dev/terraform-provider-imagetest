@@ -28,7 +28,7 @@ func (d *Driver) Teardown(ctx context.Context) error {
 
 	// Destroy it all!
 	if err := d.stack.Destroy(ctx); err != nil {
-		log.Error("encountered error(s) in stack teardown")
+		log.Error("encountered error(s) in stack teardown", "error", err)
 		return err
 	} else {
 		log.Info("stack teardown complete")
