@@ -125,7 +125,8 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 	// Add in all user-provided volume mounts.
 	for _, volume := range d.VolumeMounts {
 		// Split the local+in-container paths.
-		if local, incontainer, ok := strings.Cut(volume, "="); ok {
+		if local, incontainer, ok := strings.Cut(volume, ":"); ok {
+			log.Debug("adding volume mount", "from", local, "to", incontainer)
 			hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
 				Type:   mount.TypeBind,
 				Source: local,
@@ -136,7 +137,7 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 	// Add in all user-provided device mounts.
 	for _, dev := range d.DeviceMounts {
 		// Split the local+in-container paths.
-		if local, incontainer, ok := strings.Cut(dev, "="); ok {
+		if local, incontainer, ok := strings.Cut(dev, ":"); ok {
 			hostConfig.Devices = append(hostConfig.Devices, container.DeviceMapping{
 				PathOnHost:      local,
 				PathInContainer: incontainer,
