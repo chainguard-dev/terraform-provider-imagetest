@@ -90,6 +90,19 @@
 // on returning the field which would constitute a handle to that resource,
 // rather than 500-1000-byte struct pointers which contain date of birth, car
 // insurance information, etc.
+//
+// # Areas of Improvement
+//
+// Across this package you'll find many a comment with mention of "it would be
+// great in the future if we could...". Alas, some of the more notable awesome
+// things we could add are:
+// - BYO instance: To speed up local dev loop iteration, it could be a wonderful
+// addition to allow a test author to provide a public IP, port, username and
+// key path (probably via environment variables) and therefore repeatedly test
+// against the same instance _without_ spinning up a VPC and tearing it all back
+// down for each test. Ex: user runs a test first with IMAGETEST_SKIP_TEARDOWN
+// set, then uses the information from that run in subsequent runs to quickly
+// retest without the construction+destruction.
 package ec2
 
 import (
