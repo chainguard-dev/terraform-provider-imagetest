@@ -37,12 +37,8 @@ var (
 	configDriverEC2DriverCommandsFail string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-test-commands-fail.tf
 	configDriverEC2TestCommandsFail string
-	//go:embed testdata/TestAccTestsConfigs/ec2-basic.tf
-	configEC2Basic string
-	//go:embed testdata/TestAccTestsConfigs/ec2-driver-commands-fail.tf
-	configEC2DriverCommandsFail string
-	//go:embed testdata/TestAccTestsConfigs/ec2-test-fails.tf
-	configEC2DriverTestFails string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-volume-mount.tf
+	configDriverEC2VolumeMount string
 )
 
 func TestAccTestDriverEC2(t *testing.T) {
@@ -83,6 +79,10 @@ func TestAccTestDriverEC2(t *testing.T) {
 			{
 				Config:      configDriverEC2TestCommandsFail,
 				ExpectError: regexp.MustCompile("container exited with code: 1"),
+			},
+			// Verifies a volume mount is successful.
+			{
+				Config: configDriverEC2VolumeMount,
 			},
 		},
 	})
