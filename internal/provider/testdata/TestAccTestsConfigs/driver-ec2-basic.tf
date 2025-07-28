@@ -12,7 +12,7 @@ resource "imagetest_tests" "foo" {
         user  = "ubuntu"
         shell = "bash"
         commands = [
-          # These two commands are just a silly little examle to demonstrate
+          # These two commands are just a silly little example to demonstrate
           # the persistence of state across commands since everything in
           # 'commands' is executed within the scope of a single SSH session.
           "some=1337",
