@@ -39,6 +39,8 @@ var (
 	configDriverEC2TestCommandsFail string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-volume-mount.tf
 	configDriverEC2VolumeMount string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-gpu-mount.tf
+	configDriverEC2GPUMount string
 )
 
 var tests = map[string][]resource.TestStep{
@@ -61,14 +63,17 @@ var tests = map[string][]resource.TestStep{
 	"driver-ec2-with-volume-mount": {{
 		Config: configDriverEC2VolumeMount,
 	}},
+	// Verifies a GPU mount is successful.
+	"driver-ec2-with-gpu": {{
+		Config: configDriverEC2GPUMount,
+	}},
 }
 
 func TestAccTestDriverEC2(t *testing.T) {
 	const registryURI = "cgr.dev/chainguard-eng"
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:     slog.LevelDebug,
-		AddSource: true,
+		Level: slog.LevelDebug,
 	})))
 
 	// Construct the provider server.
