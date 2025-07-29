@@ -93,6 +93,7 @@ type EC2DriverResourceModel struct {
 	Exec         EC2DriverExecResourceModel `tfsdk:"exec"`
 	VolumeMounts []types.String             `tfsdk:"volume_mounts"`
 	DeviceMounts []types.String             `tfsdk:"device_mounts"`
+	MountAllGPUs types.Bool                 `tfsdk:"mount_all_gpus"`
 }
 
 type EC2DriverExecResourceModel struct {
@@ -330,6 +331,9 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			d.DeviceMounts = append(d.DeviceMounts, mount.ValueString())
 		}
 
+		// Evaluate for GPU passthrough.
+		d.MountAllGPUs = drivers.EC2.MountAllGPUs.ValueBool()
+
 		// Translate all user-provided 'exec' objects to 'internal/drivers/ec2.Exec'.
 		// Capture 'user'.
 		d.Exec.User = drivers.EC2.Exec.User.ValueString()
@@ -547,6 +551,9 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 		"device_mounts": schema.ListAttribute{
 			ElementType: types.StringType,
 			Optional:    true,
+		},
+		"mount_all_gpus": schema.BoolAttribute{
+			Optional: true,
 		},
 	},
 }

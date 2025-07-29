@@ -145,6 +145,16 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 			})
 		}
 	}
+	// The 'MountAllGPUs' option is equivalent to '--gpus all'.
+	if d.MountAllGPUs {
+		hostConfig.DeviceRequests = append(hostConfig.DeviceRequests, container.DeviceRequest{
+			Driver:       "nvidia",
+			Count:        -1,
+			DeviceIDs:    nil,
+			Capabilities: [][]string{{"gpu"}},
+			Options:      make(map[string]string),
+		})
+	}
 
 	// Run the container.
 	log.Info(

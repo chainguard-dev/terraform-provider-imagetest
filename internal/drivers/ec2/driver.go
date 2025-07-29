@@ -54,6 +54,11 @@ type Driver struct {
 	// User-provided device mounts from the EC2 instance to the container.
 	DeviceMounts []string `tfask:"device_mounts"`
 
+	// Indicates all GPUs should be passed through to the container.
+	//
+	// This is the equivalent of the '--gpus all' command-line flag.
+	MountAllGPUs bool `tfsdk:"mount_all_gpus"`
+
 	// runID holds a unique identifier generated for this run.
 	runID string
 
