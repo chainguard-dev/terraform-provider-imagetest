@@ -1,9 +1,16 @@
-#!/usr/bin/env bash
+# NOTE: There is no shebang here! This code will be piped as stdin to the shell
+# chosen by the test author, which may be any of: sh, bash, fish or zsh.
+#
+# NOTE: Multiple scripts are piped to stdin end-to-end, this means an exit code
+# provided here is an exit code to _all_ sequenced preparation commands.
+# Considering this, all workflows should be implemented with functions which are
+# conditionally called and only exit if a truly test-breaking scenario occurs
+# and the entire run should fail.
 
 # >> Overview
 #
-#   stdopts.sh defines the standard Bash session configuration which should
-#   apply to all sessions.
+#   stdopts.sh defines the standard Bash session configuration and some helper
+#   functions. These are prefixed to all ec2 driver commands.
 
 # Exit on the first non-zero exit we hit, failures terminate pipelines.
 set -eo pipefail
@@ -49,9 +56,14 @@ fatal () {
   exit 1
 }
 
+################################################################################
+# Retry Behavior
+
 # Maximum number of attempts for all steps retried.
 readonly max_attempts=5
 
+# retry retries an arbitrary provided command 'max_attempts' number of times. If
+# the final attempt fails, the script exits with an exit code of 1.
 retry () {
   local timeout_msg
   for i in $(seq $max_attempts); do

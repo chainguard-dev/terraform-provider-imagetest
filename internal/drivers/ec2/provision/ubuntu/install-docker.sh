@@ -1,4 +1,11 @@
-#!/usr/bin/env bash
+# NOTE: There is no shebang here! This code will be piped as stdin to the shell
+# chosen by the test author, which may be any of: sh, bash, fish or zsh.
+#
+# NOTE: Multiple scripts are piped to stdin end-to-end, this means an exit code
+# provided here is an exit code to _all_ sequenced preparation commands.
+# Considering this, all workflows should be implemented with functions which are
+# conditionally called and only exit if a truly test-breaking scenario occurs
+# and the entire run should fail.
 
 # >> Overview
 #
@@ -7,63 +14,6 @@
 #   - Adds the Docker apt repository.
 #   - Installs the core Docker components.
 #   - Adds the current (if non-root) user to the 'docker' group.
-
-################################################################################
-# Logging
-
-# Define some ANSI escape sequences for coloring log levels
-readonly YELLOW="\e[33m"
-readonly RED="\e[31m"
-readonly GRAY="\e[90m"
-readonly GREEN="\e[32m"
-readonly RESET="\e[0m"
-
-timestamp() {
-  echo "$(date --rfc-3339=s)"
-}
-
-log () {
-  msg="${1}"
-  level="${2:-INFO}"
-  echo -e "$(timestamp) ${level} ${msg}" >&2
-}
-
-debug () {
-  log "${1}" "${GRAY}DEBUG${RESET}"
-}
-
-info () {
-  log "${1}" "${GREEN}INFO${RESET}"
-}
-
-warn () {
-log "${1}" "${YELLOW}WARN${RESET}"
-}
-
-error () {
-  log "${1}" "${RED}ERROR${RESET}"
-}
-
-fatal () {
-  log "${1}" "${RED}FATAL${RESET}"
-  exit 1
-}
-
-# Maximum number of attempts for all steps retried.
-readonly max_attempts=5
-
-retry () {
-  local timeout_msg
-  for i in $(seq $max_attempts); do
-    if "$@"; then
-      return 0
-    elif [ $i -eq $max_attempts ]; then
-      fatal "${timeout_msg}"
-    else
-      warn "Operation failed, retrying (attempt=${i})."
-    fi
-  done
-}
 
 ################################################################################
 # Install Dependencies
@@ -118,12 +68,14 @@ add_docker_repo () {
 # Install Docker
 
 install_docker () {
+  # In local testing, about ~50% of the time when the EC2 instance launched some
+  # Python process held the apt lock, hence the retries.
   timeout_msg='Failed to install Docker.' \
-  retry sudo apt install -y \
+  retry sudo apt install -qq -y \
        docker-ce \
        docker-ce-cli \
        containerd.io \
-       docker-buildx-plugin -qq
+       docker-buildx-plugin
 }
 
 ################################################################################
