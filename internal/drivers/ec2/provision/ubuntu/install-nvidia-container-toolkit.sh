@@ -10,9 +10,17 @@
 # >> Overview
 #
 #   install-nvidia-container-toolkit.sh is a script which:
-#   - Checks for and installs, if not found, pciutils.
+#   - Checks for and installs, if not found, lspci (pciutils).
 #   - Evaluate the presence of an nVIDIA GPU via 'lspci'.
 #   - IF an nVIDIA GPU is found, the nVIDIA container toolkit is installed.
+
+# TODO: Drop this for the final review and merge. It will be up to the test
+# author to select the driver version.
+install_nvidia_gpu_drivers () {
+  sudo apt install -qq -y \
+    linux-modules-nvidia-570-open-aws \
+    nvidia-driver-570-open
+}
 
 install_nvidia_container_toolkit () {
   # Download, dearmor and save the nVIDIA GPG key.
@@ -28,13 +36,8 @@ install_nvidia_container_toolkit () {
 
   # Install the nVIDIA container toolkit and all related libraries.
   info 'Installing the nVIDIA container toolkit.'
-  export nver=1.17.8-1
   sudo apt update -qq
-  sudo apt-get install -y -qq \
-    nvidia-container-toolkit=${nver} \
-    nvidia-container-toolkit-base=${nver} \
-    libnvidia-container-tools=${nver} \
-    libnvidia-container1=${nver}
+  sudo apt-get install -y -qq nvidia-container-toolkit
 
   # Restart the Docker service.
   info 'Restarting the Docker service.'
@@ -48,10 +51,15 @@ if ! which lspci 2>&1 >/dev/null; then
   sudo apt install -y -qq pciutils
 fi
 
-# Check for an nVIDIA device, if we don't find one skip the rest of this
-# workflow.
+# These steps are conditional depending on whether we have an nVIDIA GPU
+# present.
 if lspci | grep -i 'nvidia' 2>&1 >/dev/null; then
-  info 'nVIDIA GPU found, installing the nVIDIA container toolkit.'
+  # Install nVIDIA GPU drivers.
+  info 'nVIDIA GPU found, installing nVIDIA driver and modules.'
+  install_nvidia_gpu_drivers
+
+  # Install the nVIDIA container toolkit.
+  info 'Installing the nVIDIA container toolkit.'
   install_nvidia_container_toolkit
 else
   info 'nVIDIA GPU not found, skipping nVIDIA container toolkit install.'
