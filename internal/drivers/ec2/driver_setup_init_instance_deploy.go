@@ -55,6 +55,13 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		}
 		return nil
 	})
+	// If we're in debug mode, output the SSH command.
+	if debugSet() {
+		log.Warn("SSH connection args: " + fmt.Sprintf(
+			"ssh -i %s -l %s %s",
+			inst.KeyPath, d.Exec.User, net.ElasticIP,
+		))
+	}
 
 	// Launch the EC2 instance.
 	inst.InstanceName = d.runID + "-instance"
