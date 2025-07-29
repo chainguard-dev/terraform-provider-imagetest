@@ -71,11 +71,7 @@ install_docker () {
   # In local testing, about ~50% of the time when the EC2 instance launched some
   # Python process held the apt lock, hence the retries.
   timeout_msg='Failed to install Docker.' \
-  retry sudo apt install -qq -y \
-       docker-ce \
-       docker-ce-cli \
-       containerd.io \
-       docker-buildx-plugin
+    retry sudo apt install -qq -y docker-ce
 }
 
 ################################################################################
