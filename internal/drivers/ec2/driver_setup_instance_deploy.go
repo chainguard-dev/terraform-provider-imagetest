@@ -59,7 +59,11 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		// The EC2 instance actually hitting the 'Terminated' state is a hard
 		// blocker on removing dependencies further up the chain. So, we need to
 		// wait for it to actually be gone (state == 'Terminated').
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		//
+		// 10-minutes might seem like a long time, but for some reason certain
+		// instance types (g5g.xlarge, for example) take a reaaaaaaaal long time to
+		// actually hit the 'Terminated' state.
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		log.Info("waiting for instance to enter 'terminated' state")
 		err = awaitInstanceState(ctx, d.client, instanceID, types.InstanceStateNameTerminated)
