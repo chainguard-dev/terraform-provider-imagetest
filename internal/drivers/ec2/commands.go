@@ -9,14 +9,15 @@ import _ "embed"
 //
 // NOTE: Currently, we only plan to use Ubuntu images. Should this change a more
 // granular slicing will be required across this implementation.
-var cmdSetDefault = []string{
+var cmdSetProvisionUbuntu = []string{
 	cmdStdOpts,
 	cmdUbuntuInstallDocker,
+	cmdUbuntuInstallNvidiaContainerToolkit,
 }
 
 // Contains standard shell configuration which should apply to all sessions.
 //
-//go:embed provision/stdopts.sh
+//go:embed provision/ubuntu/stdopts.sh
 var cmdStdOpts string
 
 // Performs an install of the Docker CLI, containerd runtime and the buildx
@@ -28,3 +29,12 @@ var cmdStdOpts string
 //
 //go:embed provision/ubuntu/install-docker.sh
 var cmdUbuntuInstallDocker string
+
+// Performs an install of the nVIDIA container toolkit, which is nVIDIAs suite
+// of tools and drivers to make GPUs available within containers.
+//
+// This script mirrors the steps defined in nVIDIA's docs, here:
+// https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+//
+//go:embed provision/ubuntu/install-nvidia-container-toolkit.sh
+var cmdUbuntuInstallNvidiaContainerToolkit string
