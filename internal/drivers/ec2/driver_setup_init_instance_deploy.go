@@ -3,6 +3,7 @@ package ec2
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -29,6 +30,30 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 	d.stack.Push(func(ctx context.Context) error {
 		log.Info("deleting keypair", "id", inst.KeyID)
 		return keypairDelete(ctx, d.client, inst.KeyID)
+	})
+
+	// Marshal and write the ED25519 private key to disk.
+	//
+	// Assemble the file path for the ED25519 private key.
+	inst.KeyPath, err = sshKeyPath(d.runID)
+	if err != nil {
+		return inst, err
+	}
+	log.Info("saving ED25519 private key to disk", "path", inst.KeyPath)
+	err = sshSaveKey(ctx, inst.Keys.Private, inst.KeyPath)
+	if err != nil {
+		return inst, err
+	}
+	// Throw the key away when we're done.
+	//
+	// This isn't necessary since the remote environment is ephemeral and the key
+	// will be deleted but it feels like good hygiene.
+	d.stack.Push(func(ctx context.Context) error {
+		err := os.Remove(inst.KeyPath)
+		if err != nil {
+			return fmt.Errorf("failed to delete SSH key: %w", err)
+		}
+		return nil
 	})
 
 	// Launch the EC2 instance.
@@ -130,4 +155,5 @@ type InstanceDeployment struct {
 	Keys    ssh.ED25519KeyPair
 	KeyName string
 	KeyID   string
+	KeyPath string
 }

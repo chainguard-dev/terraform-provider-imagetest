@@ -11,8 +11,6 @@ import (
 // elsewhere throughout the driver's lifecycle:
 // - For all SSH sessions 'os.Stdout' and 'os.Stderr' will be connected to the
 // session's stdout + stderr streams, rather than the default 'bytes.Buffer'.
-// - When the test container is launched, a separate Goroutine will be spawned
-// which continuously reads the container logs and writes them to stdout.
 func debugSet() bool {
 	const debugVar = "IMAGETEST_EC2_DEBUG"
 	v, ok := os.LookupEnv(debugVar)
