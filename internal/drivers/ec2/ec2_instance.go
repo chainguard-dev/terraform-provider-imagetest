@@ -38,6 +38,23 @@ func instanceCreateWithNetIF(
 				DeviceIndex:        aws.Int32(0),
 			},
 		},
+		BlockDeviceMappings: []types.BlockDeviceMapping{
+			{
+				// By default, you get whatever the default instance root volume size
+				// is. For a lot of these, it's ~5-8GB which in testing I exhausted
+				// just by installing some elaborate nVIDIA driver stacks.
+				//
+				// Here we set the root volume (/dev/sda1) to a capacity of 50GB and
+				// signal that it should be deleted when the instance is terminated.
+				DeviceName: aws.String("/dev/sda1"),
+				Ebs: &types.EbsBlockDevice{
+					VolumeSize:          aws.Int32(50),
+					VolumeType:          types.VolumeTypeGp3,
+					DeleteOnTermination: aws.Bool(true),
+					Encrypted:           aws.Bool(false),
+				},
+			},
+		},
 		TagSpecifications: tagSpecificationWithDefaults(
 			types.ResourceTypeInstance,
 			tags...,
