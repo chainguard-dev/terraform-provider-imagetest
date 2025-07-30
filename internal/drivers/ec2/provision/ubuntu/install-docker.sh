@@ -21,14 +21,14 @@
 update_package_cache () {
   info 'Updating apt package cache.'
   timeout_msg='Failed to update the apt package cache.' \
-    retry sudo apt update -qq
+    retry sudo apt update -qqq
 }
 
 install_dependencies () {
   # Install some required prerequisites.
   info 'Installing Docker dependencies ('ca-certificates', 'curl').'
   timeout_msg='Failed Docker dependency install.' \
-    retry sudo apt install -y ca-certificates curl -qq
+    retry sudo apt install -qqq -y ca-certificates curl
 }
 
 ################################################################################
@@ -71,7 +71,7 @@ install_docker () {
   # In local testing, about ~50% of the time when the EC2 instance launched some
   # Python process held the apt lock, hence the retries.
   timeout_msg='Failed to install Docker.' \
-    retry sudo apt install -qq -y docker-ce
+    retry sudo apt install -qqq -y docker-ce
 }
 
 ################################################################################

@@ -36,8 +36,8 @@ install_nvidia_container_toolkit () {
 
   # Install the nVIDIA container toolkit and all related libraries.
   info 'Installing the nVIDIA container toolkit.'
-  sudo apt update -qq
-  sudo apt-get install -y -qq nvidia-container-toolkit
+  sudo apt update -qqq
+  sudo apt install -y -qqq nvidia-container-toolkit
 
   # Restart the Docker service.
   info 'Restarting the Docker service.'
@@ -48,7 +48,8 @@ install_nvidia_container_toolkit () {
 
 # Look for lspci, insall it if we need to.
 if ! which lspci 2>&1 >/dev/null; then
-  sudo apt install -y -qq pciutils
+  info 'lspci not found, installing package pciutils.'
+  sudo apt install -y -qqq pciutils
 fi
 
 # These steps are conditional depending on whether we have an nVIDIA GPU
