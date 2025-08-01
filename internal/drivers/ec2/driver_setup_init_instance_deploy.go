@@ -86,20 +86,20 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		"instance_type", inst.InstanceType,
 		"ami", inst.AMI,
 	)
-	instanceID, err := instanceCreateWithNetIF(
+	inst.InstanceID, err = instanceCreateWithNetIF(
 		ctx,
 		d.client,
-		inst.InstanceType, inst.AMI, inst.KeyName, net.InterfaceID,
+		inst.InstanceType, inst.AMI, inst.KeyName, net.InterfaceID, d.Exec.UserData,
 		tagName(inst.InstanceName),
 	)
 	if err != nil {
 		return inst, err
 	}
-	log.Info("EC2 instance launched", "instance_id", instanceID)
+	log.Info("EC2 instance launched", "instance_id", inst.InstanceID)
 	// Queue the instance destructor.
 	d.stack.Push(func(ctx context.Context) error {
-		log.Info("deleting EC2 instance", "instance_id", instanceID)
-		if err := instanceDelete(ctx, d.client, instanceID); err != nil {
+		log.Info("deleting EC2 instance", "instance_id", inst.InstanceID)
+		if err := instanceDelete(ctx, d.client, inst.InstanceID); err != nil {
 			return err
 		}
 		// The EC2 instance actually hitting the 'Terminated' state is a hard
