@@ -6,10 +6,24 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 )
+
+type InstanceDeployment struct {
+	// Instance
+	AMI          string
+	InstanceName string
+	InstanceID   string
+	InstanceType types.InstanceType
+	// Keys
+	Keys    ssh.ED25519KeyPair
+	KeyName string
+	KeyID   string
+	KeyPath string
+}
 
 // deployInstance provisions an ED25519 keypair (for SSH), imports it to AWS and
 // launches an EC2 instance assigned this keypair, as well as the Elastic
@@ -98,7 +112,7 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		log.Info("waiting for instance to enter 'terminated' state")
-		err = awaitInstanceState(ctx, d.client, instanceID, types.InstanceStateNameTerminated)
+		err = awaitInstanceState(ctx, d.client, inst.InstanceID, types.InstanceStateNameTerminated)
 		if err != nil {
 			return fmt.Errorf("encountered error in instance state transition await: %w", err)
 		}
@@ -106,14 +120,8 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 		return nil
 	})
 
-	// Wait for the host to become reachable via SSH.
-	log.Info("beginning wait for instance to become reachable via SSH")
-	if err = waitTCP(ctx, net.ElasticIP, portSSH); err != nil {
-		return inst, fmt.Errorf("%w: %w", ErrInWait, err)
-	}
-	log.Info("instance is reachable via SSH")
-
-	return inst, nil
+	// Wait for the instance to initialize.
+	return inst, awaitInstanceLaunch(ctx, d.client, inst.InstanceID, net.ElasticIP, portSSH)
 }
 
 var ErrKeyImport = fmt.Errorf("failed public key import to AWS")
@@ -152,15 +160,45 @@ func (d *Driver) provisionKeys(ctx context.Context) (ssh.ED25519KeyPair, string,
 	return keys, keyID, keyName, nil
 }
 
-type InstanceDeployment struct {
-	// Instance
-	AMI          string
-	InstanceName string
-	InstanceID   string
-	InstanceType types.InstanceType
-	// Keys
-	Keys    ssh.ED25519KeyPair
-	KeyName string
-	KeyID   string
-	KeyPath string
+// EC2 instances do a lot of things when you launch them, and the EC2 SDK does
+// not make it easy to be aware of when those things are "done" and the
+// instance is ready.
+//
+// The "acceptance criteria" for an instance being "ready" for us to use is:
+// 1. The instance 'Status' is 'Ok'.
+// 2. TCP port 22 (SSH) is reachable.
+//
+// Sounds simple, right? Except, you can't query the 'Status' until the 'State'
+// is 'Running'. So.. For us to know when an instance is "ready", we have to:
+// - Monitor the 'State' until it is 'Running' (IMPORTANT: if we try to skip
+// this step and just check the 'Status', the 'Status' check will error!).
+// - Monitor the 'Status' until it is 'Ok'.
+// - Monitor port TCP/22 until it ACKs.
+func awaitInstanceLaunch(ctx context.Context, client *ec2.Client, instanceID, IP string, port uint16) error {
+	log := clog.FromContext(ctx)
+	// Wait for the instance to enter the 'Running' 'State'.
+	log.Info("waiting for instance to enter the 'running' state")
+	err := awaitInstanceState(ctx, client, instanceID, types.InstanceStateNameRunning)
+	if err != nil {
+		return err
+	}
+	log.Info("instance entered the 'running' state")
+
+	// Wait for the instance to enter the 'Ok' 'Status'.
+	log.Info("waiting for instance to enter the 'ok' status")
+	err = awaitInstanceStatus(ctx, client, instanceID, types.SummaryStatusOk)
+	if err != nil {
+		return err
+	}
+	log.Info("instance entered the 'ok' status")
+
+	// Wait for TCP/22 to become reachable.
+	log.Info("waiting for instance port tcp/22 to become reachable")
+	err = waitTCP(ctx, IP, port)
+	if err != nil {
+		return err
+	}
+	log.Info("instance port tcp/22 is reachable, instance is live")
+
+	return nil
 }

@@ -134,10 +134,53 @@ func awaitInstanceState(
 				return err
 			}
 			if currentState == desiredState {
-				log.Info("instance termination complete")
+				log.Info("instance state transition complete", "new_state", currentState)
 				return nil
 			} else {
-				log.Debug("instance still terminating, waiting longer", "state", currentState)
+				log.Debug("still waiting for instance state transition", "state", currentState)
+			}
+		}
+	}
+}
+
+var (
+	ErrInstanceStatus    = fmt.Errorf("failed to fetch instance status")
+	ErrInstanceStatusNil = fmt.Errorf("describe instance status call produced " +
+		"no errors, but returned no statuses")
+)
+
+func instanceStatus(ctx context.Context, client *ec2.Client, instanceID string) (types.SummaryStatus, error) {
+	result, err := client.DescribeInstanceStatus(ctx, &ec2.DescribeInstanceStatusInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInstanceStatus, err)
+	}
+
+	if len(result.InstanceStatuses) == 0 ||
+		result.InstanceStatuses[0].InstanceStatus == nil {
+		return "", ErrInstanceStatusNil
+	}
+
+	return result.InstanceStatuses[0].InstanceStatus.Status, nil
+}
+
+func awaitInstanceStatus(ctx context.Context, client *ec2.Client, instanceID string, status types.SummaryStatus) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return context.DeadlineExceeded
+		case <-time.After(1 * time.Second):
+			currentStatus, err := instanceStatus(ctx, client, instanceID)
+			if err != nil {
+				if errors.Is(err, ErrInstanceStatusNil) {
+					continue
+				}
+				return err
+			}
+
+			if currentStatus == status {
+				return nil
 			}
 		}
 	}

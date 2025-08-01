@@ -101,5 +101,8 @@ type Exec struct {
 
 	// Env reflects environment variables which will be exported in the SSH
 	// session on the EC2 instance.
-	Env map[string]string `tfsdk:"env"`
+	Env map[string]string
+
+	// UserData contains CloudInit userdata.
+	UserData string
 }
