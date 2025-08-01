@@ -91,6 +91,7 @@ add_user_to_docker_group () {
 ################################################################################
 # Zhu Li, do the thing!
 
+info 'Beginning Docker install.'
 update_package_cache
 install_dependencies
 install_docker_gpg_key
@@ -98,3 +99,4 @@ add_docker_repo
 update_package_cache
 install_docker
 add_user_to_docker_group
+info 'Completed Docker install.'

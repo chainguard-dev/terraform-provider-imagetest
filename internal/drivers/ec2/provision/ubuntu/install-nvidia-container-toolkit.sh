@@ -14,14 +14,6 @@
 #   - Evaluate the presence of an nVIDIA GPU via 'lspci'.
 #   - IF an nVIDIA GPU is found, the nVIDIA container toolkit is installed.
 
-# TODO: Drop this for the final review and merge. It will be up to the test
-# author to select the driver version.
-install_nvidia_gpu_drivers () {
-  sudo apt install -qq -y \
-    linux-modules-nvidia-570-open-aws \
-    nvidia-driver-570-open
-}
-
 install_nvidia_container_toolkit () {
   # Download, dearmor and save the nVIDIA GPG key.
   info 'Fetching the nVIDIA GPG key.'
@@ -55,13 +47,21 @@ fi
 # These steps are conditional depending on whether we have an nVIDIA GPU
 # present.
 if lspci | grep -i 'nvidia' 2>&1 >/dev/null; then
+  info 'Beginning containerized workload GPU-enablement.'
+
   # Install nVIDIA GPU drivers.
-  info 'nVIDIA GPU found, installing nVIDIA driver and modules.'
-  install_nvidia_gpu_drivers
+  # info 'Installing nVIDIA driver and modules.'
+  # install_nvidia_gpu_drivers
 
   # Install the nVIDIA container toolkit.
   info 'Installing the nVIDIA container toolkit.'
   install_nvidia_container_toolkit
+
+  # Load the nVIDIA modules.
+  info 'Loading nVIDIA modules.'
+  sudo modprobe nvidia
+
+  info 'Completed containerized workload GPU-enablement.'
 else
-  info 'nVIDIA GPU not found, skipping nVIDIA container toolkit install.'
+  info 'nVIDIA GPU not found, skipping GPU-enabledment.'
 fi
