@@ -62,6 +62,7 @@ Optional:
 - `device_mounts` (List of String)
 - `exec` (Attributes) Comamnds to execute on the EC2 instance after launch. (see [below for nested schema](#nestedatt--drivers--ec2--exec))
 - `instance_type` (String) The AWS EC2 instance type to launch (default is TODO).
+- `mount_all_gpus` (Boolean)
 - `region` (String) The AWS region to use for the EC2 driver (default is us-west-2).
 - `volume_mounts` (List of String)
 
@@ -74,6 +75,7 @@ Optional:
 - `env` (Map of String)
 - `shell` (String)
 - `user` (String)
+- `user_data` (String)
 
 
 

@@ -3,20 +3,10 @@
 
 package provider
 
-/*
-tests_resource_ec2_test.go tests the EC2 driver.
-
-To test locally, here's the magic incantation:
-```
-IMAGETEST_ENTRYPOINT_REF=$(KO_DOCKER_REPO=ttl.sh/imagetest ko build ./cmd/entrypoint) \
-TF_ACC=1 \
-  go test \
-    -tags ec2 ./internal/provider \
-    -run '^TestAccTestDriverEC2$' \
-    -count 1 \
-    -v
-```
-*/
+// tests_resource_ec2_test.go tests the EC2 driver.
+//
+// To test locally, use the 'make' target ('make ec2acc') and refer to
+// '.github/scripts/acc-test-driver-ec2.sh' for more details.
 
 import (
 	_ "embed"
@@ -39,6 +29,8 @@ var (
 	configDriverEC2TestCommandsFail string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-volume-mount.tf
 	configDriverEC2VolumeMount string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-gpu-mount.tf
+	configDriverEC2GPUMount string
 )
 
 var tests = map[string][]resource.TestStep{
@@ -61,15 +53,33 @@ var tests = map[string][]resource.TestStep{
 	"driver-ec2-with-volume-mount": {{
 		Config: configDriverEC2VolumeMount,
 	}},
+	// Verifies a GPU mount is successful.
+	"driver-ec2-with-gpu": {{
+		Config: configDriverEC2GPUMount,
+	}},
 }
 
 func TestAccTestDriverEC2(t *testing.T) {
-	const registryURI = "cgr.dev/chainguard-eng"
-
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:     slog.LevelDebug,
-		AddSource: true,
+		Level: slog.LevelDebug,
 	})))
+
+	// Set a default registry URI if one was not provided via env vars.
+	const defaultRegistryURI = "ttl.sh/terraform-provider-imagetest"
+	var registryURI string
+	var ok bool
+	if registryURI, ok = os.LookupEnv("IMAGETEST_REGISTRY"); ok {
+		slog.Info(
+			"using registry from environment ('IMAGETEST_REGISTRY')",
+			"registry", registryURI,
+		)
+	} else {
+		registryURI = defaultRegistryURI
+		slog.Info(
+			"using default registry ('IMAGETEST_REGISTRY' not set)",
+			"registry", registryURI,
+		)
+	}
 
 	// Construct the provider server.
 	pserver := providerserver.NewProtocol6WithError(

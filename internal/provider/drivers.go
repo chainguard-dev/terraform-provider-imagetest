@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os"
@@ -93,6 +94,7 @@ type EC2DriverResourceModel struct {
 	Exec         EC2DriverExecResourceModel `tfsdk:"exec"`
 	VolumeMounts []types.String             `tfsdk:"volume_mounts"`
 	DeviceMounts []types.String             `tfsdk:"device_mounts"`
+	MountAllGPUs types.Bool                 `tfsdk:"mount_all_gpus"`
 }
 
 type EC2DriverExecResourceModel struct {
@@ -100,6 +102,7 @@ type EC2DriverExecResourceModel struct {
 	Shell    types.String   `tfsdk:"shell"`
 	Commands []types.String `tfsdk:"commands"`
 	Env      types.Map      `tfsdk:"env"`
+	UserData types.String   `tfsdk:"user_data"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -330,6 +333,9 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			d.DeviceMounts = append(d.DeviceMounts, mount.ValueString())
 		}
 
+		// Evaluate for GPU passthrough.
+		d.MountAllGPUs = drivers.EC2.MountAllGPUs.ValueBool()
+
 		// Translate all user-provided 'exec' objects to 'internal/drivers/ec2.Exec'.
 		// Capture 'user'.
 		d.Exec.User = drivers.EC2.Exec.User.ValueString()
@@ -359,6 +365,10 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			d.Exec.Commands[i] = cmd.ValueString()
 		}
 
+		// Capture any CloudInit userdata.
+		if userData := drivers.EC2.Exec.UserData.ValueString(); userData != "" {
+			d.Exec.UserData = base64.StdEncoding.EncodeToString([]byte(userData))
+		}
 		return d, nil
 
 	default:
@@ -538,6 +548,9 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 					ElementType: types.StringType,
 					Optional:    true,
 				},
+				"user_data": schema.StringAttribute{
+					Optional: true,
+				},
 			},
 		},
 		"volume_mounts": schema.ListAttribute{
@@ -547,6 +560,9 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 		"device_mounts": schema.ListAttribute{
 			ElementType: types.StringType,
 			Optional:    true,
+		},
+		"mount_all_gpus": schema.BoolAttribute{
+			Optional: true,
 		},
 	},
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
@@ -44,13 +45,23 @@ func (d *Driver) prepareInstance(ctx context.Context, inst InstanceDeployment, n
 	// Detonate all boilerplate setup commands on the remote host.
 	stdout := new(bytes.Buffer)
 	stderr := new(bytes.Buffer)
-	err = ssh.ExecIn(
-		conn,
-		ssh.ShellBash,
-		stdout,
-		stderr,
-		cmdSetDefault...,
-	)
+	if !debugSet() {
+		err = ssh.ExecIn(
+			conn,
+			ssh.ShellBash,
+			stdout,
+			stderr,
+			cmdSetProvisionUbuntu...,
+		)
+	} else {
+		err = ssh.ExecIn(
+			conn,
+			ssh.ShellBash,
+			os.Stdout,
+			os.Stderr,
+			cmdSetProvisionUbuntu...,
+		)
+	}
 	if err != nil {
 		log.Error(
 			"encountered failure in instance preparation commands",

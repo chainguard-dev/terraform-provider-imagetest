@@ -38,27 +38,11 @@ import (
 func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResult, error) {
 	log := clog.FromContext(ctx)
 
-	// If 'IMAGETEST_SKIP_TEARDOWN' is set, write the keys to disk for debugging.
-	// Save the SSH key to disk.
-	keyPath, err := sshSaveKey(ctx, d.instance.Keys, d.runID)
-	if err != nil {
-		return nil, err
-	}
-	log.Info("SSH key saved to disk", "path", keyPath)
-	// Throw the key away when we're done.
-	//
-	// This isn't necessary since the remote environment is ephemeral and the key
-	// will be deleted but it feels like good hygiene.
-	d.stack.Push(func(ctx context.Context) error {
-		err := os.Remove(keyPath)
-		if err != nil {
-			return fmt.Errorf("failed to delete SSH key: %w", err)
-		}
-		return nil
-	})
-
 	// Construct a Docker client using SSH as the transport.
-	client, err := dockerClientSSH(ctx, d.Exec.User, keyPath, d.net.ElasticIP, portSSH)
+	client, err := dockerClientSSH(
+		ctx,
+		d.Exec.User, d.instance.KeyPath, d.net.ElasticIP, portSSH,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +128,16 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 				PathInContainer: incontainer,
 			})
 		}
+	}
+	// The 'MountAllGPUs' option is equivalent to '--gpus all'.
+	if d.MountAllGPUs {
+		hostConfig.DeviceRequests = append(hostConfig.DeviceRequests, container.DeviceRequest{
+			Driver:       "nvidia",
+			Count:        -1,
+			DeviceIDs:    nil,
+			Capabilities: [][]string{{"gpu"}},
+			Options:      make(map[string]string),
+		})
 	}
 
 	// Run the container.
@@ -250,35 +244,35 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 
 // sshSaveKey marshals the ED25519 private key to the PEM-encoded OpenSSH format
 // and writes it to disk in the standard user '~/.ssh' directory.
-func sshSaveKey(ctx context.Context, keypair ssh.ED25519KeyPair, runID string) (string, error) {
-	log := clog.FromContext(ctx)
-	// Get the user's '.ssh' directory.
-	sshDir, err := sshDir()
+func sshSaveKey(_ context.Context, privKey ssh.ED25519PrivateKey, path string) error {
+	// Create the SSH directory, if necessary.
+	err := os.MkdirAll(filepath.Dir(path), 0o700)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("failed to create user SSH directory: %w", err)
+	}
+
+	// Marshal the generated private pem to the OpenSSH PEM-encoded format.
+	pem, err := privKey.MarshalOpenSSH(filepath.Base(path))
+	if err != nil {
+		return err // No annotation required.
+	}
+
+	// Write the private key to disk.
+	err = os.WriteFile(path, pem, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to write key to disk: %w", err)
+	}
+
+	return nil
+}
+
+// sshKeyPath constructs a file path to the provided key file name.
+func sshKeyPath(keyName string) (string, error) {
+	dir, err := sshDir()
 	if err != nil {
 		return "", err
 	}
-	log.Info("user SSH directory path defined", "path", sshDir)
-
-	// Create the directory if necessary.
-	err = os.MkdirAll(sshDir, 0o700)
-	if err != nil && !errors.Is(err, os.ErrExist) {
-		return "", fmt.Errorf("failed to create user SSH directory: %w", err)
-	}
-
-	// Marshal the generated private key to the OpenSSH PEM-encoded format.
-	key, err := keypair.Private.MarshalOpenSSH(runID)
-	if err != nil {
-		return "", err // No annotation required.
-	}
-	keyPath := filepath.Join(sshDir, runID)
-
-	// Write the private key to disk.
-	err = os.WriteFile(keyPath, key, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("failed to write key to disk: %w", err)
-	}
-
-	return keyPath, nil
+	return filepath.Join(dir, keyName), nil
 }
 
 // sshDir produces the SSH directory for the currently logged in user.
