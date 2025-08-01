@@ -244,7 +244,7 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 
 // sshSaveKey marshals the ED25519 private key to the PEM-encoded OpenSSH format
 // and writes it to disk in the standard user '~/.ssh' directory.
-func sshSaveKey(ctx context.Context, privKey ssh.ED25519PrivateKey, path string) error {
+func sshSaveKey(_ context.Context, privKey ssh.ED25519PrivateKey, path string) error {
 	// Create the SSH directory, if necessary.
 	err := os.MkdirAll(filepath.Dir(path), 0o700)
 	if err != nil && !errors.Is(err, os.ErrExist) {
