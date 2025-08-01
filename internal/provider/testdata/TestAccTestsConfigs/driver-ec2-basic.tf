@@ -1,12 +1,36 @@
+# driver-ec2-volume-mount.tf implements an acceptance test of the 'ec2' driver.
+#
+# Test workflow:
+#
+# 1. Check arbitrary variable equality across two entries in the driver
+#    configuration's 'exec.commands' list (these commands are executed within
+#    a persistent shell session so variables defined in one step should persist
+#    in the next).
+# 2. Simply echo 'Hello, World!' for the test.
+locals {
+  layers = {
+    base = {
+      image  = "cgr.dev/chainguard/busybox"
+      tag    = "latest"
+      digest = "sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+    }
+    test = {
+      image  = "cgr.dev/chainguard/busybox"
+      tag    = "latest"
+      digest = "sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+    }
+  }
+}
+
 resource "imagetest_tests" "foo" {
   name   = "driver-ec2-basic"
   driver = "ec2"
 
   drivers = {
     ec2 = {
-      # Ubuntu 24.04
-      ami           = "ami-08b674058d6b8d3f6"
-      instance_type = "m8g.xlarge"
+      # Canonical's Ubuntu 24.04, amd64
+      ami           = "ami-01b52ecd9c0144a93"
+      instance_type = "t3.xlarge"
 
       exec = {
         user  = "ubuntu"
@@ -23,15 +47,14 @@ resource "imagetest_tests" "foo" {
   }
 
   images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+    foo = "${local.layers.base.image}:${local.layers.base.tag}@${local.layers.base.digest}"
   }
 
   tests = [{
     name  = "driver-ec2-basic"
-    image = "cgr.dev/chainguard/busybox:latest"
+    image = "${local.layers.test.image}:${local.layers.test.tag}@${local.layers.test.digest}"
     cmd   = "echo 'Hello, world!'; exit 0"
   }]
 
-  // Something before GHA timeouts
-  timeout = "5m"
+  timeout = "10m"
 }
