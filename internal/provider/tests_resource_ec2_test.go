@@ -70,11 +70,26 @@ var tests = map[string][]resource.TestStep{
 }
 
 func TestAccTestDriverEC2(t *testing.T) {
-	const registryURI = "cgr.dev/chainguard-eng"
-
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))
+
+	// Set a default registry URI if one was not provided via env vars.
+	const defaultRegistryURI = "ttl.sh/terraform-provider-imagetest"
+	var registryURI string
+	var ok bool
+	if registryURI, ok = os.LookupEnv("IMAGETEST_REGISTRY"); ok {
+		slog.Info(
+			"using registry from environment ('IMAGETEST_REGISTRY')",
+			"registry", registryURI,
+		)
+	} else {
+		registryURI = defaultRegistryURI
+		slog.Info(
+			"using default registry ('IMAGETEST_REGISTRY' not set)",
+			"registry", registryURI,
+		)
+	}
 
 	// Construct the provider server.
 	pserver := providerserver.NewProtocol6WithError(
