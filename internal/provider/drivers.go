@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os"
@@ -101,6 +102,7 @@ type EC2DriverExecResourceModel struct {
 	Shell    types.String   `tfsdk:"shell"`
 	Commands []types.String `tfsdk:"commands"`
 	Env      types.Map      `tfsdk:"env"`
+	UserData types.String   `tfsdk:"user_data"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -363,6 +365,10 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			d.Exec.Commands[i] = cmd.ValueString()
 		}
 
+		// Capture any CloudInit userdata.
+		if userData := drivers.EC2.Exec.UserData.ValueString(); userData != "" {
+			d.Exec.UserData = base64.StdEncoding.EncodeToString([]byte(userData))
+		}
 		return d, nil
 
 	default:
@@ -541,6 +547,9 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 				"commands": schema.ListAttribute{
 					ElementType: types.StringType,
 					Optional:    true,
+				},
+				"user_data": schema.StringAttribute{
+					Optional: true,
 				},
 			},
 		},

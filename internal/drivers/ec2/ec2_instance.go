@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,7 +24,7 @@ func instanceCreateWithNetIF(
 	ctx context.Context,
 	client *ec2.Client,
 	instanceType types.InstanceType,
-	ami, keyPairName, netIFID string,
+	ami, keyPairName, netIFID, userData string,
 	tags ...types.Tag,
 ) (string, error) {
 	launchResult, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
@@ -32,6 +33,7 @@ func instanceCreateWithNetIF(
 		MaxCount:     aws.Int32(1),
 		InstanceType: instanceType,
 		KeyName:      &keyPairName,
+		UserData:     aws.String(userData),
 		NetworkInterfaces: []types.InstanceNetworkInterfaceSpecification{
 			{
 				NetworkInterfaceId: &netIFID,
@@ -127,8 +129,11 @@ func awaitInstanceState(
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("deadlined waiting for EC2 instance termination")
-		case <-time.After(5 * time.Second):
+			return fmt.Errorf(
+				"deadlined while awaiting instance state transition(wanted %s)",
+				desiredState,
+			)
+		case <-time.After(1 * time.Second):
 			currentState, err := instanceState(ctx, client, instanceID)
 			if err != nil {
 				return err
