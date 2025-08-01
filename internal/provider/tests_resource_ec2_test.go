@@ -3,20 +3,10 @@
 
 package provider
 
-/*
-tests_resource_ec2_test.go tests the EC2 driver.
-
-To test locally, here's the magic incantation:
-```
-IMAGETEST_ENTRYPOINT_REF=$(KO_DOCKER_REPO=ttl.sh/imagetest ko build ./cmd/entrypoint) \
-TF_ACC=1 \
-  go test \
-    -tags ec2 ./internal/provider \
-    -run '^TestAccTestDriverEC2$' \
-    -count 1 \
-    -v
-```
-*/
+// tests_resource_ec2_test.go tests the EC2 driver.
+//
+// To test locally, use the 'make' target ('make ec2acc') and refer to
+// '.github/scripts/acc-test-driver-ec2.sh' for more details.
 
 import (
 	_ "embed"
