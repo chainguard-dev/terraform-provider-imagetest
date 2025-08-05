@@ -131,15 +131,15 @@ func (d *Driver) mounts(ctx context.Context) []mount.Mount {
 	log := clog.FromContext(ctx)
 
 	mounts := make([]mount.Mount, len(d.VolumeMounts))
-	for _, volume := range d.VolumeMounts {
+	for i, volume := range d.VolumeMounts {
 		// Split the local+in-container paths.
 		if local, incontainer, ok := strings.Cut(volume, ":"); ok {
 			log.Debug("adding volume mount", "from", local, "to", incontainer)
-			mounts = append(mounts, mount.Mount{
+			mounts[i] = mount.Mount{
 				Type:   mount.TypeBind,
 				Source: local,
 				Target: incontainer,
-			})
+			}
 		} else {
 			log.Error("found ill-formed bind mount (bind mounts must "+
 				"be in the form of '/host/path:/container/path')", "mapping", volume)
