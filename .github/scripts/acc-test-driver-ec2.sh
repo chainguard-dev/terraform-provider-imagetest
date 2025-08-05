@@ -14,10 +14,18 @@ else
 fi
 
 # Build the entrypoint image.
-export IMAGETEST_ENTRYPOINT_REF=$(
+IMAGETEST_ENTRYPOINT_REF=$(
 	KO_DOCKER_REPO="${IMAGETEST_REGISTRY}/imagetest" \
-		ko build "./cmd/entrypoint"
+		ko build "./cmd/entrypoint" 2> ./ko-build.error
 )
+if [ $? -ne 0 ]; then
+  echo 'ERROR: Failed entrypoint build.'
+  echo '========================= BEGIN KO BUILD LOG ========================='
+  cat ./ko-build.error
+  echo '========================== END KO BUILD LOG =========================='
+  exit 1
+fi
+export IMAGETEST_ENTRYPOINT_REF
 echo "Built entrypoint image ref [${IMAGETEST_ENTRYPOINT_REF}]."
 
 # "Enable" acceptance tests.
