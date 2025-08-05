@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
@@ -91,6 +92,7 @@ type EC2DriverResourceModel struct {
 	Region       types.String               `tfsdk:"region"`
 	AMI          types.String               `tfsdk:"ami"`
 	InstanceType types.String               `tfsdk:"instance_type"`
+	InstanceIP   types.String               `tfsdk:"instance_ip"`
 	Exec         EC2DriverExecResourceModel `tfsdk:"exec"`
 	VolumeMounts []types.String             `tfsdk:"volume_mounts"`
 	DeviceMounts []types.String             `tfsdk:"device_mounts"`
@@ -296,6 +298,8 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		})
 
 	case DriverEC2:
+		log := clog.FromContext(ctx)
+
 		// This driver can't do its job without user input.
 		if drivers.EC2 == nil {
 			return nil, fmt.Errorf(
@@ -316,6 +320,23 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		d, err := mc2.NewDriver(client)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize EC2 driver: %w", err)
+		}
+
+		// First check for presence of 'InstanceIP'. If found, this supersedes all
+		// other driver configuration.
+		if ip := drivers.EC2.InstanceIP.ValueString(); ip != "" {
+			log.Info("found instance IP input, driver will skip resource create " +
+				"and destroy")
+			d.SkipCreate = true
+			d.SkipTeardown = true
+			d.Network.ElasticIP = ip
+			return d, nil
+		}
+
+		// Look for the presence of the 'IMAGETEST_SKIP_TEARDOWN' var and mark the
+		// driver appropriately.
+		if v, ok := os.LookupEnv("IMAGETEST_SKIP_TEARDOWN"); ok && v != "" {
+			d.SkipTeardown = true
 		}
 
 		// Capture basic string inputs.
@@ -529,6 +550,14 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 		"instance_type": schema.StringAttribute{
 			Description: "The AWS EC2 instance type to launch (default is TODO).",
 			Optional:    true,
+		},
+		"instance_ip": schema.StringAttribute{
+			Description: "By default the EC2 driver will create and destroy many " +
+				"AWS resources (instance, VPC, IGW, etc.). To instead use an " +
+				"SSH-enabled environment provisioned outside of this driver, you may " +
+				"provide its IP address here. **NOTE**: This will override " +
+				"'instance_type' and 'AMI'!",
+			Optional: true,
 		},
 		"exec": schema.SingleNestedAttribute{
 			Description: "Comamnds to execute on the EC2 instance after launch.",

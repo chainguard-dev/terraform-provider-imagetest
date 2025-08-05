@@ -50,6 +50,13 @@ type Driver struct {
 	// The desired EC2 instance type (ex: 't3.medium').
 	InstanceType types.InstanceType
 
+	// An IP address of the instance.
+	//
+	// NOTE: If this is provided, fields 'AMI' + 'InstanceType' will be ignored
+	// and no AWS resources will be created! This is primarily intended for local
+	// dev.
+	InstanceIP string
+
 	// Post-launch provisioning commands to be executed within the EC2 instance.
 	Exec Exec
 
@@ -64,6 +71,21 @@ type Driver struct {
 	// This is the equivalent of the '--gpus all' command-line flag.
 	MountAllGPUs bool
 
+	// Instance holds all configuration information relating to the EC2 Instance
+	// and associated SSH keys.
+	Instance InstanceDeployment
+
+	// Network holds all configuration information relating to the VPC and related
+	// networking components.
+	Network NetworkDeployment
+
+	// skipInit means an instance IP was provided against which we will perform
+	// our tests. All EC2 resource creation will be skipped.
+	SkipCreate bool
+
+	// SkipTeardown hopefully is self-explanatory!
+	SkipTeardown bool
+
 	// runID holds a unique identifier generated for this run.
 	runID string
 
@@ -74,18 +96,6 @@ type Driver struct {
 	// stack is a LIFO queue of 'destructor's which, when called, perform a
 	// teardown of a resource created during the 'Setup' method call.
 	stack stack
-
-	//////////////////////////////////////////////////////////////////////////////
-	// Here there be dragons.
-	//
-	// Considering the control flow indirection between 'Setup' and 'Run' /
-	// 'Teardown', we're not able to make the whole driver workflow black-box
-	// functional.
-	//
-	// Everything below this line is stuff we might mutate within this driver's
-	// lifecycle.
-	instance InstanceDeployment
-	net      NetworkDeployment
 }
 
 func (d *Driver) deviceMappings(ctx context.Context) []container.DeviceMapping {
