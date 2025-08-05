@@ -1,12 +1,17 @@
 package ec2
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 )
 
 // NewDriver constructs a 'Driver'.
@@ -81,6 +86,57 @@ type Driver struct {
 	// lifecycle.
 	instance InstanceDeployment
 	net      NetworkDeployment
+}
+
+func (d *Driver) deviceMappings(ctx context.Context) []container.DeviceMapping {
+	if len(d.DeviceMounts) == 0 {
+		return nil
+	}
+
+	log := clog.FromContext(ctx)
+
+	mounts := make([]container.DeviceMapping, len(d.DeviceMounts))
+	for i, dev := range d.DeviceMounts {
+		// Split the local+in-container paths.
+		if local, incontainer, ok := strings.Cut(dev, ":"); ok {
+			log.Debug("adding device mount", "from", local, "to", incontainer)
+			mounts[i] = container.DeviceMapping{
+				PathOnHost:      local,
+				PathInContainer: incontainer,
+			}
+		} else {
+			log.Error("found ill-formed device mapping (device mounts must "+
+				"be in the form of '/host/path:/container/path')", "mapping", dev)
+		}
+	}
+
+	return mounts
+}
+
+func (d *Driver) mounts(ctx context.Context) []mount.Mount {
+	if len(d.VolumeMounts) == 0 {
+		return nil
+	}
+
+	log := clog.FromContext(ctx)
+
+	mounts := make([]mount.Mount, len(d.VolumeMounts))
+	for _, volume := range d.VolumeMounts {
+		// Split the local+in-container paths.
+		if local, incontainer, ok := strings.Cut(volume, ":"); ok {
+			log.Debug("adding volume mount", "from", local, "to", incontainer)
+			mounts = append(mounts, mount.Mount{
+				Type:   mount.TypeBind,
+				Source: local,
+				Target: incontainer,
+			})
+		} else {
+			log.Error("found ill-formed bind mount (bind mounts must "+
+				"be in the form of '/host/path:/container/path')", "mapping", volume)
+		}
+	}
+
+	return mounts
 }
 
 // Exec maps to user-configurable inputs and pre-test instance preparation

@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/chainguard-dev/clog"
@@ -23,7 +22,6 @@ import (
 	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -106,28 +104,10 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 		RestartPolicy: container.RestartPolicy{
 			Name: container.RestartPolicyDisabled,
 		},
-	}
-	// Add in all user-provided volume mounts.
-	for _, volume := range d.VolumeMounts {
-		// Split the local+in-container paths.
-		if local, incontainer, ok := strings.Cut(volume, ":"); ok {
-			log.Debug("adding volume mount", "from", local, "to", incontainer)
-			hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
-				Type:   mount.TypeBind,
-				Source: local,
-				Target: incontainer,
-			})
-		}
-	}
-	// Add in all user-provided device mounts.
-	for _, dev := range d.DeviceMounts {
-		// Split the local+in-container paths.
-		if local, incontainer, ok := strings.Cut(dev, ":"); ok {
-			hostConfig.Devices = append(hostConfig.Devices, container.DeviceMapping{
-				PathOnHost:      local,
-				PathInContainer: incontainer,
-			})
-		}
+		Mounts: d.mounts(ctx),
+		Resources: container.Resources{
+			Devices: d.deviceMappings(ctx),
+		},
 	}
 	// The 'MountAllGPUs' option is equivalent to '--gpus all'.
 	if d.MountAllGPUs {
