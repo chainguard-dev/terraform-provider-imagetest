@@ -42,27 +42,27 @@ func newRunID() (string, error) {
 
 type Driver struct {
 	// The targeted EC2 region to deploy resources to.
-	Region string `tfsdk:"region"`
+	Region string
 
 	// The AMI to launch the instance with
-	AMI string `tfsdk:"ami"`
+	AMI string
 
 	// The desired EC2 instance type (ex: 't3.medium').
-	InstanceType types.InstanceType `tfsdk:"instance_type"`
+	InstanceType types.InstanceType
 
 	// Post-launch provisioning commands to be executed within the EC2 instance.
-	Exec Exec `tfsdk:"commands"`
+	Exec Exec
 
 	// User-provided volume mounts from the EC2 instance to the container.
-	VolumeMounts []string `tfsdk:"volume_mounts"`
+	VolumeMounts []string
 
 	// User-provided device mounts from the EC2 instance to the container.
-	DeviceMounts []string `tfask:"device_mounts"`
+	DeviceMounts []string
 
 	// Indicates all GPUs should be passed through to the container.
 	//
 	// This is the equivalent of the '--gpus all' command-line flag.
-	MountAllGPUs bool `tfsdk:"mount_all_gpus"`
+	MountAllGPUs bool
 
 	// runID holds a unique identifier generated for this run.
 	runID string
