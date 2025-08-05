@@ -33,10 +33,17 @@ export TF_ACC=1
 
 # Run the tests.
 echo "Beginning acceptance tests."
+
+# This sleep is here to make sure users have a chance to see any logged output
+# above before the avalanche of test messages.
+sleep 1
+
+# Run the EC2 acceptance tests.
 go test \
   -tags ec2 ./internal/provider \
   -run '^TestAccTestDriverEC2$' \
   -count 1 \
+  -timeout 0 \
   -v
 
 if [ $? -eq 0 ]; then
