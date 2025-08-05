@@ -14,38 +14,27 @@ else
 fi
 
 # Build the entrypoint image.
-IMAGETEST_ENTRYPOINT_REF=$(
+entrypoint_ref=$(
 	KO_DOCKER_REPO="${IMAGETEST_REGISTRY}/imagetest" \
-		ko build "./cmd/entrypoint" 2> ./ko-build.error
+		ko build "./cmd/entrypoint"
 )
 if [ $? -ne 0 ]; then
   echo 'ERROR: Failed entrypoint build.'
-  echo '========================= BEGIN KO BUILD LOG ========================='
-  cat ./ko-build.error
-  echo '========================== END KO BUILD LOG =========================='
   exit 1
 fi
-export IMAGETEST_ENTRYPOINT_REF
-echo "Built entrypoint image ref [${IMAGETEST_ENTRYPOINT_REF}]."
-
-# "Enable" acceptance tests.
-export TF_ACC=1
+echo "Built entrypoint image ref [${entrypoint_ref}]."
 
 # Run the tests.
 echo "Beginning acceptance tests."
 
-# This sleep is here to make sure users have a chance to see any logged output
-# above before the avalanche of test messages.
-sleep 1
-
 # Run the EC2 acceptance tests.
-go test \
-  -tags ec2 ./internal/provider \
-  -run '^TestAccTestDriverEC2$' \
-  -count 1 \
-  -timeout 0 \
-  -v
-
+IMAGETEST_ENTRYPOINT_REF="${entrypoint_ref}" TF_ACC=1 \
+  go test \
+    -tags ec2 ./internal/provider \
+    -run '^TestAccTestDriverEC2$' \
+    -count 1 \
+    -timeout 0 \
+    -v
 if [ $? -eq 0 ]; then
   echo "Acceptance tests completed successfully!"
   exit 0
