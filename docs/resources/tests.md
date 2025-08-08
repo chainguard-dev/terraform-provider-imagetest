@@ -61,6 +61,7 @@ Optional:
 - `ami` (String) The AMI to use for the AMI driver (default is Ubuntu-24.04).
 - `device_mounts` (List of String)
 - `exec` (Attributes) Comamnds to execute on the EC2 instance after launch. (see [below for nested schema](#nestedatt--drivers--ec2--exec))
+- `instance_ip` (String) By default the EC2 driver will create and destroy many AWS resources (instance, VPC, IGW, etc.). To instead use an SSH-enabled environment provisioned outside of this driver, you may provide its IP address here. **NOTE**: This will override 'instance_type' and 'AMI'!
 - `instance_type` (String) The AWS EC2 instance type to launch (default is TODO).
 - `mount_all_gpus` (Boolean)
 - `region` (String) The AWS region to use for the EC2 driver (default is us-west-2).

@@ -19,21 +19,21 @@ func (d *Driver) init(ctx context.Context) (err error) {
 	// TODO: In the future it'd be great to be able to bring-your-own VPC subnet
 	// ID and just attach the EC2 instance to that.
 	log.Info("bootstrapping virtual network")
-	d.net, err = d.deployNetwork(ctx)
+	d.Network, err = d.deployNetwork(ctx)
 	if err != nil {
 		return err
 	}
 	log.Info("virtual network setup complete")
 
 	// Deploy the EC2 instance.
-	d.instance, err = d.deployInstance(ctx, d.net)
+	d.Instance, err = d.deployInstance(ctx, d.Network)
 	if err != nil {
 		return err
 	}
 	log.Info("EC2 instance deployment complete")
 
 	// Prepare the EC2 instance.
-	err = d.prepareInstance(ctx, d.instance, d.net)
+	err = d.prepareInstance(ctx, d.Instance, d.Network)
 	if err != nil {
 		return err
 	}

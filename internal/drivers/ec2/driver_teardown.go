@@ -2,7 +2,6 @@ package ec2
 
 import (
 	"context"
-	"os"
 
 	"github.com/chainguard-dev/clog"
 )
@@ -20,10 +19,11 @@ func (d *Driver) Teardown(ctx context.Context) error {
 	// value of 'true' is required to skip teardown. However, implementations
 	// around the codebase simply look for the existence of the variable. The
 	// below aligns with the existing implementations.
-	if _, ok := os.LookupEnv("IMAGETEST_SKIP_TEARDOWN"); ok {
-		log.Info("IMAGETEST_SKIP_TEARDOWN is set, skipping cleanup")
+	if d.SkipTeardown {
+		log.Info("skipping cleanup")
 		return nil
 	}
+
 	log.Info("beginning resource teardown")
 
 	// Destroy it all!

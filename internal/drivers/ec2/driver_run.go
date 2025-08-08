@@ -9,11 +9,9 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/chainguard-dev/clog"
@@ -23,7 +21,6 @@ import (
 	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -41,7 +38,7 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 	// Construct a Docker client using SSH as the transport.
 	client, err := dockerClientSSH(
 		ctx,
-		d.Exec.User, d.instance.KeyPath, d.net.ElasticIP, portSSH,
+		d.Exec.User, d.Instance.KeyPath, d.Network.ElasticIP, portSSH,
 	)
 	if err != nil {
 		return nil, err
@@ -81,6 +78,7 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 	log.Info("registry auth marshal is successful")
 
 	// Pull the image.
+	log.Warn("pulling image", "image", name.String())
 	pullResult, err := client.ImagePull(ctx, name.Name(), image.PullOptions{
 		RegistryAuth: authPayload,
 	})
@@ -106,28 +104,10 @@ func (d *Driver) Run(ctx context.Context, name name.Reference) (*drivers.RunResu
 		RestartPolicy: container.RestartPolicy{
 			Name: container.RestartPolicyDisabled,
 		},
-	}
-	// Add in all user-provided volume mounts.
-	for _, volume := range d.VolumeMounts {
-		// Split the local+in-container paths.
-		if local, incontainer, ok := strings.Cut(volume, ":"); ok {
-			log.Debug("adding volume mount", "from", local, "to", incontainer)
-			hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
-				Type:   mount.TypeBind,
-				Source: local,
-				Target: incontainer,
-			})
-		}
-	}
-	// Add in all user-provided device mounts.
-	for _, dev := range d.DeviceMounts {
-		// Split the local+in-container paths.
-		if local, incontainer, ok := strings.Cut(dev, ":"); ok {
-			hostConfig.Devices = append(hostConfig.Devices, container.DeviceMapping{
-				PathOnHost:      local,
-				PathInContainer: incontainer,
-			})
-		}
+		Mounts: d.mounts(ctx),
+		Resources: container.Resources{
+			Devices: d.deviceMappings(ctx),
+		},
 	}
 	// The 'MountAllGPUs' option is equivalent to '--gpus all'.
 	if d.MountAllGPUs {
@@ -301,26 +281,29 @@ func dockerClientSSH(ctx context.Context, user, keyPath, host string, port uint1
 	if port != 0 {
 		host = net.JoinHostPort(host, strconv.Itoa(int(port)))
 	}
-	target := url.URL{
-		Scheme: "ssh",
-		User:   url.User(user),
-		Host:   host,
-	}
-	url := target.String()
+	url := fmt.Sprintf("ssh://%s", host)
 	log.Info("constructed Docker SSH target", "target", url)
 
-	// Construct a Docker connection helper with an underlying transport of SSH.
-	helper, err := connhelper.GetConnectionHelperWithSSHOpts(url, []string{
+	// Assemble SSH options.
+	opts := make([]string, 0, 6)
+	// Since we're launching arbitrary AMIs from the AWS marketplace, we don't
+	// have host keys that we're aware of ahead of time. In the future, a really
+	// nice added security measure could be our own AMIs with host keys we can
+	// know to verify ahead of time.
+	opts = append(opts, "-o", "StrictHostKeyChecking=no")
+	// If we have an SSH key path, apply the '-i' flag.
+	if keyPath != "" {
 		// Authenticate to the remote instance with our ED25519 private key.
-		"-i", keyPath,
+		opts = append(opts, "-i", keyPath)
+	}
+	// If we have a username, apply the '-l' flag.
+	if user != "" {
 		// Provide the username determined by the config.
-		"-l", user,
-		// Since we're launching arbitrary AMIs from the AWS marketplace, we don't
-		// have host keys that we're aware of ahead of time. In the future, a really
-		// nice added security measure could be our own AMIs with host keys we can
-		// know to verify ahead of time.
-		"-o", "StrictHostKeyChecking=no",
-	})
+		opts = append(opts, "-l", user)
+	}
+
+	// Construct a Docker connection helper with an underlying transport of SSH.
+	helper, err := connhelper.GetConnectionHelperWithSSHOpts(url, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init connection helper: %w", err)
 	}
