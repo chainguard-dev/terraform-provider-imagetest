@@ -1,12 +1,17 @@
 package ec2
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 )
 
 // NewDriver constructs a 'Driver'.
@@ -37,27 +42,49 @@ func newRunID() (string, error) {
 
 type Driver struct {
 	// The targeted EC2 region to deploy resources to.
-	Region string `tfsdk:"region"`
+	Region string
 
 	// The AMI to launch the instance with
-	AMI string `tfsdk:"ami"`
+	AMI string
 
 	// The desired EC2 instance type (ex: 't3.medium').
-	InstanceType types.InstanceType `tfsdk:"instance_type"`
+	InstanceType types.InstanceType
+
+	// An IP address of the instance.
+	//
+	// NOTE: If this is provided, fields 'AMI' + 'InstanceType' will be ignored
+	// and no AWS resources will be created! This is primarily intended for local
+	// dev.
+	InstanceIP string
 
 	// Post-launch provisioning commands to be executed within the EC2 instance.
-	Exec Exec `tfsdk:"commands"`
+	Exec Exec
 
 	// User-provided volume mounts from the EC2 instance to the container.
-	VolumeMounts []string `tfsdk:"volume_mounts"`
+	VolumeMounts []string
 
 	// User-provided device mounts from the EC2 instance to the container.
-	DeviceMounts []string `tfask:"device_mounts"`
+	DeviceMounts []string
 
 	// Indicates all GPUs should be passed through to the container.
 	//
 	// This is the equivalent of the '--gpus all' command-line flag.
-	MountAllGPUs bool `tfsdk:"mount_all_gpus"`
+	MountAllGPUs bool
+
+	// Instance holds all configuration information relating to the EC2 Instance
+	// and associated SSH keys.
+	Instance InstanceDeployment
+
+	// Network holds all configuration information relating to the VPC and related
+	// networking components.
+	Network NetworkDeployment
+
+	// skipInit means an instance IP was provided against which we will perform
+	// our tests. All EC2 resource creation will be skipped.
+	SkipCreate bool
+
+	// SkipTeardown hopefully is self-explanatory!
+	SkipTeardown bool
 
 	// runID holds a unique identifier generated for this run.
 	runID string
@@ -69,18 +96,57 @@ type Driver struct {
 	// stack is a LIFO queue of 'destructor's which, when called, perform a
 	// teardown of a resource created during the 'Setup' method call.
 	stack stack
+}
 
-	//////////////////////////////////////////////////////////////////////////////
-	// Here there be dragons.
-	//
-	// Considering the control flow indirection between 'Setup' and 'Run' /
-	// 'Teardown', we're not able to make the whole driver workflow black-box
-	// functional.
-	//
-	// Everything below this line is stuff we might mutate within this driver's
-	// lifecycle.
-	instance InstanceDeployment
-	net      NetworkDeployment
+func (d *Driver) deviceMappings(ctx context.Context) []container.DeviceMapping {
+	if len(d.DeviceMounts) == 0 {
+		return nil
+	}
+
+	log := clog.FromContext(ctx)
+
+	mounts := make([]container.DeviceMapping, len(d.DeviceMounts))
+	for i, dev := range d.DeviceMounts {
+		// Split the local+in-container paths.
+		if local, incontainer, ok := strings.Cut(dev, ":"); ok {
+			log.Debug("adding device mount", "from", local, "to", incontainer)
+			mounts[i] = container.DeviceMapping{
+				PathOnHost:      local,
+				PathInContainer: incontainer,
+			}
+		} else {
+			log.Error("found ill-formed device mapping (device mounts must "+
+				"be in the form of '/host/path:/container/path')", "mapping", dev)
+		}
+	}
+
+	return mounts
+}
+
+func (d *Driver) mounts(ctx context.Context) []mount.Mount {
+	if len(d.VolumeMounts) == 0 {
+		return nil
+	}
+
+	log := clog.FromContext(ctx)
+
+	mounts := make([]mount.Mount, len(d.VolumeMounts))
+	for i, volume := range d.VolumeMounts {
+		// Split the local+in-container paths.
+		if local, incontainer, ok := strings.Cut(volume, ":"); ok {
+			log.Debug("adding volume mount", "from", local, "to", incontainer)
+			mounts[i] = mount.Mount{
+				Type:   mount.TypeBind,
+				Source: local,
+				Target: incontainer,
+			}
+		} else {
+			log.Error("found ill-formed bind mount (bind mounts must "+
+				"be in the form of '/host/path:/container/path')", "mapping", volume)
+		}
+	}
+
+	return mounts
 }
 
 // Exec maps to user-configurable inputs and pre-test instance preparation

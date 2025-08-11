@@ -28,7 +28,7 @@ func (d *Driver) postInit(ctx context.Context) error {
 	)
 
 	// Convert the ED25519 private key to an 'ssh.Signer'.
-	signer, err := d.instance.Keys.Private.ToSSH()
+	signer, err := d.Instance.Keys.Private.ToSSH()
 	if err != nil {
 		return err // No annotation required.
 	}
@@ -38,10 +38,10 @@ func (d *Driver) postInit(ctx context.Context) error {
 	log.Info(
 		"connecting to EC2 instance",
 		"user", d.Exec.User,
-		"host", d.net.ElasticIP,
+		"host", d.Network.ElasticIP,
 		"port", portSSH,
 	)
-	client, err := ssh.Connect(d.net.ElasticIP, portSSH, d.Exec.User, signer)
+	client, err := ssh.Connect(d.Network.ElasticIP, portSSH, d.Exec.User, signer)
 	if err != nil {
 		return fmt.Errorf("failed to connect to instance via SSH: %w", err)
 	}
