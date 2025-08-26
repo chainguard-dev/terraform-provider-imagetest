@@ -28,7 +28,7 @@ require (
 	k8s.io/apimachinery v0.33.4
 	k8s.io/client-go v0.33.4
 	k8s.io/kubectl v0.33.4
-	k8s.io/kubelet v0.33.2
+	k8s.io/kubelet v0.33.4
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
 )
 
