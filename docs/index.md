@@ -49,6 +49,7 @@ provider "imagetest" {
 
 - `extra_repos` (List of String) An optional list of extra oci registries to wire in auth credentials for.
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
+- `logs` (Attributes) Configuration for test log output to files. (see [below for nested schema](#nestedatt--logs))
 - `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
 - `sandbox` (Attributes) The optional configuration for all test sandboxes. (see [below for nested schema](#nestedatt--sandbox))
 - `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
@@ -171,6 +172,14 @@ Optional:
 
 
 
+
+
+<a id="nestedatt--logs"></a>
+### Nested Schema for `logs`
+
+Optional:
+
+- `directory` (String) Base directory where test logs will be written. Each test resource creates its own subdirectory. Can be overridden by IMAGETEST_LOGS environment variable.
 
 
 <a id="nestedatt--sandbox"></a>
