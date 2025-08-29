@@ -14,6 +14,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/bundler"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
+	internallog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -51,6 +52,7 @@ type TestsResource struct {
 	entrypointLayers map[string][]v1.Layer
 	includeTests     map[string]string
 	excludeTests     map[string]string
+	logsDirectory    string
 }
 
 type TestsResourceModel struct {
@@ -242,6 +244,7 @@ func (t *TestsResource) Configure(ctx context.Context, req resource.ConfigureReq
 	t.entrypointLayers = store.entrypointLayers
 	t.includeTests = store.includeTests
 	t.excludeTests = store.excludeTests
+	t.logsDirectory = store.logsDirectory
 }
 
 func (t *TestsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -267,17 +270,20 @@ func (t *TestsResource) Update(ctx context.Context, req resource.UpdateRequest, 
 }
 
 func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds diag.Diagnostics) {
-	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
-
 	// lightly sanitize the name, this likely needs some revision
 	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
 	data.Id = types.StringValue(id)
 
+	// Set up basic logging without file teeing (that happens per test)
+	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
 	ctx = clog.WithValues(ctx,
 		"test_id", id,
 		"test_name", data.Name.ValueString(),
 		"driver", data.Driver,
 	)
+
+	// Store test_id in context to deconflict with other tests
+	ctx = context.WithValue(ctx, "resource_test_id", id)
 
 	for _, test := range data.Tests {
 		if test.Artifact.IsNull() || test.Artifact.IsUnknown() {
@@ -511,6 +517,14 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 }
 
 func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *TestResourceModel, ref name.Reference) diag.Diagnostics {
+	// Get the test_id from context
+	testID := ctx.Value("resource_test_id").(string)
+	testName := test.Name.ValueString()
+
+	// Set up logging with file teeing if configured
+	ctx, cleanup := internallog.SetupTestsLogging(ctx, t.logsDirectory, testID, testName)
+	defer cleanup()
+
 	ctx = clog.WithValues(ctx,
 		"test_name", test.Name.ValueString(),
 		"test_ref", ref.String(),
