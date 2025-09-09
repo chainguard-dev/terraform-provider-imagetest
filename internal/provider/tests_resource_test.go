@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"net/url"
@@ -19,60 +20,44 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
+//go:embed testdata/TestAccTestsConfigs/k3s-in-docker-template.tf
+var k3sindockerTpl string
+
+//go:embed testdata/TestAccTestsConfigs/docker-in-docker-template.tf
+var dockerindockerTpl string
+
+//go:embed testdata/TestAccTestsConfigs/k3s-in-docker-hooks.tf
+var k3sInDockerHooks string
+
+//go:embed testdata/TestAccTestsConfigs/k3s-in-docker-artifacts.tf
+var k3sInDockerArtifacts string
+
+//go:embed testdata/TestAccTestsConfigs/k3s-in-docker-artifacts-on-failure.tf
+var k3sInDockerArtifactsOnFailure string
+
+//go:embed testdata/TestAccTestsConfigs/docker-in-docker-artifacts.tf
+var dockerInDockerArtifacts string
+
 func TestAccTestsResource(t *testing.T) {
 	repo := testRegistry(t, context.Background()) //nolint: usetesting
 	t.Logf("serving ephemeral test registry at %s", repo)
 
-	k3sindockerTpl := `
-resource "imagetest_tests" "foo" {
-  name   = "%[1]s"
-  driver = "k3s_in_docker"
-
-  images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-  }
-
-  tests = [
-    {
-      name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev"
-      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%[1]s"
-    }
-  ]
-
-  // Something before GHA timeouts
-  timeout = "5m"
-}
-  `
-
-	dockerindockerTpl := `
-resource "imagetest_tests" "foo" {
-  name   = "%[1]s"
-  driver = "docker_in_docker"
-
-  images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-  }
-
-  tests = [
-    {
-      name    = "sample"
-      image   = "cgr.dev/chainguard/busybox:latest"
-      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%[1]s"
-    }
-  ]
-
-  // Something before GHA timeouts
-  timeout = "5m"
-}
-  `
-
 	testCases := map[string][]resource.TestStep{
-		"k3sindocker-basic":             {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh")}},
-		"k3sindocker-non-executable":    {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-non-executable.sh")}},
-		"k3sindocker-default-namespace": {{Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-default-namespace.sh")}},
+		"k3sindocker-basic": {
+			{
+				Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-basic.sh"),
+			},
+		},
+		"k3sindocker-non-executable": {
+			{
+				Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-non-executable.sh"),
+			},
+		},
+		"k3sindocker-default-namespace": {
+			{
+				Config: fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-default-namespace.sh"),
+			},
+		},
 		// ensure command's exit code surfaces in tf error
 		"k3sindocker-fails-with-proper-exit-code": {
 			{
@@ -85,6 +70,41 @@ resource "imagetest_tests" "foo" {
 			{
 				Config:      fmt.Sprintf(k3sindockerTpl, "k3s-in-docker-fails-with-bad-command.sh"),
 				ExpectError: regexp.MustCompile(`.*No such file or directory.*`),
+			},
+		},
+		"k3sindocker-hooks": {
+			{
+				Config: fmt.Sprintf(k3sInDockerHooks, "k3s-in-docker-hooks.sh"),
+			},
+		},
+		"dockerindocker-basic": {
+			{
+				Config: fmt.Sprintf(dockerindockerTpl, "docker-in-docker-basic.sh"),
+			},
+		},
+		"dockerindocker-fails-message": {
+			{
+				Config:      fmt.Sprintf(dockerindockerTpl, "docker-in-docker-fails.sh"),
+				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
+			},
+		},
+		"k3sindocker-artifacts": {
+			{
+				Config: fmt.Sprintf(k3sInDockerArtifacts, "artifact.sh"),
+				Check:  checkArtifact(t),
+			},
+		},
+		"k3sindocker-artifacts-on-failure": {
+			{
+				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
+				Config:      fmt.Sprintf(k3sInDockerArtifactsOnFailure, "artifact-with-failure.sh"),
+				Check:       checkArtifact(t),
+			},
+		},
+		"dockerindocker-artifacts": {
+			{
+				Config: fmt.Sprintf(dockerInDockerArtifacts, "artifact.sh"),
+				Check:  checkArtifact(t),
 			},
 		},
 		// TODO: This test will leave the clusters dangling and needs to be
@@ -100,138 +120,6 @@ resource "imagetest_tests" "foo" {
 		// 		},
 		// 	},
 		// },
-		"k3sindocker-hooks": {
-			{
-				Config: fmt.Sprintf(`
-resource "imagetest_tests" "foo" {
-  name   = "%[1]s"
-  driver = "k3s_in_docker"
-
-  drivers = {
-    k3s_in_docker = {
-      hooks = {
-        post_start = ["kubectl run foo --image=cgr.dev/chainguard/busybox:latest --restart=Never -- tail -f /dev/null"]
-      }
-    }
-  }
-
-  images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-  }
-
-  tests = [
-    {
-      name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev"
-      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%[1]s"
-    }
-  ]
-
-  // Something before GHA timeouts
-  timeout = "5m"
-}
-        `, "k3s-in-docker-hooks.sh"),
-			},
-		},
-
-		"dockerindocker-basic": {{Config: fmt.Sprintf(dockerindockerTpl, "docker-in-docker-basic.sh")}},
-		"dockerindocker-fails-message": {
-			{
-				Config:      fmt.Sprintf(dockerindockerTpl, "docker-in-docker-fails.sh"),
-				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
-			},
-		},
-		"k3sindocker-artifacts": {
-			{
-				Config: fmt.Sprintf(`
-resource "imagetest_tests" "foo" {
-  name   = "%[1]s"
-  driver = "k3s_in_docker"
-
-  drivers = {
-    k3s_in_docker = {}
-  }
-
-  images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-  }
-
-  tests = [
-    {
-      name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev"
-      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%[1]s"
-    }
-  ]
-
-  // Something before GHA timeouts
-  timeout = "5m"
-}
-					`, "artifact.sh"),
-				Check: checkArtifact(t),
-			},
-		},
-		"k3sindocker-artifacts-on-failure": {
-			{
-				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
-				Config: fmt.Sprintf(`
-resource "imagetest_tests" "foo" {
-  name   = "%[1]s"
-  driver = "k3s_in_docker"
-
-  drivers = {
-    k3s_in_docker = {}
-  }
-
-  images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-  }
-
-  tests = [
-    {
-      name    = "sample"
-      image   = "cgr.dev/chainguard/kubectl:latest-dev"
-      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%[1]s"
-    }
-  ]
-
-  // Something before GHA timeouts
-  timeout = "5m"
-}
-					`, "artifact-with-failure.sh"),
-				Check: checkArtifact(t),
-			},
-		},
-		"dockerindocker-artifacts": {
-			{
-				Config: fmt.Sprintf(`
-resource "imagetest_tests" "foo" {
-  name   = "%[1]s"
-  driver = "docker_in_docker"
-
-  images = {
-    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-  }
-
-  tests = [
-    {
-      name    = "sample"
-      image   = "cgr.dev/chainguard/busybox:latest"
-      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
-      cmd     = "./%[1]s"
-    }
-  ]
-
-  // Something before GHA timeouts
-  timeout = "5m"
-}
-					`, "artifact.sh"),
-				Check: checkArtifact(t),
-			},
-		},
 	}
 
 	for name, tc := range testCases {
