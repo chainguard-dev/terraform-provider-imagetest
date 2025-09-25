@@ -9,15 +9,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/cli/cli/connhelper"
+	sshhelper "github.com/docker/cli/cli/connhelper/ssh"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -36,8 +41,13 @@ import (
 var defaultSSHArgs = []string{"-o", "StrictHostKeyChecking=no"}
 
 type Client struct {
-	inner *client.Client
-	copts []client.Opt
+	inner     *client.Client
+	copts     []client.Opt
+	sshConfig *sshhelper.Spec
+}
+
+func (c *Client) IsSSH() bool {
+	return c.sshConfig != nil
 }
 
 type Request struct {
@@ -89,9 +99,14 @@ func New(opts ...Option) (*Client, error) {
 			client.WithVersionFromEnv(),
 			client.WithTLSClientConfigFromEnv(),
 		}
-		// Check for IMAGETEST_SSH_DOCKER_HOST environment variable
 		if hostOverride := os.Getenv("IMAGETEST_DOCKER_HOST"); hostOverride != "" {
 			if strings.HasPrefix(hostOverride, "ssh://") {
+				spec, err := sshhelper.ParseURL(hostOverride)
+				if err != nil {
+					return nil, fmt.Errorf("parsing SSH URL: %w", err)
+				}
+				d.sshConfig = spec
+
 				helper, err := connhelper.GetConnectionHelperWithSSHOpts(hostOverride, defaultSSHArgs)
 				if err != nil {
 					return nil, fmt.Errorf("creating docker SSH connection helper: %w", err)
@@ -454,6 +469,39 @@ type Response struct {
 	cli  *Client
 }
 
+// PortBinding returns the host port binding for a container port.
+// For SSH connections, it creates a tunnel and returns a cleanup function.
+// For local connections, it returns the local port and cleanup is a no-op.
+func (r *Response) PortBinding(port nat.Port) (nat.PortBinding, func(), error) {
+	bindings, ok := r.NetworkSettings.Ports[port]
+	if !ok || len(bindings) == 0 {
+		return nat.PortBinding{}, nil, fmt.Errorf("port %s not exposed by container", port)
+	}
+
+	if !r.cli.IsSSH() {
+		return bindings[0], func() {}, nil
+	}
+
+	// For SSH, tunnel to the port on the remote Docker host
+	// The container's port is already mapped to the host
+	remoteBinding := bindings[0]
+	remotePort, err := strconv.Atoi(remoteBinding.HostPort)
+	if err != nil {
+		return nat.PortBinding{}, nil, fmt.Errorf("parsing remote port: %w", err)
+	}
+
+	// Tunnel from the remote host's mapped port to a local port
+	localPort, cleanup, err := r.cli.tunnelToPort("127.0.0.1", remotePort)
+	if err != nil {
+		return nat.PortBinding{}, nil, fmt.Errorf("creating tunnel: %w", err)
+	}
+
+	return nat.PortBinding{
+		HostIP:   "127.0.0.1",
+		HostPort: localPort,
+	}, cleanup, nil
+}
+
 func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 	resp, err := r.cli.inner.ContainerExecCreate(ctx, r.ID, container.ExecOptions{
 		Cmd:          []string{"sh", "-c", cmd.Args},
@@ -622,4 +670,67 @@ func (d *DockerConfig) Content() (*Content, error) {
 	}
 
 	return NewContentFromString(string(data), "/root/.docker/config.json"), nil
+}
+
+func (c *Client) tunnelToPort(remoteHost string, remotePort int) (string, func(), error) {
+	if !c.IsSSH() {
+		return "", nil, fmt.Errorf("not an SSH connection")
+	}
+
+	// Find an available local port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, fmt.Errorf("finding available port: %w", err)
+	}
+	localAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return "", nil, fmt.Errorf("unexpected address type: %T", listener.Addr())
+	}
+	localPort := localAddr.Port
+	// Close so SSH can bind to it
+	if err := listener.Close(); err != nil {
+		return "", nil, fmt.Errorf("closing port: %w", err)
+	}
+
+	sshArgs := append(defaultSSHArgs,
+		"-N", // No command execution
+		"-L", fmt.Sprintf("%d:%s:%d", localPort, remoteHost, remotePort),
+	)
+
+	specArgs := c.sshConfig.Args()
+	if specArgs == nil {
+		return "", nil, fmt.Errorf("unable to build SSH arguments")
+	}
+	sshArgs = append(sshArgs, specArgs...)
+
+	cmd := exec.Command("ssh", sshArgs...)
+	if err := cmd.Start(); err != nil {
+		return "", nil, fmt.Errorf("starting SSH tunnel: %w", err)
+	}
+
+	cleanup := func() {
+		if cmd.Process != nil {
+			if err := cmd.Process.Kill(); err != nil {
+				clog.Warnf("failed to kill SSH process: %v", err)
+			}
+			if err := cmd.Wait(); err != nil {
+				clog.Warnf("failed to wait for SSH process: %v", err)
+			}
+		}
+	}
+
+	// Wait for the tunnel to be ready
+	for range 50 {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), 100*time.Millisecond)
+		if err == nil {
+			if err := conn.Close(); err != nil {
+				clog.Warnf("failed to close test connection: %v", err)
+			}
+			return fmt.Sprintf("%d", localPort), cleanup, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	cleanup()
+	return "", nil, fmt.Errorf("tunnel failed to establish after 5 seconds")
 }

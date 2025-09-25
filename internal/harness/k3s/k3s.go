@@ -219,9 +219,18 @@ rules:
 		return nil, fmt.Errorf("starting k3s service: %w", err)
 	}
 
+	// Get port binding for k3s API
+	apiPortName := nat.Port(strconv.Itoa(h.Service.HttpsListenPort)) + "/tcp"
+	binding, cleanup, err := resp.PortBinding(apiPortName)
+	if err != nil {
+		return nil, fmt.Errorf("getting k3s API port binding: %w", err)
+	}
+
 	if err := h.stack.Add(func(ctx context.Context) error {
+		cleanup()
 		return cli.Remove(ctx, resp)
 	}); err != nil {
+		cleanup()
 		return nil, fmt.Errorf("adding k3s service teardown to stack: %w", err)
 	}
 
@@ -230,17 +239,7 @@ rules:
 			return fmt.Errorf("no network settings found")
 		}
 
-		apiPortName := nat.Port(strconv.Itoa(h.Service.HttpsListenPort)) + "/tcp"
-		ports, ok := resp.NetworkSettings.Ports[apiPortName]
-		if !ok {
-			return fmt.Errorf("no host port found for %s", apiPortName)
-		}
-
-		if len(ports) == 0 {
-			return fmt.Errorf("no host port found for %s", apiPortName)
-		}
-
-		cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%s", ports[0].HostPort)
+		cfg.Clusters["default"].Server = fmt.Sprintf("https://127.0.0.1:%s", binding.HostPort)
 
 		return nil
 	})
