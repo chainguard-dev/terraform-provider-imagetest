@@ -9,12 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -29,6 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
+
+var defaultSSHArgs = []string{"-o", "StrictHostKeyChecking=no"}
 
 type Client struct {
 	inner *client.Client
@@ -80,9 +85,28 @@ func New(opts ...Option) (*Client, error) {
 
 	if d.inner == nil {
 		copts := []client.Opt{
-			client.FromEnv,
 			client.WithAPIVersionNegotiation(),
 			client.WithVersionFromEnv(),
+			client.WithTLSClientConfigFromEnv(),
+		}
+		// Check for IMAGETEST_SSH_DOCKER_HOST environment variable
+		if hostOverride := os.Getenv("IMAGETEST_DOCKER_HOST"); hostOverride != "" {
+			if strings.HasPrefix(hostOverride, "ssh://") {
+				helper, err := connhelper.GetConnectionHelperWithSSHOpts(hostOverride, defaultSSHArgs)
+				if err != nil {
+					return nil, fmt.Errorf("creating docker SSH connection helper: %w", err)
+				}
+				httpClient := &http.Client{
+					Transport: &http.Transport{
+						DialContext: helper.Dialer,
+					},
+				}
+				copts = append(copts, client.WithHTTPClient(httpClient))
+			} else {
+				copts = append(copts, client.WithHost(hostOverride))
+			}
+		} else {
+			copts = append(copts, client.WithHostFromEnv())
 		}
 		copts = append(copts, d.copts...)
 
@@ -92,7 +116,6 @@ func New(opts ...Option) (*Client, error) {
 		}
 		d.inner = cli
 	}
-
 	return d, nil
 }
 
