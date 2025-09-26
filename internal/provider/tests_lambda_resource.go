@@ -115,12 +115,12 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 	clog.InfoContext(ctx, "setting up driver")
 	if err := dr.Setup(ctx); err != nil {
 		ds = []diag.Diagnostic{diag.NewErrorDiagnostic("failed to setup driver", err.Error())}
-		return
+		return ds
 	}
 
 	if _, err := dr.Run(ctx, ref); err != nil {
 		ds = []diag.Diagnostic{diag.NewErrorDiagnostic("test failed", err.Error())}
-		return
+		return ds
 	}
 	return ds
 }
