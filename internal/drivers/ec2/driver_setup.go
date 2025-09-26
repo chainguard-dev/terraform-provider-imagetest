@@ -3,7 +3,6 @@ package ec2
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/chainguard-dev/clog"
 )
@@ -24,7 +23,6 @@ func (d *Driver) Setup(ctx context.Context) error {
 	if d.SkipCreate {
 		return nil
 	}
-	os.Exit(1)
 
 	if err := d.init(ctx); err != nil {
 		return err
