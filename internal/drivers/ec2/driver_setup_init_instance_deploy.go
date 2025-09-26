@@ -14,10 +14,11 @@ import (
 
 type InstanceDeployment struct {
 	// Instance
-	AMI          string
-	InstanceName string
-	InstanceID   string
-	InstanceType types.InstanceType
+	AMI                 string
+	InstanceName        string
+	InstanceID          string
+	InstanceType        types.InstanceType
+	InstanceProfileName string
 	// Keys
 	Keys    ssh.ED25519KeyPair
 	KeyName string
@@ -80,16 +81,18 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 	// Launch the EC2 instance.
 	inst.InstanceName = d.runID + "-instance"
 	inst.InstanceType = d.InstanceType
+	inst.InstanceProfileName = d.InstanceProfileName
 	inst.AMI = d.AMI
 	log.Info(
 		"launching EC2 instance",
 		"instance_type", inst.InstanceType,
+		"instance_profile", inst.InstanceProfileName,
 		"ami", inst.AMI,
 	)
 	inst.InstanceID, err = instanceCreateWithNetIF(
 		ctx,
 		d.client,
-		inst.InstanceType, inst.AMI, inst.KeyName, net.InterfaceID, d.Exec.UserData,
+		inst.InstanceType, inst.InstanceProfileName, inst.AMI, inst.KeyName, net.InterfaceID, d.Exec.UserData,
 		tagName(inst.InstanceName),
 	)
 	if err != nil {

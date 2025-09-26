@@ -57,6 +57,9 @@ type Driver struct {
 	// dev.
 	InstanceIP string
 
+	// The IAM instance profile name to be associated with.
+	InstanceProfileName string
+
 	// Post-launch provisioning commands to be executed within the EC2 instance.
 	Exec Exec
 

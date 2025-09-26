@@ -24,7 +24,7 @@ func instanceCreateWithNetIF(
 	ctx context.Context,
 	client *ec2.Client,
 	instanceType types.InstanceType,
-	ami, keyPairName, netIFID, userData string,
+	instanceProfileName, ami, keyPairName, netIFID, userData string,
 	tags ...types.Tag,
 ) (string, error) {
 	launchResult, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
@@ -32,8 +32,11 @@ func instanceCreateWithNetIF(
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
 		InstanceType: instanceType,
-		KeyName:      &keyPairName,
-		UserData:     aws.String(userData),
+		IamInstanceProfile: &types.IamInstanceProfileSpecification{
+			Name: &instanceProfileName,
+		},
+		KeyName:  &keyPairName,
+		UserData: aws.String(userData),
 		NetworkInterfaces: []types.InstanceNetworkInterfaceSpecification{
 			{
 				NetworkInterfaceId: &netIFID,

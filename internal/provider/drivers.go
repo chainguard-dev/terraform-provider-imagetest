@@ -89,14 +89,15 @@ type EKSWithEksctlPodIdentityAssociationResourceModule struct {
 }
 
 type EC2DriverResourceModel struct {
-	Region       types.String               `tfsdk:"region"`
-	AMI          types.String               `tfsdk:"ami"`
-	InstanceType types.String               `tfsdk:"instance_type"`
-	InstanceIP   types.String               `tfsdk:"instance_ip"`
-	Exec         EC2DriverExecResourceModel `tfsdk:"exec"`
-	VolumeMounts []types.String             `tfsdk:"volume_mounts"`
-	DeviceMounts []types.String             `tfsdk:"device_mounts"`
-	MountAllGPUs types.Bool                 `tfsdk:"mount_all_gpus"`
+	Region              types.String               `tfsdk:"region"`
+	AMI                 types.String               `tfsdk:"ami"`
+	InstanceType        types.String               `tfsdk:"instance_type"`
+	InstanceIP          types.String               `tfsdk:"instance_ip"`
+	InstanceProfileName types.String               `tfsdk:"instance_profile_name"`
+	Exec                EC2DriverExecResourceModel `tfsdk:"exec"`
+	VolumeMounts        []types.String             `tfsdk:"volume_mounts"`
+	DeviceMounts        []types.String             `tfsdk:"device_mounts"`
+	MountAllGPUs        types.Bool                 `tfsdk:"mount_all_gpus"`
 }
 
 type EC2DriverExecResourceModel struct {
@@ -343,6 +344,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		d.InstanceType = ec2types.InstanceType(drivers.EC2.InstanceType.ValueString())
 		d.AMI = drivers.EC2.AMI.ValueString()
 		d.Region = drivers.EC2.Region.ValueString()
+		d.InstanceProfileName = drivers.EC2.InstanceProfileName.ValueString()
 
 		// Capture volume mounts.
 		for _, mount := range drivers.EC2.VolumeMounts {
@@ -558,6 +560,10 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 				"provide its IP address here. **NOTE**: This will override " +
 				"'instance_type' and 'AMI'!",
 			Optional: true,
+		},
+		"instance_profile_name": schema.StringAttribute{
+			Description: "The AWS IAM profile name to attach to teh EC2 instance (default is no profile).",
+			Optional:    true,
 		},
 		"exec": schema.SingleNestedAttribute{
 			Description: "Comamnds to execute on the EC2 instance after launch.",
