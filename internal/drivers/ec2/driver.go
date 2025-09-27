@@ -16,16 +16,17 @@ import (
 
 // NewDriver constructs a 'Driver'.
 //
-// NOTE: Driver _must_ be constructed via this function as the 'ec2.Client' is
-// required and _not_ exported.
-func NewDriver(client *ec2.Client) (*Driver, error) {
+// NOTE: Driver _must_ be constructed via this function as the 'ec2.Client' and
+// 'iam.Client' are required and _not_ exported.
+func NewDriver(ec2Client *ec2.Client, iamClient IAMClient) (*Driver, error) {
 	runID, err := newRunID()
 	if err != nil {
 		return nil, err
 	}
 	return &Driver{
-		runID:  runID,
-		client: client,
+		runID:     runID,
+		ec2Client: ec2Client,
+		iamClient: iamClient,
 	}, nil
 }
 
@@ -92,9 +93,12 @@ type Driver struct {
 	// runID holds a unique identifier generated for this run.
 	runID string
 
-	// client holds a configured EC2 client for use in the 'Setup' and 'Teardown'
+	// ec2Client holds a configured EC2 client for use in the 'Setup' and 'Teardown'
 	// phases.
-	client *ec2.Client
+	ec2Client *ec2.Client
+
+	// iamClient holds a configured IAM client for creating roles and instance profiles.
+	iamClient IAMClient
 
 	// stack is a LIFO queue of 'destructor's which, when called, perform a
 	// teardown of a resource created during the 'Setup' method call.

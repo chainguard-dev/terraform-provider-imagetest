@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
@@ -315,10 +316,13 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 
 		// Init an EC2 client.
-		client := ec2.NewFromConfig(cfg)
+		ec2Client := ec2.NewFromConfig(cfg)
+
+		// Init an IAM client.
+		iamClient := iam.NewFromConfig(cfg)
 
 		// Init the EC2 driver.
-		d, err := mc2.NewDriver(client)
+		d, err := mc2.NewDriver(ec2Client, iamClient)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize EC2 driver: %w", err)
 		}
@@ -562,8 +566,10 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			Optional: true,
 		},
 		"instance_profile_name": schema.StringAttribute{
-			Description: "The AWS IAM profile name to attach to teh EC2 instance (default is no profile).",
-			Optional:    true,
+			Description: "The AWS IAM instance profile name to attach to the EC2 instance. " +
+				"If not specified, a default IAM role and instance profile will be created " +
+				"with ECR read-only permissions for accessing container images.",
+			Optional: true,
 		},
 		"exec": schema.SingleNestedAttribute{
 			Description: "Comamnds to execute on the EC2 instance after launch.",
