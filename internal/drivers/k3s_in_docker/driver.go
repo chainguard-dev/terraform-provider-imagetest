@@ -235,7 +235,22 @@ configs:
 		return fmt.Errorf("creating kubernetes config: %w", err)
 	}
 
-	config.Host = fmt.Sprintf("https://127.0.0.1:%s", resp.NetworkSettings.Ports["6443/tcp"][0].HostPort)
+	// Get port binding - works for both local and SSH
+	binding, cleanup, err := resp.PortBinding("6443/tcp")
+	if err != nil {
+		return fmt.Errorf("getting k3s API port: %w", err)
+	}
+
+	// Add cleanup to stack
+	if err := k.stack.Add(func(ctx context.Context) error {
+		cleanup()
+		return nil
+	}); err != nil {
+		cleanup()
+		return fmt.Errorf("adding port cleanup to stack: %w", err)
+	}
+
+	config.Host = fmt.Sprintf("https://%s:%s", binding.HostIP, binding.HostPort)
 
 	kcli, err := kubernetes.NewForConfig(config)
 	if err != nil {
