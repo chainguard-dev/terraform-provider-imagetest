@@ -49,6 +49,13 @@ func (d *Driver) deployInstance(ctx context.Context, net NetworkDeployment) (Ins
 	}
 	inst.InstanceProfileName = profileName
 
+	// Wait for IAM to propagate resources.
+	if inst.InstanceProfileName != "" && inst.InstanceProfileName != d.InstanceProfileName {
+		log := clog.FromContext(ctx)
+		log.Info("waiting for IAM resources to propagate", "profile_name", inst.InstanceProfileName)
+		time.Sleep(10 * time.Second)
+	}
+
 	// Launch the EC2 instance
 	if err := d.launchEC2Instance(ctx, &inst, net); err != nil {
 		return inst, fmt.Errorf("failed to launch EC2 instance: %w", err)
