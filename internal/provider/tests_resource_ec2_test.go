@@ -31,6 +31,10 @@ var (
 	configDriverEC2VolumeMount string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-gpu-mount.tf
 	configDriverEC2GPUMount string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-iam-auto.tf
+	configDriverEC2IAMAuto string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-iam-custom.tf
+	configDriverEC2IAMCustom string
 )
 
 var tests = map[string][]resource.TestStep{
@@ -56,6 +60,14 @@ var tests = map[string][]resource.TestStep{
 	// Verifies a GPU mount is successful.
 	"driver-ec2-with-gpu": {{
 		Config: configDriverEC2GPUMount,
+	}},
+	// Verifies automatic IAM role and instance profile creation.
+	"driver-ec2-iam-auto": {{
+		Config: configDriverEC2IAMAuto,
+	}},
+	// Verifies custom IAM instance profile usage.
+	"driver-ec2-iam-custom": {{
+		Config: configDriverEC2IAMCustom,
 	}},
 }
 

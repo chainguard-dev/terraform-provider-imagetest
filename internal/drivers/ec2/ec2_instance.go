@@ -24,10 +24,10 @@ func instanceCreateWithNetIF(
 	ctx context.Context,
 	client *ec2.Client,
 	instanceType types.InstanceType,
-	ami, keyPairName, netIFID, userData string,
+	instanceProfileName, ami, keyPairName, netIFID, userData string,
 	tags ...types.Tag,
 ) (string, error) {
-	launchResult, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
+	runInstancesInput := &ec2.RunInstancesInput{
 		ImageId:      &ami,
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
@@ -61,7 +61,16 @@ func instanceCreateWithNetIF(
 			types.ResourceTypeInstance,
 			tags...,
 		),
-	})
+	}
+
+	// Only set IAM instance profile if one was provided
+	if instanceProfileName != "" {
+		runInstancesInput.IamInstanceProfile = &types.IamInstanceProfileSpecification{
+			Name: &instanceProfileName,
+		}
+	}
+
+	launchResult, err := client.RunInstances(ctx, runInstancesInput)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInstanceCreate, err)
 	}
