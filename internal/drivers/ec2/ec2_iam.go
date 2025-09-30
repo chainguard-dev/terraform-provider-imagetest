@@ -12,17 +12,6 @@ import (
 	"github.com/chainguard-dev/clog"
 )
 
-type IAMClient interface {
-	CreateRole(ctx context.Context, params *iam.CreateRoleInput, optFns ...func(*iam.Options)) (*iam.CreateRoleOutput, error)
-	AttachRolePolicy(ctx context.Context, params *iam.AttachRolePolicyInput, optFns ...func(*iam.Options)) (*iam.AttachRolePolicyOutput, error)
-	CreateInstanceProfile(ctx context.Context, params *iam.CreateInstanceProfileInput, optFns ...func(*iam.Options)) (*iam.CreateInstanceProfileOutput, error)
-	AddRoleToInstanceProfile(ctx context.Context, params *iam.AddRoleToInstanceProfileInput, optFns ...func(*iam.Options)) (*iam.AddRoleToInstanceProfileOutput, error)
-	RemoveRoleFromInstanceProfile(ctx context.Context, params *iam.RemoveRoleFromInstanceProfileInput, optFns ...func(*iam.Options)) (*iam.RemoveRoleFromInstanceProfileOutput, error)
-	DeleteInstanceProfile(ctx context.Context, params *iam.DeleteInstanceProfileInput, optFns ...func(*iam.Options)) (*iam.DeleteInstanceProfileOutput, error)
-	DetachRolePolicy(ctx context.Context, params *iam.DetachRolePolicyInput, optFns ...func(*iam.Options)) (*iam.DetachRolePolicyOutput, error)
-	DeleteRole(ctx context.Context, params *iam.DeleteRoleInput, optFns ...func(*iam.Options)) (*iam.DeleteRoleOutput, error)
-}
-
 const (
 	// ecrReadOnlyPolicyArn is the AWS managed policy for ECR read-only access.
 	ecrReadOnlyPolicyArn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
@@ -69,7 +58,7 @@ func iamTagsDefaultWithName(name string) []iamtypes.Tag {
 }
 
 // iamRoleCreate creates an IAM role with EC2 service trust policy.
-func iamRoleCreate(ctx context.Context, client IAMClient, roleName string, tags ...iamtypes.Tag) (string, error) {
+func iamRoleCreate(ctx context.Context, client *iam.Client, roleName string, tags ...iamtypes.Tag) (string, error) {
 	log := clog.FromContext(ctx)
 
 	// Create the trust policy document for EC2 service.
@@ -107,7 +96,7 @@ func iamRoleCreate(ctx context.Context, client IAMClient, roleName string, tags 
 }
 
 // iamRoleAttachPolicy attaches an AWS managed policy to an IAM role.
-func iamRoleAttachPolicy(ctx context.Context, client IAMClient, roleName, policyArn string) error {
+func iamRoleAttachPolicy(ctx context.Context, client *iam.Client, roleName, policyArn string) error {
 	log := clog.FromContext(ctx)
 
 	log.Info("attaching policy to IAM role", "role_name", roleName, "policy_arn", policyArn)
@@ -124,7 +113,7 @@ func iamRoleAttachPolicy(ctx context.Context, client IAMClient, roleName, policy
 }
 
 // iamInstanceProfileCreate creates an IAM instance profile.
-func iamInstanceProfileCreate(ctx context.Context, client IAMClient, profileName string, tags ...iamtypes.Tag) (string, error) {
+func iamInstanceProfileCreate(ctx context.Context, client *iam.Client, profileName string, tags ...iamtypes.Tag) (string, error) {
 	log := clog.FromContext(ctx)
 
 	log.Info("creating IAM instance profile", "profile_name", profileName)
@@ -141,7 +130,7 @@ func iamInstanceProfileCreate(ctx context.Context, client IAMClient, profileName
 }
 
 // iamInstanceProfileAddRole adds an IAM role to an instance profile.
-func iamInstanceProfileAddRole(ctx context.Context, client IAMClient, profileName, roleName string) error {
+func iamInstanceProfileAddRole(ctx context.Context, client *iam.Client, profileName, roleName string) error {
 	log := clog.FromContext(ctx)
 
 	log.Info("adding role to instance profile", "profile_name", profileName, "role_name", roleName)
@@ -160,7 +149,7 @@ func iamInstanceProfileAddRole(ctx context.Context, client IAMClient, profileNam
 // Cleanup functions.
 
 // iamRoleDetachPolicy detaches a policy from an IAM role.
-func iamRoleDetachPolicy(ctx context.Context, client IAMClient, roleName, policyArn string) error {
+func iamRoleDetachPolicy(ctx context.Context, client *iam.Client, roleName, policyArn string) error {
 	log := clog.FromContext(ctx)
 
 	log.Info("detaching policy from IAM role", "role_name", roleName, "policy_arn", policyArn)
@@ -177,7 +166,7 @@ func iamRoleDetachPolicy(ctx context.Context, client IAMClient, roleName, policy
 }
 
 // iamInstanceProfileRemoveRole removes a role from an instance profile.
-func iamInstanceProfileRemoveRole(ctx context.Context, client IAMClient, profileName, roleName string) error {
+func iamInstanceProfileRemoveRole(ctx context.Context, client *iam.Client, profileName, roleName string) error {
 	log := clog.FromContext(ctx)
 
 	log.Info("removing role from instance profile", "profile_name", profileName, "role_name", roleName)
@@ -194,7 +183,7 @@ func iamInstanceProfileRemoveRole(ctx context.Context, client IAMClient, profile
 }
 
 // iamInstanceProfileDelete deletes an IAM instance profile.
-func iamInstanceProfileDelete(ctx context.Context, client IAMClient, profileName string) error {
+func iamInstanceProfileDelete(ctx context.Context, client *iam.Client, profileName string) error {
 	log := clog.FromContext(ctx)
 
 	log.Info("deleting IAM instance profile", "profile_name", profileName)
@@ -210,7 +199,7 @@ func iamInstanceProfileDelete(ctx context.Context, client IAMClient, profileName
 }
 
 // iamRoleDelete deletes an IAM role.
-func iamRoleDelete(ctx context.Context, client IAMClient, roleName string) error {
+func iamRoleDelete(ctx context.Context, client *iam.Client, roleName string) error {
 	log := clog.FromContext(ctx)
 
 	log.Info("deleting IAM role", "role_name", roleName)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 	"github.com/docker/docker/api/types/container"
@@ -18,7 +19,7 @@ import (
 //
 // NOTE: Driver _must_ be constructed via this function as the 'ec2.Client' and
 // 'iam.Client' are required and _not_ exported.
-func NewDriver(ec2Client *ec2.Client, iamClient IAMClient) (*Driver, error) {
+func NewDriver(ec2Client *ec2.Client, iamClient *iam.Client) (*Driver, error) {
 	runID, err := newRunID()
 	if err != nil {
 		return nil, err
@@ -98,7 +99,7 @@ type Driver struct {
 	ec2Client *ec2.Client
 
 	// iamClient holds a configured IAM client for creating roles and instance profiles.
-	iamClient IAMClient
+	iamClient *iam.Client
 
 	// stack is a LIFO queue of 'destructor's which, when called, perform a
 	// teardown of a resource created during the 'Setup' method call.
