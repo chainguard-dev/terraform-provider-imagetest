@@ -29,11 +29,12 @@ const (
 )
 
 type driver struct {
-	name      string
-	nodeAMI   string
-	nodeType  string
-	nodeCount int
-	storage   *StorageOptions
+	name       string
+	nodeAMI    string
+	nodeType   string
+	nodeCount  int
+	storage    *StorageOptions
+	awsProfile string
 
 	region           string
 	clusterName      string
@@ -57,6 +58,7 @@ type Options struct {
 	Namespace               string
 	Storage                 *StorageOptions
 	PodIdentityAssociations []*PodIdentityAssociationOptions
+	AWSProfile              string
 }
 
 type StorageOptions struct {
@@ -78,13 +80,14 @@ type podIdentityAssociation struct {
 
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
-		name:      name,
-		region:    opts.Region,
-		nodeAMI:   opts.NodeAMI,
-		nodeType:  opts.NodeType,
-		nodeCount: opts.NodeCount,
-		namespace: opts.Namespace,
-		storage:   opts.Storage,
+		name:       name,
+		region:     opts.Region,
+		nodeAMI:    opts.NodeAMI,
+		nodeType:   opts.NodeType,
+		nodeCount:  opts.NodeCount,
+		namespace:  opts.Namespace,
+		storage:    opts.Storage,
+		awsProfile: opts.AWSProfile,
 	}
 	if k.region == "" {
 		k.region = regionDefault
@@ -125,6 +128,9 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
 	cmd.Env = os.Environ() // Copy the environment
 	cmd.Env = append(cmd.Env, "KUBECONFIG="+k.kubeconfig)
+	if k.awsProfile != "" {
+		cmd.Env = append(cmd.Env, "AWS_PROFILE="+k.awsProfile)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("eksctl %v: %v: %s", args, err, out)
@@ -382,7 +388,11 @@ func (k *driver) Setup(ctx context.Context) error {
 	log.Infof("Using kubeconfig: %s", cfg.Name())
 	k.kubeconfig = cfg.Name()
 
-	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(k.region))
+	awsOpts := []func(*config.LoadOptions) error{config.WithRegion(k.region)}
+	if k.awsProfile != "" {
+		awsOpts = append(awsOpts, config.WithSharedConfigProfile(k.awsProfile))
+	}
+	awsCfg, err := config.LoadDefaultConfig(ctx, awsOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
