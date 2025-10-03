@@ -75,6 +75,7 @@ type EKSWithEksctlDriverResourceModel struct {
 	NodeCount               types.Int64                                          `tfsdk:"node_count"`
 	Storage                 *EKSWithEksctlStorageResourceModel                   `tfsdk:"storage"`
 	PodIdentityAssociations []*EKSWithEksctlPodIdentityAssociationResourceModule `tfsdk:"pod_identity_associations"`
+	AWSProfile              types.String                                         `tfsdk:"aws_profile"`
 }
 
 type EKSWithEksctlStorageResourceModel struct {
@@ -295,6 +296,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			NodeCount:               int(cfg.NodeCount.ValueInt64()),
 			PodIdentityAssociations: podIdentityAssociations,
 			Storage:                 storageOpts,
+			AWSProfile:              cfg.AWSProfile.ValueString(),
 		})
 
 	case DriverEC2:
@@ -527,6 +529,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 								},
 							},
 						},
+					},
+					"aws_profile": schema.StringAttribute{
+						Description: "The AWS CLI profile to use for eksctl and AWS CLI commands",
+						Optional:    true,
 					},
 				},
 			},
