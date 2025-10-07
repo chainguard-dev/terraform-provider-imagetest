@@ -34,6 +34,12 @@ type ImageTestProviderModel struct {
 	Repo          types.String                   `tfsdk:"repo"`
 	ExtraRepos    []string                       `tfsdk:"extra_repos"`
 	Sandbox       *ProviderSandboxModel          `tfsdk:"sandbox"`
+	Logs          *ProviderLogsModel             `tfsdk:"logs"`
+}
+
+// ProviderLogsModel describes the logs configuration.
+type ProviderLogsModel struct {
+	Directory types.String `tfsdk:"directory"`
 }
 
 type ImageTestProviderHarnessModel struct {
@@ -133,6 +139,16 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 						Description: "A list of additional packages to use for the sandbox.",
 						Optional:    true,
 						ElementType: types.StringType,
+					},
+				},
+			},
+			"logs": schema.SingleNestedAttribute{
+				Description: "Configuration for test log output to files.",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"directory": schema.StringAttribute{
+						Description: "Base directory where test logs will be written. Each test resource creates its own subdirectory. Can be overridden by IMAGETEST_LOGS environment variable.",
+						Optional:    true,
 					},
 				},
 			},
@@ -356,6 +372,16 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	if diag := data.TestExecution.Exclude.ElementsAs(ctx, &store.excludeTests, true); diag.HasError() {
 		resp.Diagnostics.Append(diag...)
 		return
+	}
+
+	// Store logs configuration if provided
+	if data.Logs != nil && !data.Logs.Directory.IsNull() {
+		store.logsDirectory = data.Logs.Directory.ValueString()
+	}
+
+	// Check for environment variable override
+	if v := os.Getenv("IMAGETEST_LOGS"); v != "" {
+		store.logsDirectory = v
 	}
 
 	// Store any "global" provider configuration in the store
