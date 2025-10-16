@@ -2,7 +2,9 @@ package log
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"runtime"
 
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
@@ -23,23 +25,28 @@ func (h *TFHandler) Enabled(_ context.Context, _ slog.Level) bool {
 
 // Handle implements slog.Handler.
 func (h *TFHandler) Handle(ctx context.Context, record slog.Record) error {
-	// This is a bit of a hack, but it's the only way to get the correct
-	// source location for the log message.
-	//
-	// This creates a new tflog subsystem for logging, with the location
-	// offset set to 4, which is the number of frames between this function
-	// and the actual logging call site. Then we use this subsystem below to log
-	// the message to TF's logger.
-	ctx = tflog.NewSubsystem(ctx, subsystem, tflog.WithAdditionalLocationOffset(4))
-
 	attrs := make(map[string]any)
+
+	// Extract the actual caller location from slog's record
+	// This works correctly even with slog-multi layering
+	if record.PC != 0 {
+		fs := runtime.CallersFrames([]uintptr{record.PC})
+		f, _ := fs.Next()
+		if f.File != "" {
+			// Add as @caller to match tflog's format
+			attrs["@caller"] = fmt.Sprintf("%s:%d", f.File, f.Line)
+		}
+	}
+
+	// Create subsystem - our @caller attribute should take precedence
+	ctx = tflog.NewSubsystem(ctx, subsystem)
+
 	for _, attr := range h.attrs {
 		attrs[attr.Key] = attr.Value.Any()
 	}
 
 	// record level attrs take precedence over handler opt attrs
 	record.Attrs(func(a slog.Attr) bool {
-		attrs[a.Key] = a.Value.Any
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})

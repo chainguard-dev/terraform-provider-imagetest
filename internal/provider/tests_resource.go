@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/bundler"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
+	internallog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -29,9 +31,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+type contextKey string
+
 const (
-	TestsResourceDefaultTimeout = "30m"
-	TestResourceDefaultTimeout  = "15m"
+	contextKeyResourceTestID    contextKey = "resource_test_id"
+	TestsResourceDefaultTimeout string     = "30m"
+	TestResourceDefaultTimeout  string     = "15m"
 )
 
 var _ resource.ResourceWithConfigure = &TestsResource{}
@@ -51,6 +56,7 @@ type TestsResource struct {
 	entrypointLayers map[string][]v1.Layer
 	includeTests     map[string]string
 	excludeTests     map[string]string
+	logsDirectory    string
 }
 
 type TestsResourceModel struct {
@@ -242,6 +248,7 @@ func (t *TestsResource) Configure(ctx context.Context, req resource.ConfigureReq
 	t.entrypointLayers = store.entrypointLayers
 	t.includeTests = store.includeTests
 	t.excludeTests = store.excludeTests
+	t.logsDirectory = store.logsDirectory
 }
 
 func (t *TestsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -267,17 +274,20 @@ func (t *TestsResource) Update(ctx context.Context, req resource.UpdateRequest, 
 }
 
 func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds diag.Diagnostics) {
-	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
-
 	// lightly sanitize the name, this likely needs some revision
 	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
 	data.Id = types.StringValue(id)
 
+	// Set up basic logging without file teeing (that happens per test)
+	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
 	ctx = clog.WithValues(ctx,
 		"test_id", id,
 		"test_name", data.Name.ValueString(),
 		"driver", data.Driver,
 	)
+
+	// Store test_id in context to deconflict with other tests
+	ctx = context.WithValue(ctx, contextKeyResourceTestID, id)
 
 	for _, test := range data.Tests {
 		if test.Artifact.IsNull() || test.Artifact.IsUnknown() {
@@ -422,9 +432,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 					}
 
 					envs := make(map[string]string)
-					for k, v := range test.Envs {
-						envs[k] = v
-					}
+					maps.Copy(envs, test.Envs)
 					envs["IMAGES"] = string(imgsResolvedData)
 					envs["IMAGETEST_DRIVER"] = string(data.Driver)
 					envs["IMAGETEST_REGISTRY"] = trepo.RegistryStr()
@@ -474,6 +482,16 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 					return mutate.ConfigFile(img, cfgf)
 				},
+				// Mutator to annotate the image with the test name
+				func(i v1.Image) (v1.Image, error) {
+					img, ok := mutate.Annotations(i, map[string]string{
+						"imagetest.test_name": test.Name.ValueString(),
+					}).(v1.Image)
+					if !ok {
+						return nil, fmt.Errorf("failed to assert mutate.Annotations result as v1.Image")
+					}
+					return img, nil
+				},
 			},
 		})
 		if err != nil {
@@ -511,6 +529,17 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 }
 
 func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *TestResourceModel, ref name.Reference) diag.Diagnostics {
+	// Get the test_id from context
+	testID, ok := ctx.Value(contextKeyResourceTestID).(string)
+	if !ok {
+		return []diag.Diagnostic{diag.NewErrorDiagnostic("internal error", "test_id not found in context")}
+	}
+	testName := test.Name.ValueString()
+
+	// Set up logging with file teeing if configured
+	ctx, cleanup := internallog.SetupTestsLogging(ctx, t.logsDirectory, testID, testName)
+	defer cleanup()
+
 	ctx = clog.WithValues(ctx,
 		"test_name", test.Name.ValueString(),
 		"test_ref", ref.String(),
