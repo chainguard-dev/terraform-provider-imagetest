@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
@@ -90,14 +91,15 @@ type EKSWithEksctlPodIdentityAssociationResourceModule struct {
 }
 
 type EC2DriverResourceModel struct {
-	Region       types.String               `tfsdk:"region"`
-	AMI          types.String               `tfsdk:"ami"`
-	InstanceType types.String               `tfsdk:"instance_type"`
-	InstanceIP   types.String               `tfsdk:"instance_ip"`
-	Exec         EC2DriverExecResourceModel `tfsdk:"exec"`
-	VolumeMounts []types.String             `tfsdk:"volume_mounts"`
-	DeviceMounts []types.String             `tfsdk:"device_mounts"`
-	MountAllGPUs types.Bool                 `tfsdk:"mount_all_gpus"`
+	Region              types.String               `tfsdk:"region"`
+	AMI                 types.String               `tfsdk:"ami"`
+	InstanceType        types.String               `tfsdk:"instance_type"`
+	InstanceIP          types.String               `tfsdk:"instance_ip"`
+	InstanceProfileName types.String               `tfsdk:"instance_profile_name"`
+	Exec                EC2DriverExecResourceModel `tfsdk:"exec"`
+	VolumeMounts        []types.String             `tfsdk:"volume_mounts"`
+	DeviceMounts        []types.String             `tfsdk:"device_mounts"`
+	MountAllGPUs        types.Bool                 `tfsdk:"mount_all_gpus"`
 }
 
 type EC2DriverExecResourceModel struct {
@@ -316,10 +318,13 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 
 		// Init an EC2 client.
-		client := ec2.NewFromConfig(cfg)
+		ec2Client := ec2.NewFromConfig(cfg)
+
+		// Init an IAM client.
+		iamClient := iam.NewFromConfig(cfg)
 
 		// Init the EC2 driver.
-		d, err := mc2.NewDriver(client)
+		d, err := mc2.NewDriver(ec2Client, iamClient)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize EC2 driver: %w", err)
 		}
@@ -345,6 +350,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		d.InstanceType = ec2types.InstanceType(drivers.EC2.InstanceType.ValueString())
 		d.AMI = drivers.EC2.AMI.ValueString()
 		d.Region = drivers.EC2.Region.ValueString()
+		d.InstanceProfileName = drivers.EC2.InstanceProfileName.ValueString()
 
 		// Capture volume mounts.
 		for _, mount := range drivers.EC2.VolumeMounts {
@@ -563,6 +569,12 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 				"SSH-enabled environment provisioned outside of this driver, you may " +
 				"provide its IP address here. **NOTE**: This will override " +
 				"'instance_type' and 'AMI'!",
+			Optional: true,
+		},
+		"instance_profile_name": schema.StringAttribute{
+			Description: "The AWS IAM instance profile name to attach to the EC2 instance. " +
+				"If not specified, a default IAM role and instance profile will be created " +
+				"with ECR read-only permissions for accessing container images.",
 			Optional: true,
 		},
 		"exec": schema.SingleNestedAttribute{
