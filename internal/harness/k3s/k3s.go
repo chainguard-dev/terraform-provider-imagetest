@@ -145,7 +145,14 @@ func (h *k3s) startK3s(ctx context.Context, cli *docker.Client) (*docker.Respons
 		name = uuid.New().String()
 	}
 
-	contents := []*docker.Content{}
+	dockerconfigjson, err := createDockerConfigJSON(h.Service.Registries)
+	if err != nil {
+		return nil, fmt.Errorf("creating docker config json: %w", err)
+	}
+
+	contents := []*docker.Content{
+		docker.NewContentFromString(string(dockerconfigjson), "/root/.docker/config.json"),
+	}
 
 	cfg, err := h.config(name)
 	if err != nil {
@@ -305,9 +312,16 @@ func (h *k3s) startSandbox(ctx context.Context, cli *docker.Client, resp *docker
 
 	h.Sandbox.Name = resp.Name + "-sandbox"
 
+	dockerconfigjson, err := createDockerConfigJSON(h.Service.Registries)
+	if err != nil {
+		return fmt.Errorf("creating docker config json: %w", err)
+	}
+
 	h.Sandbox.Contents = append(
 		h.Sandbox.Contents,
 		docker.NewContentFromString(string(skcfg), "/k3s-config/k3s.yaml"),
+		docker.NewContentFromString(string(dockerconfigjson), "/root/.docker/config.json"),
+		docker.NewContentFromString(string(dockerconfigjson), "/root/.config/helm/registry/config.json"),
 	)
 
 	sandbox, err := cli.Start(ctx, h.Sandbox)
@@ -476,4 +490,39 @@ func tmpl(tpl string, data interface{}) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+type dockerAuthEntry struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	Auth     string `json:"auth,omitempty"`
+}
+
+type dockerConfig struct {
+	Auths map[string]dockerAuthEntry `json:"auths,omitempty"`
+}
+
+// createDockerConfigJSON creates a Docker config.json file used by the harness for auth.
+func createDockerConfigJSON(registryAuths map[string]*RegistryConfig) ([]byte, error) {
+	authConfig := dockerConfig{}
+	authConfig.Auths = make(map[string]dockerAuthEntry)
+
+	for k, v := range registryAuths {
+		if v.Auth == nil {
+			continue
+		}
+
+		authConfig.Auths[k] = dockerAuthEntry{
+			Username: v.Auth.Username,
+			Password: v.Auth.Password,
+			Auth:     v.Auth.Auth,
+		}
+	}
+
+	dockerConfigJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize Docker config.dockerConfigJSON contents: %w", err)
+	}
+
+	return dockerConfigJSON, nil
 }
