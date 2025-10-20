@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -263,6 +264,7 @@ metadata:
 managedNodeGroups:
 - name: %s
   desiredCapacity: %d
+  amiFamily: %s
   launchTemplate:
     id: %s
     version: "1"
@@ -273,6 +275,7 @@ managedNodeGroups:
 		k.region,
 		k.nodeGroup,
 		k.nodeCount,
+		k.amiFamily(),
 		k.launchTemplateId,
 	)
 
@@ -490,4 +493,11 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 			"IMAGETEST_DRIVER": "eks_with_eksctl",
 		}),
 	)
+}
+
+func (k *driver) amiFamily() string {
+	if strings.Contains(k.nodeAMI, "chainguard") {
+		return "AmazonLinux2023"
+	}
+	return "AmazonLinux2"
 }
