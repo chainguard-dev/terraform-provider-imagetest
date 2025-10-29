@@ -35,6 +35,8 @@ var (
 	configDriverEC2IAMAuto string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-iam-custom.tf
 	configDriverEC2IAMCustom string
+	//go:embed testdata/TestAccTestsConfigs/driver-ec2-availability-zone.tf
+	configDriverEC2AvailabilityZone string
 )
 
 var tests = map[string][]resource.TestStep{
@@ -68,6 +70,10 @@ var tests = map[string][]resource.TestStep{
 	// Verifies custom IAM instance profile usage.
 	"driver-ec2-iam-custom": {{
 		Config: configDriverEC2IAMCustom,
+	}},
+	// Verifies explicit availability zone configuration.
+	"driver-ec2-availability-zone": {{
+		Config: configDriverEC2AvailabilityZone,
 	}},
 }
 
