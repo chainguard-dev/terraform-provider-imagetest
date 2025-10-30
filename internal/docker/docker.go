@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chainguard-dev/clog"
@@ -155,10 +156,16 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to get logs: %w", err)
 		}
-		defer logs.Close()
 
+		var loggerGrp sync.WaitGroup
+		defer func() {
+			_ = logs.Close()
+			loggerGrp.Wait()
+		}()
+
+		loggerGrp.Add(1)
 		go func() {
-			defer logs.Close()
+			defer loggerGrp.Done()
 			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
 			if err != nil {
 				_, _ = fmt.Fprintf(req.Logger, "error copying logs: %v", err)
