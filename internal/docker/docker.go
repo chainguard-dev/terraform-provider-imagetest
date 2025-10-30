@@ -178,6 +178,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	if req.HealthCheck != nil {
 		go func() {
 			for {
+				time.Sleep(time.Second)
 				select {
 				case <-ctx.Done():
 					return
@@ -187,18 +188,27 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
 						return
 					}
-
-					if inspect.State != nil && inspect.State.Health != nil {
-						if inspect.State.Health.Status == "unhealthy" {
-							check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
-							unhealthyCh <- &RunError{
-								ExitCode: int64(check.ExitCode),
-								Message:  check.Output,
-							}
-							return
-						}
+					if inspect.State == nil {
+						// No usable state yet, try again.
+						continue
 					}
-					time.Sleep(time.Second)
+					if !inspect.State.Running {
+						// The container isn't running yet or anymore. Ignore health status.
+						continue
+					}
+
+					if inspect.State.Health == nil {
+						// No health info yet, try again.
+						continue
+					}
+					if inspect.State.Health.Status == container.Unhealthy {
+						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+						unhealthyCh <- &RunError{
+							ExitCode: int64(check.ExitCode),
+							Message:  check.Output,
+						}
+						return
+					}
 				}
 			}
 		}()
@@ -224,7 +234,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		}
 
 	case err := <-unhealthyCh:
-		return cid, err
+		return cid, fmt.Errorf("container marked unhealthy by healthcheck: %w", err)
 	}
 
 	return cid, nil
