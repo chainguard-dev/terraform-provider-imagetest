@@ -203,11 +203,17 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 					}
 					if inspect.State.Health.Status == container.Unhealthy {
 						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
-						unhealthyCh <- &RunError{
-							ExitCode: int64(check.ExitCode),
-							Message:  check.Output,
+
+						// There is a race condition where the container can exit and the health
+						// check can report unhealthy because of it. In that case, ignore the
+						// unhealthy status because the main wait loop will catch the exit.
+						if !strings.Contains(check.Output, "cannot exec in a stopped container") {
+							unhealthyCh <- &RunError{
+								ExitCode: int64(check.ExitCode),
+								Message:  check.Output,
+							}
+							return
 						}
-						return
 					}
 				}
 			}
