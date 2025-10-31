@@ -231,6 +231,13 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	cmd.Stderr = stderrw
 	cmd.Env = append(os.Environ(), "IMAGETEST=true")
 
+	// Don't wait for backgrounded child processes. This allows test scripts to fork
+	// background tasks with & without blocking test completion. When the main script
+	// exits, the test is done. The container runtime will clean up any orphaned processes.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
 	// Block until we are probed
 	if o.WaitForProbe {
 		clog.InfoContext(ctx, "waiting for probe before starting wrapped process")

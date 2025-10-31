@@ -33,7 +33,7 @@ func NewApko(opts ...ApkoOpt) (Bundler, error) {
 		arch: apko_types.ParseArchitecture(runtime.GOARCH),
 		apkoConfig: apko_types.ImageConfiguration{
 			Contents: apko_types.ImageContents{
-				RuntimeRepositories: []string{
+				Repositories: []string{
 					"https://packages.wolfi.dev/os",
 					"https://packages.cgr.dev/extras",
 				},
@@ -135,7 +135,7 @@ func ApkoWithPackages(packages ...string) ApkoOpt {
 
 func ApkoWithRepositories(repositories ...string) ApkoOpt {
 	return func(a *apko) error {
-		a.apkoConfig.Contents.RuntimeRepositories = append(a.apkoConfig.Contents.RuntimeRepositories, repositories...)
+		a.apkoConfig.Contents.Repositories = append(a.apkoConfig.Contents.Repositories, repositories...)
 		return nil
 	}
 }

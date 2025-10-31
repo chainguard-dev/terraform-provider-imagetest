@@ -41,6 +41,7 @@ type ProviderStore struct {
 	extraRepos           []name.Repository
 	ropts                []remote.Option
 	entrypointLayers     map[string][]v1.Layer
+	logsDirectory        string // Base directory for test logs
 }
 
 func NewProviderStore(repo name.Repository) (*ProviderStore, error) {

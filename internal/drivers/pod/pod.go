@@ -481,8 +481,9 @@ func (o *opts) pod() *corev1.Pod {
 			Containers: []corev1.Container{
 				// The primary test workspace
 				{
-					Name:  SandboxContainerName,
-					Image: o.ImageRef.String(),
+					Name:            SandboxContainerName,
+					Image:           o.ImageRef.String(),
+					ImagePullPolicy: corev1.PullIfNotPresent,
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &[]bool{true}[0],
 						RunAsUser:  &[]int64{0}[0],
@@ -547,10 +548,11 @@ func (o *opts) pod() *corev1.Pod {
 				},
 				// The "sidecar" container used for storing artifacts to exfiltrate
 				{
-					Name:    ArtifactContainerName,
-					Image:   wref,
-					Command: []string{entrypoint.BinaryPath},
-					Args:    []string{"wait"},
+					Name:            ArtifactContainerName,
+					Image:           wref,
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					Command:         []string{entrypoint.BinaryPath},
+					Args:            []string{"wait"},
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      ArtifactContainerName,

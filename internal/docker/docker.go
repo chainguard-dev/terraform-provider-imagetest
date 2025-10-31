@@ -9,12 +9,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/cli/cli/connhelper"
+	sshhelper "github.com/docker/cli/cli/connhelper/ssh"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -30,9 +39,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+var defaultSSHArgs = []string{"-o", "StrictHostKeyChecking=no"}
+
 type Client struct {
-	inner *client.Client
-	copts []client.Opt
+	inner     *client.Client
+	copts     []client.Opt
+	sshConfig *sshhelper.Spec
+}
+
+func (c *Client) IsSSH() bool {
+	return c.sshConfig != nil
 }
 
 type Request struct {
@@ -80,9 +96,33 @@ func New(opts ...Option) (*Client, error) {
 
 	if d.inner == nil {
 		copts := []client.Opt{
-			client.FromEnv,
 			client.WithAPIVersionNegotiation(),
 			client.WithVersionFromEnv(),
+			client.WithTLSClientConfigFromEnv(),
+		}
+		if hostOverride := os.Getenv("IMAGETEST_DOCKER_HOST"); hostOverride != "" {
+			if strings.HasPrefix(hostOverride, "ssh://") {
+				spec, err := sshhelper.ParseURL(hostOverride)
+				if err != nil {
+					return nil, fmt.Errorf("parsing SSH URL: %w", err)
+				}
+				d.sshConfig = spec
+
+				helper, err := connhelper.GetConnectionHelperWithSSHOpts(hostOverride, defaultSSHArgs)
+				if err != nil {
+					return nil, fmt.Errorf("creating docker SSH connection helper: %w", err)
+				}
+				httpClient := &http.Client{
+					Transport: &http.Transport{
+						DialContext: helper.Dialer,
+					},
+				}
+				copts = append(copts, client.WithHTTPClient(httpClient))
+			} else {
+				copts = append(copts, client.WithHost(hostOverride))
+			}
+		} else {
+			copts = append(copts, client.WithHostFromEnv())
 		}
 		copts = append(copts, d.copts...)
 
@@ -92,7 +132,6 @@ func New(opts ...Option) (*Client, error) {
 		}
 		d.inner = cli
 	}
-
 	return d, nil
 }
 
@@ -117,10 +156,16 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to get logs: %w", err)
 		}
-		defer logs.Close()
 
+		var loggerGrp sync.WaitGroup
+		defer func() {
+			_ = logs.Close()
+			loggerGrp.Wait()
+		}()
+
+		loggerGrp.Add(1)
 		go func() {
-			defer logs.Close()
+			defer loggerGrp.Done()
 			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
 			if err != nil {
 				_, _ = fmt.Fprintf(req.Logger, "error copying logs: %v", err)
@@ -133,6 +178,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	if req.HealthCheck != nil {
 		go func() {
 			for {
+				time.Sleep(time.Second)
 				select {
 				case <-ctx.Done():
 					return
@@ -142,10 +188,26 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
 						return
 					}
+					if inspect.State == nil {
+						// No usable state yet, try again.
+						continue
+					}
+					if !inspect.State.Running {
+						// The container isn't running yet or anymore. Ignore health status.
+						continue
+					}
 
-					if inspect.State != nil && inspect.State.Health != nil {
-						if inspect.State.Health.Status == "unhealthy" {
-							check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+					if inspect.State.Health == nil {
+						// No health info yet, try again.
+						continue
+					}
+					if inspect.State.Health.Status == container.Unhealthy {
+						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+
+						// There is a race condition where the container can exit and the health
+						// check can report unhealthy because of it. In that case, ignore the
+						// unhealthy status because the main wait loop will catch the exit.
+						if !strings.Contains(check.Output, "cannot exec in a stopped container") {
 							unhealthyCh <- &RunError{
 								ExitCode: int64(check.ExitCode),
 								Message:  check.Output,
@@ -153,7 +215,6 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 							return
 						}
 					}
-					time.Sleep(time.Second)
 				}
 			}
 		}()
@@ -179,7 +240,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		}
 
 	case err := <-unhealthyCh:
-		return cid, err
+		return cid, fmt.Errorf("container marked unhealthy by healthcheck: %w", err)
 	}
 
 	return cid, nil
@@ -431,6 +492,39 @@ type Response struct {
 	cli  *Client
 }
 
+// PortBinding returns the host port binding for a container port.
+// For SSH connections, it creates a tunnel and returns a cleanup function.
+// For local connections, it returns the local port and cleanup is a no-op.
+func (r *Response) PortBinding(port nat.Port) (nat.PortBinding, func(), error) {
+	bindings, ok := r.NetworkSettings.Ports[port]
+	if !ok || len(bindings) == 0 {
+		return nat.PortBinding{}, nil, fmt.Errorf("port %s not exposed by container", port)
+	}
+
+	if !r.cli.IsSSH() {
+		return bindings[0], func() {}, nil
+	}
+
+	// For SSH, tunnel to the port on the remote Docker host
+	// The container's port is already mapped to the host
+	remoteBinding := bindings[0]
+	remotePort, err := strconv.Atoi(remoteBinding.HostPort)
+	if err != nil {
+		return nat.PortBinding{}, nil, fmt.Errorf("parsing remote port: %w", err)
+	}
+
+	// Tunnel from the remote host's mapped port to a local port
+	localPort, cleanup, err := r.cli.tunnelToPort("127.0.0.1", remotePort)
+	if err != nil {
+		return nat.PortBinding{}, nil, fmt.Errorf("creating tunnel: %w", err)
+	}
+
+	return nat.PortBinding{
+		HostIP:   "127.0.0.1",
+		HostPort: localPort,
+	}, cleanup, nil
+}
+
 func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 	resp, err := r.cli.inner.ContainerExecCreate(ctx, r.ID, container.ExecOptions{
 		Cmd:          []string{"sh", "-c", cmd.Args},
@@ -599,4 +693,67 @@ func (d *DockerConfig) Content() (*Content, error) {
 	}
 
 	return NewContentFromString(string(data), "/root/.docker/config.json"), nil
+}
+
+func (c *Client) tunnelToPort(remoteHost string, remotePort int) (string, func(), error) {
+	if !c.IsSSH() {
+		return "", nil, fmt.Errorf("not an SSH connection")
+	}
+
+	// Find an available local port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, fmt.Errorf("finding available port: %w", err)
+	}
+	localAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return "", nil, fmt.Errorf("unexpected address type: %T", listener.Addr())
+	}
+	localPort := localAddr.Port
+	// Close so SSH can bind to it
+	if err := listener.Close(); err != nil {
+		return "", nil, fmt.Errorf("closing port: %w", err)
+	}
+
+	sshArgs := append(defaultSSHArgs,
+		"-N", // No command execution
+		"-L", fmt.Sprintf("%d:%s:%d", localPort, remoteHost, remotePort),
+	)
+
+	specArgs := c.sshConfig.Args()
+	if specArgs == nil {
+		return "", nil, fmt.Errorf("unable to build SSH arguments")
+	}
+	sshArgs = append(sshArgs, specArgs...)
+
+	cmd := exec.Command("ssh", sshArgs...)
+	if err := cmd.Start(); err != nil {
+		return "", nil, fmt.Errorf("starting SSH tunnel: %w", err)
+	}
+
+	cleanup := func() {
+		if cmd.Process != nil {
+			if err := cmd.Process.Kill(); err != nil {
+				clog.Warnf("failed to kill SSH process: %v", err)
+			}
+			if err := cmd.Wait(); err != nil {
+				clog.Warnf("failed to wait for SSH process: %v", err)
+			}
+		}
+	}
+
+	// Wait for the tunnel to be ready
+	for range 50 {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), 100*time.Millisecond)
+		if err == nil {
+			if err := conn.Close(); err != nil {
+				clog.Warnf("failed to close test connection: %v", err)
+			}
+			return fmt.Sprintf("%d", localPort), cleanup, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	cleanup()
+	return "", nil, fmt.Errorf("tunnel failed to establish after 5 seconds")
 }

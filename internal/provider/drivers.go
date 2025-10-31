@@ -2,16 +2,24 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
+	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -23,12 +31,14 @@ const (
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
+	DriverEC2            DriverResourceModel = "ec2"
 )
 
 type TestsDriversResourceModel struct {
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
+	EC2            *EC2DriverResourceModel            `tfsdk:"ec2"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -66,6 +76,7 @@ type EKSWithEksctlDriverResourceModel struct {
 	NodeCount               types.Int64                                          `tfsdk:"node_count"`
 	Storage                 *EKSWithEksctlStorageResourceModel                   `tfsdk:"storage"`
 	PodIdentityAssociations []*EKSWithEksctlPodIdentityAssociationResourceModule `tfsdk:"pod_identity_associations"`
+	AWSProfile              types.String                                         `tfsdk:"aws_profile"`
 }
 
 type EKSWithEksctlStorageResourceModel struct {
@@ -77,6 +88,26 @@ type EKSWithEksctlPodIdentityAssociationResourceModule struct {
 	PermissionPolicyARN types.String `tfsdk:"permission_policy_arn"`
 	ServiceAccountName  types.String `tfsdk:"service_account_name"`
 	Namespace           types.String `tfsdk:"namespace"`
+}
+
+type EC2DriverResourceModel struct {
+	Region              types.String               `tfsdk:"region"`
+	AMI                 types.String               `tfsdk:"ami"`
+	InstanceType        types.String               `tfsdk:"instance_type"`
+	InstanceIP          types.String               `tfsdk:"instance_ip"`
+	InstanceProfileName types.String               `tfsdk:"instance_profile_name"`
+	Exec                EC2DriverExecResourceModel `tfsdk:"exec"`
+	VolumeMounts        []types.String             `tfsdk:"volume_mounts"`
+	DeviceMounts        []types.String             `tfsdk:"device_mounts"`
+	MountAllGPUs        types.Bool                 `tfsdk:"mount_all_gpus"`
+}
+
+type EC2DriverExecResourceModel struct {
+	User     types.String   `tfsdk:"user"`
+	Shell    types.String   `tfsdk:"shell"`
+	Commands []types.String `tfsdk:"commands"`
+	Env      types.Map      `tfsdk:"env"`
+	UserData types.String   `tfsdk:"user_data"`
 }
 
 func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
@@ -267,7 +298,107 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			NodeCount:               int(cfg.NodeCount.ValueInt64()),
 			PodIdentityAssociations: podIdentityAssociations,
 			Storage:                 storageOpts,
+			AWSProfile:              cfg.AWSProfile.ValueString(),
 		})
+
+	case DriverEC2:
+		log := clog.FromContext(ctx)
+
+		// This driver can't do its job without user input.
+		if drivers.EC2 == nil {
+			return nil, fmt.Errorf(
+				"the EC2 driver was specified, but no configuration was provided",
+			)
+		}
+
+		// Init a default AWS config.
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS configuration: %w", err)
+		}
+
+		// Init an EC2 client.
+		ec2Client := ec2.NewFromConfig(cfg)
+
+		// Init an IAM client.
+		iamClient := iam.NewFromConfig(cfg)
+
+		// Init the EC2 driver.
+		d, err := mc2.NewDriver(ec2Client, iamClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize EC2 driver: %w", err)
+		}
+
+		// First check for presence of 'InstanceIP'. If found, this supersedes all
+		// other driver configuration.
+		if ip := drivers.EC2.InstanceIP.ValueString(); ip != "" {
+			log.Info("found instance IP input, driver will skip resource create " +
+				"and destroy")
+			d.SkipCreate = true
+			d.SkipTeardown = true
+			d.Network.ElasticIP = ip
+			return d, nil
+		}
+
+		// Look for the presence of the 'IMAGETEST_SKIP_TEARDOWN' var and mark the
+		// driver appropriately.
+		if v, ok := os.LookupEnv("IMAGETEST_SKIP_TEARDOWN"); ok && v != "" {
+			d.SkipTeardown = true
+		}
+
+		// Capture basic string inputs.
+		d.InstanceType = ec2types.InstanceType(drivers.EC2.InstanceType.ValueString())
+		d.AMI = drivers.EC2.AMI.ValueString()
+		d.Region = drivers.EC2.Region.ValueString()
+		d.InstanceProfileName = drivers.EC2.InstanceProfileName.ValueString()
+
+		// Capture volume mounts.
+		for _, mount := range drivers.EC2.VolumeMounts {
+			d.VolumeMounts = append(d.VolumeMounts, mount.ValueString())
+		}
+
+		// Capture device mounts.
+		for _, mount := range drivers.EC2.DeviceMounts {
+			d.DeviceMounts = append(d.DeviceMounts, mount.ValueString())
+		}
+
+		// Evaluate for GPU passthrough.
+		d.MountAllGPUs = drivers.EC2.MountAllGPUs.ValueBool()
+
+		// Translate all user-provided 'exec' objects to 'internal/drivers/ec2.Exec'.
+		// Capture 'user'.
+		d.Exec.User = drivers.EC2.Exec.User.ValueString()
+		if d.Exec.User == "" {
+			d.Exec.User = "ubuntu"
+		}
+
+		// Capture 'shell'.
+		d.Exec.Shell = drivers.EC2.Exec.Shell.ValueString()
+		if d.Exec.Shell == "" {
+			d.Exec.Shell = ssh.ShellBash
+		}
+
+		// Capture any provided environment variables.
+		d.Exec.Env = make(map[string]string)
+		// Sprinkle on top user provided pairs.
+		for k, v := range drivers.EC2.Exec.Env.Elements() {
+			if v.IsNull() || v.IsUnknown() {
+				continue
+			}
+			d.Exec.Env[k] = v.String()
+		}
+
+		// Capture commands.
+		d.Exec.Commands = make([]string, len(drivers.EC2.Exec.Commands))
+		for i, cmd := range drivers.EC2.Exec.Commands {
+			d.Exec.Commands[i] = cmd.ValueString()
+		}
+
+		// Capture any CloudInit userdata.
+		if userData := drivers.EC2.Exec.UserData.ValueString(); userData != "" {
+			d.Exec.UserData = base64.StdEncoding.EncodeToString([]byte(userData))
+		}
+		return d, nil
 
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", driver)
@@ -405,10 +536,82 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 							},
 						},
 					},
+					"aws_profile": schema.StringAttribute{
+						Description: "The AWS CLI profile to use for eksctl and AWS CLI commands",
+						Optional:    true,
+					},
+				},
+			},
+			"ec2": driverResourceSchemaEC2,
+		},
+	}
+}
+
+var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
+	Description: "The AWS EC2 driver.",
+	Optional:    true,
+	Attributes: map[string]schema.Attribute{
+		"region": schema.StringAttribute{
+			Description: "The AWS region to use for the EC2 driver (default is us-west-2).",
+			Optional:    true,
+		},
+		"ami": schema.StringAttribute{
+			Description: "The AMI to use for the AMI driver (default is Ubuntu-24.04).",
+			Optional:    true,
+		},
+		"instance_type": schema.StringAttribute{
+			Description: "The AWS EC2 instance type to launch (default is TODO).",
+			Optional:    true,
+		},
+		"instance_ip": schema.StringAttribute{
+			Description: "By default the EC2 driver will create and destroy many " +
+				"AWS resources (instance, VPC, IGW, etc.). To instead use an " +
+				"SSH-enabled environment provisioned outside of this driver, you may " +
+				"provide its IP address here. **NOTE**: This will override " +
+				"'instance_type' and 'AMI'!",
+			Optional: true,
+		},
+		"instance_profile_name": schema.StringAttribute{
+			Description: "The AWS IAM instance profile name to attach to the EC2 instance. " +
+				"If not specified, a default IAM role and instance profile will be created " +
+				"with ECR read-only permissions for accessing container images.",
+			Optional: true,
+		},
+		"exec": schema.SingleNestedAttribute{
+			Description: "Comamnds to execute on the EC2 instance after launch.",
+			Optional:    true,
+			Attributes: map[string]schema.Attribute{
+				"shell": schema.StringAttribute{
+					Optional: true,
+				},
+				"user": schema.StringAttribute{
+					Optional: true,
+				},
+				"env": schema.MapAttribute{
+					ElementType: types.StringType,
+					Optional:    true,
+				},
+				"commands": schema.ListAttribute{
+					ElementType: types.StringType,
+					Optional:    true,
+				},
+				"user_data": schema.StringAttribute{
+					Optional: true,
 				},
 			},
 		},
-	}
+		"volume_mounts": schema.ListAttribute{
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"device_mounts": schema.ListAttribute{
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"mount_all_gpus": schema.BoolAttribute{
+			Optional: true,
+		},
+	},
 }
 
 // https://github.com/google/go-containerregistry/blob/098045d5e61ff426a61a0eecc19ad0c433cd35a9/pkg/name/registry.go

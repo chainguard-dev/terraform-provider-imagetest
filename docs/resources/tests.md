@@ -40,6 +40,7 @@ description: |-
 Optional:
 
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
+- `ec2` (Attributes) The AWS EC2 driver. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
 
@@ -52,11 +53,40 @@ Optional:
 - `mirrors` (List of String)
 
 
+<a id="nestedatt--drivers--ec2"></a>
+### Nested Schema for `drivers.ec2`
+
+Optional:
+
+- `ami` (String) The AMI to use for the AMI driver (default is Ubuntu-24.04).
+- `device_mounts` (List of String)
+- `exec` (Attributes) Comamnds to execute on the EC2 instance after launch. (see [below for nested schema](#nestedatt--drivers--ec2--exec))
+- `instance_ip` (String) By default the EC2 driver will create and destroy many AWS resources (instance, VPC, IGW, etc.). To instead use an SSH-enabled environment provisioned outside of this driver, you may provide its IP address here. **NOTE**: This will override 'instance_type' and 'AMI'!
+- `instance_profile_name` (String) The AWS IAM instance profile name to attach to the EC2 instance. If not specified, a default IAM role and instance profile will be created with ECR read-only permissions for accessing container images.
+- `instance_type` (String) The AWS EC2 instance type to launch (default is TODO).
+- `mount_all_gpus` (Boolean)
+- `region` (String) The AWS region to use for the EC2 driver (default is us-west-2).
+- `volume_mounts` (List of String)
+
+<a id="nestedatt--drivers--ec2--exec"></a>
+### Nested Schema for `drivers.ec2.exec`
+
+Optional:
+
+- `commands` (List of String)
+- `env` (Map of String)
+- `shell` (String)
+- `user` (String)
+- `user_data` (String)
+
+
+
 <a id="nestedatt--drivers--eks_with_eksctl"></a>
 ### Nested Schema for `drivers.eks_with_eksctl`
 
 Optional:
 
+- `aws_profile` (String) The AWS CLI profile to use for eksctl and AWS CLI commands
 - `node_ami` (String) The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)
 - `node_count` (Number) The number of nodes to use for the eks_with_eksctl driver (default is 1)
 - `node_type` (String) The instance type to use for the eks_with_eksctl driver (default is m5.large)
