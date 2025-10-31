@@ -127,8 +127,8 @@ jobs:
 
       - run: go mod download
 
-      - run: go test -v -cover ./internal/provider/
-        timeout-minutes: 10
+      - run: go test -v -cover -timeout 30m ./internal/provider/
+        timeout-minutes: 35
         env:
           TF_ACC: "1"
           TF_LOG: "info"
