@@ -7,8 +7,6 @@ import (
 )
 
 func TestAccHarnessPterraformResource(t *testing.T) {
-	t.Parallel()
-
 	testCases := map[string][]resource.TestStep{
 		"local docker connector": {
 			// Create testing
@@ -77,7 +75,6 @@ resource "imagetest_feature" "test" {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
 				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,

@@ -8,8 +8,6 @@ import (
 )
 
 func TestAccContainerVolumeResource(t *testing.T) {
-	t.Parallel()
-
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting

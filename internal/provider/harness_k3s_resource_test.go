@@ -9,8 +9,6 @@ import (
 )
 
 func TestAccHarnessK3sResource(t *testing.T) {
-	t.Parallel()
-
 	testCases := map[string][]resource.TestStep{
 		"happy path": {
 			// Create testing
@@ -390,7 +388,6 @@ resource "terraform_data" "registry_down" {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
 				ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting

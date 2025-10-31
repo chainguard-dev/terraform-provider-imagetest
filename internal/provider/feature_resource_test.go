@@ -9,8 +9,6 @@ import (
 )
 
 func TestAccFeatureResource(t *testing.T) {
-	t.Parallel()
-
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
@@ -63,8 +61,6 @@ resource "imagetest_feature" "test" {
 }
 
 func TestAccFeatureResourceRetry(t *testing.T) {
-	t.Parallel()
-
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting
@@ -127,8 +123,6 @@ resource "imagetest_feature" "test" {
 // requests as well. This also hits the base_harness path, where all the
 // harness update logic is located.
 func TestAccFeatureResourceUpdate(t *testing.T) {
-	t.Parallel()
-
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testProviderWithRegistry(t, context.Background()), //nolint: usetesting

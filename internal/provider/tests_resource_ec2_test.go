@@ -108,7 +108,6 @@ func TestAccTestDriverEC2(t *testing.T) {
 
 	for name, steps := range tests {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			resource.Test(t, resource.TestCase{
 				ProtoV6ProviderFactories: factories,
 				Steps:                    steps,
