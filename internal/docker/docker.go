@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chainguard-dev/clog"
@@ -155,10 +156,16 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to get logs: %w", err)
 		}
-		defer logs.Close()
 
+		var loggerGrp sync.WaitGroup
+		defer func() {
+			_ = logs.Close()
+			loggerGrp.Wait()
+		}()
+
+		loggerGrp.Add(1)
 		go func() {
-			defer logs.Close()
+			defer loggerGrp.Done()
 			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
 			if err != nil {
 				_, _ = fmt.Fprintf(req.Logger, "error copying logs: %v", err)
@@ -171,6 +178,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	if req.HealthCheck != nil {
 		go func() {
 			for {
+				time.Sleep(time.Second)
 				select {
 				case <-ctx.Done():
 					return
@@ -180,10 +188,26 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
 						return
 					}
+					if inspect.State == nil {
+						// No usable state yet, try again.
+						continue
+					}
+					if !inspect.State.Running {
+						// The container isn't running yet or anymore. Ignore health status.
+						continue
+					}
 
-					if inspect.State != nil && inspect.State.Health != nil {
-						if inspect.State.Health.Status == "unhealthy" {
-							check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+					if inspect.State.Health == nil {
+						// No health info yet, try again.
+						continue
+					}
+					if inspect.State.Health.Status == container.Unhealthy {
+						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
+
+						// There is a race condition where the container can exit and the health
+						// check can report unhealthy because of it. In that case, ignore the
+						// unhealthy status because the main wait loop will catch the exit.
+						if !strings.Contains(check.Output, "cannot exec in a stopped container") {
 							unhealthyCh <- &RunError{
 								ExitCode: int64(check.ExitCode),
 								Message:  check.Output,
@@ -191,7 +215,6 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 							return
 						}
 					}
-					time.Sleep(time.Second)
 				}
 			}
 		}()
@@ -217,7 +240,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		}
 
 	case err := <-unhealthyCh:
-		return cid, err
+		return cid, fmt.Errorf("container marked unhealthy by healthcheck: %w", err)
 	}
 
 	return cid, nil
