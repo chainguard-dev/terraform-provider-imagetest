@@ -6,7 +6,7 @@ require (
 	chainguard.dev/apko v0.30.20
 	github.com/aws/aws-sdk-go-v2 v1.39.6
 	github.com/aws/aws-sdk-go-v2/config v1.31.17
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.262.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.263.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.49.2
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.81.1
 	github.com/chainguard-dev/clog v1.7.0
