@@ -3,7 +3,7 @@ module github.com/chainguard-dev/terraform-provider-imagetest
 go 1.25.3
 
 require (
-	chainguard.dev/apko v0.30.20
+	chainguard.dev/apko v0.30.21
 	github.com/aws/aws-sdk-go-v2 v1.39.6
 	github.com/aws/aws-sdk-go-v2/config v1.31.17
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.262.0
