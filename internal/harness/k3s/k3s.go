@@ -464,7 +464,7 @@ func (h *k3s) registrySecret(ctx context.Context) error {
 	return nil
 }
 
-func tmpl(tpl string, data interface{}) (string, error) {
+func tmpl(tpl string, data any) (string, error) {
 	t, err := template.New("config").Parse(tpl)
 	if err != nil {
 		return "", err

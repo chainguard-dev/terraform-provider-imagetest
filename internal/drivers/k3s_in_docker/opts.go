@@ -2,6 +2,7 @@ package k3sindocker
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -141,9 +142,7 @@ func WithSandboxEnvs(envs map[string]string) DriverOpts {
 		if d.SandboxEnvs == nil {
 			d.SandboxEnvs = make(map[string]string)
 		}
-		for k, v := range envs {
-			d.SandboxEnvs[k] = v
-		}
+		maps.Copy(d.SandboxEnvs, envs)
 		return nil
 	}
 }

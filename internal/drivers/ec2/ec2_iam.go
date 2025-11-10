@@ -62,12 +62,12 @@ func iamRoleCreate(ctx context.Context, client *iam.Client, roleName string, tag
 	log := clog.FromContext(ctx)
 
 	// Create the trust policy document for EC2 service.
-	trustPolicy := map[string]interface{}{
+	trustPolicy := map[string]any{
 		"Version": iamPolicyVersion,
-		"Statement": []map[string]interface{}{
+		"Statement": []map[string]any{
 			{
 				"Effect": iamEffectAllow,
-				"Principal": map[string]interface{}{
+				"Principal": map[string]any{
 					"Service": awsServiceEC2,
 				},
 				"Action": stsActionAssumeRole,

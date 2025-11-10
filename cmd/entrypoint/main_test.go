@@ -288,7 +288,7 @@ func TestRun_Artifacts(t *testing.T) {
 			if tt.expectPause {
 				go func() {
 					defer close(done)
-					for i := 0; i < 10; i++ {
+					for range 10 {
 						if _, err := os.Stat(pauseFifoPath); err == nil {
 							break
 						}
@@ -387,8 +387,7 @@ func setupTestArtifacts(t *testing.T, dir string, structure map[string]string) {
 			if err := os.MkdirAll(fullPath, 0o755); err != nil {
 				t.Fatalf("failed to create directory %s: %v", fullPath, err)
 			}
-		} else if strings.HasPrefix(content, "__SYMLINK__:") {
-			target := strings.TrimPrefix(content, "__SYMLINK__:")
+		} else if target, ok := strings.CutPrefix(content, "__SYMLINK__:"); ok {
 			if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 				t.Fatalf("failed to create parent directory for symlink %s: %v", fullPath, err)
 			}

@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
@@ -356,9 +357,7 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 		preq.Spec.Containers[0].Resources.Requests = corev1.ResourceList{}
 	}
 
-	for k, v := range k.request.Labels {
-		preq.Labels[k] = v
-	}
+	maps.Copy(preq.Labels, k.request.Labels)
 
 	// Now create the stupidly privileged pod that we'll use to run the steps
 	pod, err := k.cli.CoreV1().Pods(ns.Name).Create(ctx, preq, metav1.CreateOptions{})

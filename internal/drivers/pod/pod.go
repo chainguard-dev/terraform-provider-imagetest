@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 
@@ -576,13 +577,9 @@ func (o *opts) pod() *corev1.Pod {
 		},
 	}
 
-	for k, v := range o.ExtraLabels {
-		pod.Labels[k] = v
-	}
+	maps.Copy(pod.Labels, o.ExtraLabels)
 
-	for k, v := range o.ExtraAnnotations {
-		pod.Annotations[k] = v
-	}
+	maps.Copy(pod.Annotations, o.ExtraAnnotations)
 
 	for k, v := range o.ExtraEnvs {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
