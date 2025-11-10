@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"maps"
 	"os"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -431,9 +432,7 @@ func mergeResourceSchemas(schemas ...map[string]rschema.Attribute) map[string]rs
 	result := make(map[string]rschema.Attribute)
 
 	for _, s := range schemas {
-		for k, v := range s {
-			result[k] = v
-		}
+		maps.Copy(result, s)
 	}
 
 	return result

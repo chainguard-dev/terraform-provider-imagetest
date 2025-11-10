@@ -1,6 +1,8 @@
 package dockerindocker
 
 import (
+	"maps"
+
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -86,9 +88,7 @@ func WithExtraEnvs(envs map[string]string) DriverOpts {
 		if d.Envs == nil {
 			d.Envs = make(map[string]string)
 		}
-		for k, v := range envs {
-			d.Envs[k] = v
-		}
+		maps.Copy(d.Envs, envs)
 		return nil
 	}
 }

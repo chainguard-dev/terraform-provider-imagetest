@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -143,9 +144,7 @@ func (r *HarnessK3sResource) harness(ctx context.Context, data *HarnessK3sResour
 
 	if r.store.providerResourceData.Harnesses != nil {
 		if pc := r.store.providerResourceData.Harnesses.K3s; pc != nil {
-			for k, v := range pc.Registries {
-				registries[k] = v
-			}
+			maps.Copy(registries, pc.Registries)
 
 			for _, v := range pc.Networks {
 				networks = append(networks, docker.NetworkAttachment{

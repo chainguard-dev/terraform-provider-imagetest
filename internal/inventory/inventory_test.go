@@ -257,8 +257,7 @@ func TestInventory_Concurrency(t *testing.T) {
 
 	g, gctx := errgroup.WithContext(ctx)
 
-	for i := 0; i < numHarnesses; i++ {
-		i := i
+	for i := range numHarnesses {
 		g.Go(func() error {
 			return inv.AddHarness(gctx, fmt.Sprintf("harness-%d", i))
 		})
@@ -270,12 +269,10 @@ func TestInventory_Concurrency(t *testing.T) {
 
 	// Create features for each harness
 	g, gctx = errgroup.WithContext(ctx)
-	for i := 0; i < numHarnesses; i++ {
-		i := i
+	for i := range numHarnesses {
 		g.Go(func() error {
 			innerG, innerCtx := errgroup.WithContext(gctx)
-			for j := 0; j < numFeaturesPerHarness; j++ {
-				j := j
+			for j := range numFeaturesPerHarness {
 				innerG.Go(func() error {
 					return inv.AddFeature(innerCtx, fmt.Sprintf("harness-%d", i), inventory.Feature{
 						Id:      fmt.Sprintf("feature-%d-%d", i, j),
@@ -292,7 +289,7 @@ func TestInventory_Concurrency(t *testing.T) {
 	}
 
 	// Check if all features were added properly
-	for i := 0; i < numHarnesses; i++ {
+	for i := range numHarnesses {
 		harnessID := fmt.Sprintf("harness-%d", i)
 		features, err := inv.GetFeatures(ctx, harnessID)
 		if err != nil {
@@ -301,7 +298,7 @@ func TestInventory_Concurrency(t *testing.T) {
 		if len(features) != numFeaturesPerHarness {
 			t.Errorf("Expected %d features for harness %s, got %d", numFeaturesPerHarness, harnessID, len(features))
 		}
-		for j := 0; j < numFeaturesPerHarness; j++ {
+		for j := range numFeaturesPerHarness {
 			featureID := fmt.Sprintf("feature-%d-%d", i, j)
 			if _, exists := features[featureID]; !exists {
 				t.Errorf("Feature %s not found in harness %s", featureID, harnessID)

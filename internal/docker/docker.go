@@ -163,14 +163,12 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 			loggerGrp.Wait()
 		}()
 
-		loggerGrp.Add(1)
-		go func() {
-			defer loggerGrp.Done()
+		loggerGrp.Go(func() {
 			_, err = stdcopy.StdCopy(req.Logger, req.Logger, logs)
 			if err != nil {
 				_, _ = fmt.Fprintf(req.Logger, "error copying logs: %v", err)
 			}
-		}()
+		})
 	}
 
 	// If a health check is present, set up a poller to poll on health status

@@ -366,8 +366,7 @@ func (p *pterraform) evars() []*tfexec.VarOption {
 
 		k, v := parts[0], parts[1]
 
-		if strings.HasPrefix(k, "IMAGETEST_TF_VAR_") {
-			k = strings.TrimPrefix(k, "IMAGETEST_TF_VAR_")
+		if k, ok := strings.CutPrefix(k, "IMAGETEST_TF_VAR_"); ok {
 			opts = append(opts, tfexec.Var(fmt.Sprintf("%s=%s", k, v)))
 		}
 	}

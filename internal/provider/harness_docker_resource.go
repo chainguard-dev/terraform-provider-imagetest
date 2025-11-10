@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -167,9 +168,7 @@ func (r *HarnessDockerResource) harness(ctx context.Context, data *HarnessDocker
 				}
 			}
 
-			for k, v := range c.Registries {
-				registries[k] = v
-			}
+			maps.Copy(registries, c.Registries)
 
 			if c.Envs != nil {
 				opts = append(opts, docker.WithEnvs(c.Envs.Slice()...))

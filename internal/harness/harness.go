@@ -42,8 +42,8 @@ func (e *RunError) Error() string {
 
 	sb.WriteString("Command:\n")
 
-	cmdLines := strings.Split(strings.TrimSpace(e.Cmd), "\n")
-	for _, line := range cmdLines {
+	cmdLines := strings.SplitSeq(strings.TrimSpace(e.Cmd), "\n")
+	for line := range cmdLines {
 		sb.WriteString("\t")
 		sb.WriteString(strings.TrimLeft(line, " \t"))
 		sb.WriteString("\n")
@@ -54,8 +54,8 @@ func (e *RunError) Error() string {
 
 	// Write the output
 	sb.WriteString("Output (stdout/stderr):\n")
-	outputLines := strings.Split(strings.TrimSpace(e.CombinedOutput), "\n")
-	for _, line := range outputLines {
+	outputLines := strings.SplitSeq(strings.TrimSpace(e.CombinedOutput), "\n")
+	for line := range outputLines {
 		sb.WriteString("\t")
 		sb.WriteString(strings.TrimLeft(line, " \t"))
 		sb.WriteString("\n")
