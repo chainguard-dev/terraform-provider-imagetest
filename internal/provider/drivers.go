@@ -96,6 +96,7 @@ type EC2DriverResourceModel struct {
 	InstanceType        types.String               `tfsdk:"instance_type"`
 	InstanceIP          types.String               `tfsdk:"instance_ip"`
 	InstanceProfileName types.String               `tfsdk:"instance_profile_name"`
+	AvailabilityZone    types.String               `tfsdk:"availability_zone"`
 	Exec                EC2DriverExecResourceModel `tfsdk:"exec"`
 	VolumeMounts        []types.String             `tfsdk:"volume_mounts"`
 	DeviceMounts        []types.String             `tfsdk:"device_mounts"`
@@ -351,6 +352,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		d.AMI = drivers.EC2.AMI.ValueString()
 		d.Region = drivers.EC2.Region.ValueString()
 		d.InstanceProfileName = drivers.EC2.InstanceProfileName.ValueString()
+		d.AvailabilityZone = drivers.EC2.AvailabilityZone.ValueString()
 
 		// Capture volume mounts.
 		for _, mount := range drivers.EC2.VolumeMounts {
@@ -575,6 +577,11 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			Description: "The AWS IAM instance profile name to attach to the EC2 instance. " +
 				"If not specified, a default IAM role and instance profile will be created " +
 				"with ECR read-only permissions for accessing container images.",
+			Optional: true,
+		},
+		"availability_zone": schema.StringAttribute{
+			Description: "The AWS availability zone to use for the subnet (e.g., 'us-west-2a'). " +
+				"If not specified, AWS will automatically choose an availability zone.",
 			Optional: true,
 		},
 		"exec": schema.SingleNestedAttribute{
