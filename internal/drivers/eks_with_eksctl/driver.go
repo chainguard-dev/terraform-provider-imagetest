@@ -303,7 +303,7 @@ func (k *driver) deleteNodeGroup(ctx context.Context) error {
 
 	log := clog.FromContext(ctx)
 
-	if err := k.eksctl(ctx, "delete", "nodegroup", "--region="+k.region, "--cluster="+k.clusterName, "--name="+k.nodeGroup, "--disable-eviction"); err != nil {
+	if err := k.eksctl(ctx, "delete", "nodegroup", "--region="+k.region, "--cluster="+k.clusterName, "--name="+k.nodeGroup, "--disable-eviction", "--drain=false"); err != nil {
 		return fmt.Errorf("eksctl delete nodegroup: %w", err)
 	}
 
