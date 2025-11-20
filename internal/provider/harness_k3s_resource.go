@@ -315,7 +315,7 @@ func (r *HarnessK3sResource) bundler(data *HarnessK3sResourceModel) (bundler.Bun
 
 	// for everything else, use some variation of the apko bundler
 	opts := []bundler.ApkoOpt{
-		bundler.ApkoWithPackages("kubectl", "helm", "kustomize"),
+		bundler.ApkoWithPackages("kubectl", "helm~3", "kustomize"),
 		bundler.ApkoWithRemoteOptions(r.store.ropts...),
 	}
 
