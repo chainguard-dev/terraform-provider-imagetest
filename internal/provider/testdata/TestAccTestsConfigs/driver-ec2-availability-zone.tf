@@ -37,7 +37,8 @@ resource "imagetest_tests" "availability_zone" {
         shell = "bash"
         commands = [
           # Query the instance metadata to verify we're in the correct AZ
-          "INSTANCE_AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)",
+          "TOKEN=$(curl -X PUT \"http://169.254.169.254/latest/api/token\" -H \"X-aws-ec2-metadata-token-ttl-seconds: 3600\")",
+          "INSTANCE_AZ=$(curl -H \"X-aws-ec2-metadata-token: $TOKEN\" -s http://169.254.169.254/latest/meta-data/placement/availability-zone)",
           "echo \"Instance is running in AZ: $INSTANCE_AZ\"",
 
           # Verify we're in us-west-2a (not us-west-2d or other zones)
