@@ -117,6 +117,15 @@ jobs:
         uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
         with:
           egress-policy: audit
+      
+      # In some cases, we runs out of disk space during tests, so this hack frees up approx 10G.
+      # See the following issue for more info: https://github.com/actions/runner-images/issues/2840#issuecomment-1284059930
+      - name: Free up runner disk space
+        shell: bash
+        run: |
+          set -x
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
