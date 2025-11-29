@@ -62,6 +62,12 @@ type Driver struct {
 	// The IAM instance profile name to be associated with.
 	InstanceProfileName string
 
+	// The availability zone to use for the subnet.
+	//
+	// NOTE: If this is not provided, AWS will choose an availability zone
+	// automatically.
+	AvailabilityZone string
+
 	// Post-launch provisioning commands to be executed within the EC2 instance.
 	Exec Exec
 

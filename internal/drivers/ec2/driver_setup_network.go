@@ -42,7 +42,7 @@ func (d *Driver) deployNetwork(ctx context.Context) (NetworkDeployment, error) {
 	net.SubnetID, err = subnetCreate(
 		ctx,
 		d.ec2Client,
-		net.VPCID, net.SubnetCIDR,
+		net.VPCID, net.SubnetCIDR, d.AvailabilityZone,
 		tagName(net.SubnetName),
 	)
 	if err != nil {

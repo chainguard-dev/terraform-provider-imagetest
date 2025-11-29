@@ -59,6 +59,7 @@ Optional:
 Optional:
 
 - `ami` (String) The AMI to use for the AMI driver (default is Ubuntu-24.04).
+- `availability_zone` (String) The AWS availability zone to use for the subnet (e.g., 'us-west-2a'). If not specified, AWS will automatically choose an availability zone.
 - `device_mounts` (List of String)
 - `exec` (Attributes) Comamnds to execute on the EC2 instance after launch. (see [below for nested schema](#nestedatt--drivers--ec2--exec))
 - `instance_ip` (String) By default the EC2 driver will create and destroy many AWS resources (instance, VPC, IGW, etc.). To instead use an SSH-enabled environment provisioned outside of this driver, you may provide its IP address here. **NOTE**: This will override 'instance_type' and 'AMI'!

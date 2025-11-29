@@ -14,17 +14,22 @@ var (
 	ErrNilSubnetID  = fmt.Errorf("received no error in subnet create, but the subnet ID returned was nil")
 )
 
-func subnetCreate(ctx context.Context, client *ec2.Client, vpcID, subnetCIDR string, tags ...types.Tag) (string, error) {
-	result, err := client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+func subnetCreate(ctx context.Context, client *ec2.Client, vpcID, subnetCIDR string, availabilityZone string, tags ...types.Tag) (string, error) {
+	input := &ec2.CreateSubnetInput{
 		VpcId:     &vpcID,
 		CidrBlock: &subnetCIDR,
-		// TODO: Availability zone support would be nice.
-		// AvailabilityZone: *string,
 		TagSpecifications: tagSpecificationWithDefaults(
 			types.ResourceTypeSubnet,
 			tags...,
 		),
-	})
+	}
+
+	// Only set AvailabilityZone if provided
+	if availabilityZone != "" {
+		input.AvailabilityZone = &availabilityZone
+	}
+
+	result, err := client.CreateSubnet(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrSubnetCreate, err)
 	}
