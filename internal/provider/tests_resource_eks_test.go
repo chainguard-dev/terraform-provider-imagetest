@@ -1,5 +1,4 @@
 //go:build eks
-// +build eks
 
 package provider
 
@@ -47,7 +46,7 @@ resource "imagetest_tests" "foo" {
 }
 `, nodeAMI)
 
-	// Test with storage configuration
+	// Test with storage configuration and custom tags
 	tfWithStorage := fmt.Sprintf(`
 resource "imagetest_tests" "foo_with_storage" {
   name   = "foo-with-storage"
@@ -61,6 +60,10 @@ resource "imagetest_tests" "foo_with_storage" {
       storage = {
         size = "20GB"
         type = "gp3"
+      }
+      tags = {
+        "team"        = "platform"
+        "environment" = "test"
       }
     }
   }

@@ -1,12 +1,15 @@
 package ekswitheksctl
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -36,6 +39,7 @@ type driver struct {
 	nodeCount  int
 	storage    *StorageOptions
 	awsProfile string
+	tags       map[string]string
 
 	region           string
 	clusterName      string
@@ -60,6 +64,7 @@ type Options struct {
 	Storage                 *StorageOptions
 	PodIdentityAssociations []*PodIdentityAssociationOptions
 	AWSProfile              string
+	Tags                    map[string]string
 }
 
 type StorageOptions struct {
@@ -89,6 +94,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		namespace:  opts.Namespace,
 		storage:    opts.Storage,
 		awsProfile: opts.AWSProfile,
+		tags:       opts.Tags,
 	}
 	if k.region == "" {
 		k.region = regionDefault
@@ -184,6 +190,13 @@ func (k *driver) createLaunchTemplate(ctx context.Context) error {
 		})
 	}
 
+	ec2Tags := []ec2types.Tag{
+		{Key: aws.String("Name"), Value: aws.String(templateName)},
+	}
+	for key, value := range k.buildTags() {
+		ec2Tags = append(ec2Tags, ec2types.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+
 	input := &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(templateName),
 		VersionDescription: aws.String("Created by imagetest"),
@@ -194,16 +207,7 @@ func (k *driver) createLaunchTemplate(ctx context.Context) error {
 		TagSpecifications: []ec2types.TagSpecification{
 			{
 				ResourceType: ec2types.ResourceTypeLaunchTemplate,
-				Tags: []ec2types.Tag{
-					{
-						Key:   aws.String("Name"),
-						Value: aws.String(templateName),
-					},
-					{
-						Key:   aws.String("CreatedBy"),
-						Value: aws.String("imagetest"),
-					},
-				},
+				Tags:         ec2Tags,
 			},
 		},
 	}
@@ -256,28 +260,43 @@ func (k *driver) createNodeGroup(ctx context.Context) error {
 	}
 	defer os.Remove(configFile.Name())
 
-	configTemplate := `apiVersion: eksctl.io/v1alpha5
+	const configTemplate = `apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 metadata:
-  name: %s
-  region: %s
+  name: {{ .ClusterName }}
+  region: {{ .Region }}
 managedNodeGroups:
-- name: %s
-  desiredCapacity: %d
-  amiFamily: %s
+- name: {{ .NodeGroup }}
+  desiredCapacity: {{ .NodeCount }}
+  amiFamily: {{ .AMIFamily }}
   launchTemplate:
-    id: %s
+    id: {{ .LaunchTemplateId }}
     version: "1"
+  tags:
+{{- range $key, $value := .Tags }}
+    {{ $key }}: {{ $value | printf "%q" }}
+{{- end }}
 `
-	configContent := fmt.Sprintf(
-		configTemplate,
-		k.clusterName,
-		k.region,
-		k.nodeGroup,
-		k.nodeCount,
-		k.amiFamily(),
-		k.launchTemplateId,
-	)
+
+	tmpl, err := template.New("nodegroup").Parse(configTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse nodegroup template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, map[string]any{
+		"ClusterName":      k.clusterName,
+		"Region":           k.region,
+		"NodeGroup":        k.nodeGroup,
+		"NodeCount":        k.nodeCount,
+		"AMIFamily":        k.amiFamily(),
+		"LaunchTemplateId": k.launchTemplateId,
+		"Tags":             k.buildTags(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to execute nodegroup template: %w", err)
+	}
+	configContent := buf.String()
 
 	log.Infof("Using nodegroup config:\n%s", configContent)
 
@@ -338,7 +357,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 			return fmt.Errorf("eksctl create podidentityassociation: %w", err)
 		}
 		log.Infof("Created pod identity association for service account %s/%s and policy ARN %s for cluster %s",
-			v.namespace, v.serviceAccountName, k.nodeCount, v.permissionPolicyARN, k.clusterName)
+			v.namespace, v.serviceAccountName, v.permissionPolicyARN, k.clusterName)
 	}
 
 	return nil
@@ -366,7 +385,7 @@ func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
 			return fmt.Errorf("eksctl delete podidentityassociation: %w", err)
 		}
 		log.Infof("Deleted pod identity associations for service account %s/%s for cluster %s",
-			v.namespace, v.serviceAccountName, k.nodeCount, v.permissionPolicyARN, k.clusterName)
+			v.namespace, v.serviceAccountName, k.clusterName)
 	}
 
 	return nil
@@ -423,6 +442,13 @@ func (k *driver) Setup(ctx context.Context) error {
 			"--name=" + k.clusterName,
 			"--without-nodegroup",
 		}
+
+		tags := k.buildTags()
+		pairs := make([]string, 0, len(tags))
+		for key, value := range tags {
+			pairs = append(pairs, key+"="+value)
+		}
+		args = append(args, "--tags="+strings.Join(pairs, ","))
 
 		if err := k.eksctl(ctx, args...); err != nil {
 			return fmt.Errorf("eksctl create cluster: %w", err)
@@ -500,4 +526,14 @@ func (k *driver) amiFamily() string {
 		return "AmazonLinux2023"
 	}
 	return "AmazonLinux2"
+}
+
+func (k *driver) buildTags() map[string]string {
+	tags := map[string]string{
+		"imagetest":              "true",
+		"imagetest:test-name":    k.name,
+		"imagetest:cluster-name": k.clusterName,
+	}
+	maps.Copy(tags, k.tags)
+	return tags
 }

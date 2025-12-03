@@ -16,6 +16,20 @@
 set -eo pipefail
 
 ################################################################################
+# Cloud-Init
+
+# Wait for cloud-init to complete if it's running (user_data may be installing
+# packages/drivers that we depend on). Timeout after 10 minutes.
+if command -v cloud-init &>/dev/null; then
+  echo "$(date --rfc-3339=s) INFO Waiting for cloud-init to complete (timeout: 10m)..." >&2
+  if timeout 600 sudo cloud-init status --wait; then
+    echo "$(date --rfc-3339=s) INFO Cloud-init complete." >&2
+  else
+    echo "$(date --rfc-3339=s) WARN Cloud-init wait timed out or failed, continuing anyway." >&2
+  fi
+fi
+
+################################################################################
 # Logging
 
 # Define some ANSI escape sequences for coloring log levels

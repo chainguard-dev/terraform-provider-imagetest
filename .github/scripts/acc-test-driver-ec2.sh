@@ -2,11 +2,20 @@
 
 readonly default_registry="ttl.sh"
 
+# Require VPC_ID to be set - EC2 driver needs a pre-provisioned VPC.
+if [ -z "$VPC_ID" ]; then
+  echo "ERROR: VPC_ID environment variable is required."
+  echo "The EC2 driver requires a pre-provisioned VPC."
+  exit 1
+fi
+echo "Using VPC_ID [${VPC_ID}]."
+export TF_VAR_vpc_id="${VPC_ID}"
+
 # Set a default 'IMAGETEST_REGISTRY' value, if necessary.
 #
 # The driver's acceptance test will do this automatically, but trying to add
 # some clarity by handling here.
-if [ -z $IMAGETEST_REGISTRY ]; then
+if [ -z "$IMAGETEST_REGISTRY" ]; then
   echo "No 'IMAGETEST_REGISTRY' set, using default [${default_registry}]."
   export IMAGETEST_REGISTRY="ttl.sh"
 else

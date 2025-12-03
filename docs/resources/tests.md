@@ -58,26 +58,32 @@ Optional:
 
 Optional:
 
-- `ami` (String) The AMI to use for the AMI driver (default is Ubuntu-24.04).
-- `device_mounts` (List of String)
-- `exec` (Attributes) Comamnds to execute on the EC2 instance after launch. (see [below for nested schema](#nestedatt--drivers--ec2--exec))
-- `instance_ip` (String) By default the EC2 driver will create and destroy many AWS resources (instance, VPC, IGW, etc.). To instead use an SSH-enabled environment provisioned outside of this driver, you may provide its IP address here. **NOTE**: This will override 'instance_type' and 'AMI'!
-- `instance_profile_name` (String) The AWS IAM instance profile name to attach to the EC2 instance. If not specified, a default IAM role and instance profile will be created with ECR read-only permissions for accessing container images.
-- `instance_type` (String) The AWS EC2 instance type to launch (default is TODO).
-- `mount_all_gpus` (Boolean)
-- `region` (String) The AWS region to use for the EC2 driver (default is us-west-2).
-- `volume_mounts` (List of String)
+- `ami` (String) The AMI ID to launch. Required unless using existing_instance.
+- `device_mounts` (List of String) Device mounts for the test container (format: src:dst).
+- `env` (Map of String) Environment variables for setup commands and container.
+- `existing_instance` (Attributes) Use an existing instance instead of creating new resources. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
+- `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
+- `instance_profile_name` (String) IAM instance profile name. If not specified, one is created with ECR read-only permissions.
+- `instance_type` (String) The EC2 instance type (default: t3.medium).
+- `mount_all_gpus` (Boolean, Deprecated) Deprecated: use gpus = 'all' instead.
+- `region` (String) The AWS region (default: us-west-2).
+- `root_volume_size` (Number) Root volume size in GB (default: 50).
+- `setup_commands` (List of String) Commands to run on the instance before tests.
+- `shell` (String) Shell to use for commands (default: bash).
+- `ssh_port` (Number) SSH port for connecting to the instance (default: 22).
+- `ssh_user` (String) SSH user for connecting to the instance (default: ubuntu).
+- `subnet_cidr` (String) The CIDR block for the subnet. If not specified, an available /24 is auto-detected.
+- `user_data` (String) Cloud-init user data (will be base64 encoded).
+- `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
+- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance.
 
-<a id="nestedatt--drivers--ec2--exec"></a>
-### Nested Schema for `drivers.ec2.exec`
+<a id="nestedatt--drivers--ec2--existing_instance"></a>
+### Nested Schema for `drivers.ec2.existing_instance`
 
-Optional:
+Required:
 
-- `commands` (List of String)
-- `env` (Map of String)
-- `shell` (String)
-- `user` (String)
-- `user_data` (String)
+- `ip` (String) IP address of the existing instance.
+- `ssh_key` (String) Path to the SSH private key file.
 
 
 
@@ -93,6 +99,7 @@ Optional:
 - `pod_identity_associations` (Attributes List) Pod Identity Associations for the EKS driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--pod_identity_associations))
 - `region` (String) The AWS region to use for the eks_with_eksctl driver (default is us-west-2)
 - `storage` (Attributes) Storage configuration for the eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--storage))
+- `tags` (Map of String) Additional tags to apply to all AWS resources created by the driver. Auto-generated tags (imagetest, imagetest:test-name, imagetest:cluster-name) are always included.
 
 <a id="nestedatt--drivers--eks_with_eksctl--pod_identity_associations"></a>
 ### Nested Schema for `drivers.eks_with_eksctl.pod_identity_associations`
