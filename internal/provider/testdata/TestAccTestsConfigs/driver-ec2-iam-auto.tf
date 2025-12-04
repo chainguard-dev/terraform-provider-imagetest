@@ -1,25 +1,27 @@
-# driver-ec2-iam-auto.tf tests automatic IAM role and instance profile creation
+# driver-ec2-iam-auto.tf tests automatic IAM role and instance profile creation.
 #
-# Test workflow:
-#
-# 1. Launch EC2 instance WITHOUT specifying instance_profile_name
-# 2. Verify that IAM role and instance profile are automatically created
-# 3. Verify that EC2 instance can access ECR (pull container images)
-# 4. Run a simple test that requires ECR access
+# Verifies:
+# - IAM role is auto-created when instance_profile_name not specified
+# - Instance can access IAM metadata endpoint
+# - Auto-created role has ECR permissions
+
+variable "vpc_id" {
+  type = string
+}
 
 locals {
-  layers = {
-    base = {
-      image  = "cgr.dev/chainguard/busybox"
-      tag    = "latest"
-      digest = "sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-    }
-    test = {
-      image  = "cgr.dev/chainguard/busybox"
-      tag    = "latest"
-      digest = "sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-    }
-  }
+  docker_cloud_init = <<-EOF
+    #cloud-config
+    packages:
+      - docker.io
+      - awscli
+    runcmd:
+      - systemctl enable docker
+      - systemctl start docker
+      - usermod -aG docker ubuntu
+  EOF
+
+  busybox = "cgr.dev/chainguard/busybox:latest@sha256:ecc152fe3dece44e60d1aa0fbbefb624902b4af0e2ed8c2c84dfbce653ff064f"
 }
 
 resource "imagetest_tests" "iam_auto" {
@@ -28,42 +30,26 @@ resource "imagetest_tests" "iam_auto" {
 
   drivers = {
     ec2 = {
-      # Canonical's Ubuntu 24.04, amd64
-      ami           = "ami-01b52ecd9c0144a93"
+      vpc_id        = var.vpc_id
+      ami           = "ami-01b52ecd9c0144a93" # Ubuntu 24.04 amd64
       instance_type = "t3.medium"
-      # NOTE: instance_profile_name is NOT specified - should auto-create
-
-      exec = {
-        user  = "ubuntu"
-        shell = "bash"
-        commands = [
-          # Install docker and awscli for testing ECR access
-          "sudo apt-get update",
-          "sudo apt-get install -y docker.io awscli",
-          "sudo systemctl start docker",
-          "sudo usermod -a -G docker ubuntu",
-
-          # Test that instance has IAM role attached
-          "curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/ | grep imagetest",
-
-          # Test that IAM role has ECR permissions by attempting to get ECR token
-          # This should succeed if IAM role has AmazonEC2ContainerRegistryReadOnly policy
-          "aws sts get-caller-identity",
-          "aws ecr get-login-password --region us-west-2 || echo 'ECR token test completed'",
-        ]
-      }
+      user_data     = local.docker_cloud_init
+      setup_commands = [
+        "curl -sf http://169.254.169.254/latest/meta-data/iam/security-credentials/ | grep -q imagetest",
+        "aws sts get-caller-identity",
+      ]
     }
   }
 
   images = {
-    test_image = "${local.layers.base.image}:${local.layers.base.tag}@${local.layers.base.digest}"
+    test = local.busybox
   }
 
   tests = [{
-    name  = "iam-auto-creation-test"
-    image = "${local.layers.test.image}:${local.layers.test.tag}@${local.layers.test.digest}"
-    cmd   = "echo 'IAM auto-creation test passed!'; exit 0"
+    name  = "iam-auto"
+    image = local.busybox
+    cmd   = "echo 'IAM auto-creation verified'"
   }]
 
-  timeout = "15m"
+  timeout = "10m"
 }

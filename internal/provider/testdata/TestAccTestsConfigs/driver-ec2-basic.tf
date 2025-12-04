@@ -1,59 +1,53 @@
-# driver-ec2-volume-mount.tf implements an acceptance test of the 'ec2' driver.
+# driver-ec2-basic.tf tests basic EC2 driver functionality.
 #
-# Test workflow:
-#
-# 1. Check arbitrary variable equality across two entries in the driver
-#    configuration's 'exec.commands' list (these commands are executed within
-#    a persistent shell session so variables defined in one step should persist
-#    in the next).
-# 2. Simply echo 'Hello, World!' for the test.
-locals {
-  layers = {
-    base = {
-      image  = "cgr.dev/chainguard/busybox"
-      tag    = "latest"
-      digest = "sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-    }
-    test = {
-      image  = "cgr.dev/chainguard/busybox"
-      tag    = "latest"
-      digest = "sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
-    }
-  }
+# Verifies:
+# - Instance provisioning with cloud-init
+# - setup_commands execute in persistent shell session
+# - Container runs and exits successfully
+
+variable "vpc_id" {
+  type = string
 }
 
-resource "imagetest_tests" "foo" {
+locals {
+  docker_cloud_init = <<-EOF
+    #cloud-config
+    packages:
+      - docker.io
+    runcmd:
+      - systemctl enable docker
+      - systemctl start docker
+      - usermod -aG docker ubuntu
+  EOF
+
+  busybox = "cgr.dev/chainguard/busybox:latest@sha256:ecc152fe3dece44e60d1aa0fbbefb624902b4af0e2ed8c2c84dfbce653ff064f"
+}
+
+resource "imagetest_tests" "basic" {
   name   = "driver-ec2-basic"
   driver = "ec2"
 
   drivers = {
     ec2 = {
-      # Canonical's Ubuntu 24.04, amd64
-      ami           = "ami-01b52ecd9c0144a93"
-      instance_type = "t3.xlarge"
-
-      exec = {
-        user  = "ubuntu"
-        shell = "bash"
-        commands = [
-          # These two commands are just a silly little example to demonstrate
-          # the persistence of state across commands since everything in
-          # 'commands' is executed within the scope of a single SSH session.
-          "some=1337",
-          "[ $some -eq 1337 ] && exit 0 || exit 1",
-        ]
-      }
+      vpc_id        = var.vpc_id
+      ami           = "ami-01b52ecd9c0144a93" # Ubuntu 24.04 amd64
+      instance_type = "t3.medium"
+      user_data     = local.docker_cloud_init
+      setup_commands = [
+        "VAR=hello",
+        "[ \"$VAR\" = hello ]",
+      ]
     }
   }
 
   images = {
-    foo = "${local.layers.base.image}:${local.layers.base.tag}@${local.layers.base.digest}"
+    test = local.busybox
   }
 
   tests = [{
-    name  = "driver-ec2-basic"
-    image = "${local.layers.test.image}:${local.layers.test.tag}@${local.layers.test.digest}"
-    cmd   = "echo 'Hello, world!'; exit 0"
+    name  = "basic"
+    image = local.busybox
+    cmd   = "echo success"
   }]
 
   timeout = "10m"

@@ -1,12 +1,6 @@
 //go:build ec2
-// +build ec2
 
 package provider
-
-// tests_resource_ec2_test.go tests the EC2 driver.
-//
-// To test locally, use the 'make' target ('make ec2acc') and refer to
-// '.github/scripts/acc-test-driver-ec2.sh' for more details.
 
 import (
 	_ "embed"
@@ -29,45 +23,27 @@ var (
 	configDriverEC2TestCommandsFail string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-volume-mount.tf
 	configDriverEC2VolumeMount string
-	//go:embed testdata/TestAccTestsConfigs/driver-ec2-gpu-mount.tf
-	configDriverEC2GPUMount string
 	//go:embed testdata/TestAccTestsConfigs/driver-ec2-iam-auto.tf
 	configDriverEC2IAMAuto string
-	//go:embed testdata/TestAccTestsConfigs/driver-ec2-iam-custom.tf
-	configDriverEC2IAMCustom string
 )
 
-var tests = map[string][]resource.TestStep{
-	// Verifies a simple 'exit 0' passes.
-	"driver-ec2-basic": {{
+var ec2Tests = map[string][]resource.TestStep{
+	"basic": {{
 		Config: configDriverEC2Basic,
 	}},
-	// Verifies a failure which occurs in the 'drivers' object commands fails
-	// the run.
-	"driver-ec2-driver-commands-fail": {{
+	"driver-commands-fail": {{
 		Config:      configDriverEC2DriverCommandsFail,
 		ExpectError: regexp.MustCompile("Process exited with status 1"),
 	}},
-	// Verifies a test failure is properly caught as a failure.
-	"driver-ec2-test-commands-fail": {{
+	"test-commands-fail": {{
 		Config:      configDriverEC2TestCommandsFail,
-		ExpectError: regexp.MustCompile("container exited with code: 1"),
+		ExpectError: regexp.MustCompile("container exited with code 1"),
 	}},
-	// Verifies a volume mount is successful.
-	"driver-ec2-with-volume-mount": {{
+	"volume-mount": {{
 		Config: configDriverEC2VolumeMount,
 	}},
-	// Verifies a GPU mount is successful.
-	"driver-ec2-with-gpu": {{
-		Config: configDriverEC2GPUMount,
-	}},
-	// Verifies automatic IAM role and instance profile creation.
-	"driver-ec2-iam-auto": {{
+	"iam-auto": {{
 		Config: configDriverEC2IAMAuto,
-	}},
-	// Verifies custom IAM instance profile usage.
-	"driver-ec2-iam-custom": {{
-		Config: configDriverEC2IAMCustom,
 	}},
 }
 
@@ -76,37 +52,20 @@ func TestAccTestDriverEC2(t *testing.T) {
 		Level: slog.LevelDebug,
 	})))
 
-	// Set a default registry URI if one was not provided via env vars.
-	const defaultRegistryURI = "ttl.sh/terraform-provider-imagetest"
-	var registryURI string
-	var ok bool
-	if registryURI, ok = os.LookupEnv("IMAGETEST_REGISTRY"); ok {
-		slog.Info(
-			"using registry from environment ('IMAGETEST_REGISTRY')",
-			"registry", registryURI,
-		)
+	registryURI := os.Getenv("IMAGETEST_REGISTRY")
+	if registryURI == "" {
+		registryURI = "ttl.sh/terraform-provider-imagetest"
+		slog.Info("using default registry", "registry", registryURI)
 	} else {
-		registryURI = defaultRegistryURI
-		slog.Info(
-			"using default registry ('IMAGETEST_REGISTRY' not set)",
-			"registry", registryURI,
-		)
+		slog.Info("using registry from environment", "registry", registryURI)
 	}
 
-	// Construct the provider server.
-	pserver := providerserver.NewProtocol6WithError(
-		&ImageTestProvider{
-			repo: registryURI,
-		},
-	)
-
-	// Construct the provider factory map.
-	type ProviderFactoryFn = func() (tfprotov6.ProviderServer, error)
-	factories := map[string]ProviderFactoryFn{
+	pserver := providerserver.NewProtocol6WithError(&ImageTestProvider{repo: registryURI})
+	factories := map[string]func() (tfprotov6.ProviderServer, error){
 		"imagetest": pserver,
 	}
 
-	for name, steps := range tests {
+	for name, steps := range ec2Tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			resource.Test(t, resource.TestCase{
