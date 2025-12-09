@@ -9,12 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"text/template"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
@@ -48,9 +50,11 @@ type driver struct {
 	kcli             kubernetes.Interface
 	kcfg             *rest.Config
 	ec2Client        *ec2.Client
+	eksClient        *eks.Client
 	launchTemplate   string
 	launchTemplateId string
 	nodeGroup        string
+	vpcId            string
 
 	podIdentityAssociations []*podIdentityAssociation
 }
@@ -247,6 +251,293 @@ func (k *driver) deleteLaunchTemplate(ctx context.Context) error {
 	return nil
 }
 
+func (k *driver) getClusterVpcId(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	result, err := k.eksClient.DescribeCluster(ctx, &eks.DescribeClusterInput{
+		Name: aws.String(k.clusterName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe cluster %s: %w", k.clusterName, err)
+	}
+
+	if result.Cluster != nil && result.Cluster.ResourcesVpcConfig != nil && result.Cluster.ResourcesVpcConfig.VpcId != nil {
+		k.vpcId = *result.Cluster.ResourcesVpcConfig.VpcId
+		log.Infof("Found VPC ID for cluster %s: %s", k.clusterName, k.vpcId)
+	} else {
+		log.Warnf("Could not retrieve VPC ID for cluster %s", k.clusterName)
+	}
+
+	return nil
+}
+
+func (k *driver) cleanupVpc(ctx context.Context) error {
+	if k.vpcId == "" {
+		return nil
+	}
+
+	log := clog.FromContext(ctx)
+	log.Infof("Attempting to clean up VPC %s", k.vpcId)
+
+	// Retry loop for VPC cleanup
+	maxRetries := 10
+	retryDelay := 5 * time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Infof("Retry attempt %d/%d for VPC cleanup", attempt+1, maxRetries)
+			time.Sleep(retryDelay)
+		}
+
+		// Step 1: Delete all network interfaces (ENIs)
+		if err := k.deleteNetworkInterfaces(ctx); err != nil {
+			log.Warnf("Failed to delete network interfaces: %v", err)
+			continue
+		}
+
+		// Step 2: Delete non-default security groups
+		if err := k.deleteSecurityGroups(ctx); err != nil {
+			log.Warnf("Failed to delete security groups: %v", err)
+			continue
+		}
+
+		// Step 3: Delete subnets
+		if err := k.deleteSubnets(ctx); err != nil {
+			log.Warnf("Failed to delete subnets: %v", err)
+			continue
+		}
+
+		// Step 4: Detach and delete internet gateways
+		if err := k.deleteInternetGateways(ctx); err != nil {
+			log.Warnf("Failed to delete internet gateways: %v", err)
+			continue
+		}
+
+		// Step 5: Delete route tables (except main)
+		if err := k.deleteRouteTables(ctx); err != nil {
+			log.Warnf("Failed to delete route tables: %v", err)
+			continue
+		}
+
+		// Step 6: Finally, delete the VPC
+		_, err := k.ec2Client.DeleteVpc(ctx, &ec2.DeleteVpcInput{
+			VpcId: aws.String(k.vpcId),
+		})
+		if err != nil {
+			log.Warnf("Failed to delete VPC: %v", err)
+			continue
+		}
+
+		log.Infof("Successfully deleted VPC %s", k.vpcId)
+		return nil
+	}
+
+	return fmt.Errorf("failed to delete VPC %s after %d retries", k.vpcId, maxRetries)
+}
+
+func (k *driver) deleteNetworkInterfaces(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	result, err := k.ec2Client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("vpc-id"),
+				Values: []string{k.vpcId},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe network interfaces: %w", err)
+	}
+
+	for _, eni := range result.NetworkInterfaces {
+		if eni.NetworkInterfaceId == nil {
+			continue
+		}
+
+		// Detach if attached
+		if eni.Attachment != nil && eni.Attachment.AttachmentId != nil {
+			log.Infof("Detaching ENI %s", *eni.NetworkInterfaceId)
+			_, err := k.ec2Client.DetachNetworkInterface(ctx, &ec2.DetachNetworkInterfaceInput{
+				AttachmentId: eni.Attachment.AttachmentId,
+				Force:        aws.Bool(true),
+			})
+			if err != nil {
+				log.Warnf("Failed to detach ENI %s: %v", *eni.NetworkInterfaceId, err)
+			}
+			// Wait a bit for detachment to complete
+			time.Sleep(2 * time.Second)
+		}
+
+		// Delete the ENI
+		log.Infof("Deleting ENI %s", *eni.NetworkInterfaceId)
+		_, err := k.ec2Client.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{
+			NetworkInterfaceId: eni.NetworkInterfaceId,
+		})
+		if err != nil {
+			log.Warnf("Failed to delete ENI %s: %v", *eni.NetworkInterfaceId, err)
+		}
+	}
+
+	return nil
+}
+
+func (k *driver) deleteSecurityGroups(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	result, err := k.ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("vpc-id"),
+				Values: []string{k.vpcId},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe security groups: %w", err)
+	}
+
+	for _, sg := range result.SecurityGroups {
+		if sg.GroupId == nil || sg.GroupName == nil {
+			continue
+		}
+
+		// Skip default security group
+		if *sg.GroupName == "default" {
+			continue
+		}
+
+		log.Infof("Deleting security group %s (%s)", *sg.GroupName, *sg.GroupId)
+		_, err := k.ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
+			GroupId: sg.GroupId,
+		})
+		if err != nil {
+			log.Warnf("Failed to delete security group %s: %v", *sg.GroupId, err)
+		}
+	}
+
+	return nil
+}
+
+func (k *driver) deleteSubnets(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	result, err := k.ec2Client.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("vpc-id"),
+				Values: []string{k.vpcId},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe subnets: %w", err)
+	}
+
+	for _, subnet := range result.Subnets {
+		if subnet.SubnetId == nil {
+			continue
+		}
+
+		log.Infof("Deleting subnet %s", *subnet.SubnetId)
+		_, err := k.ec2Client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
+			SubnetId: subnet.SubnetId,
+		})
+		if err != nil {
+			log.Warnf("Failed to delete subnet %s: %v", *subnet.SubnetId, err)
+		}
+	}
+
+	return nil
+}
+
+func (k *driver) deleteInternetGateways(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	result, err := k.ec2Client.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("attachment.vpc-id"),
+				Values: []string{k.vpcId},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe internet gateways: %w", err)
+	}
+
+	for _, igw := range result.InternetGateways {
+		if igw.InternetGatewayId == nil {
+			continue
+		}
+
+		// Detach from VPC first
+		log.Infof("Detaching internet gateway %s from VPC %s", *igw.InternetGatewayId, k.vpcId)
+		_, err := k.ec2Client.DetachInternetGateway(ctx, &ec2.DetachInternetGatewayInput{
+			InternetGatewayId: igw.InternetGatewayId,
+			VpcId:             aws.String(k.vpcId),
+		})
+		if err != nil {
+			log.Warnf("Failed to detach internet gateway %s: %v", *igw.InternetGatewayId, err)
+		}
+
+		// Delete the internet gateway
+		log.Infof("Deleting internet gateway %s", *igw.InternetGatewayId)
+		_, err = k.ec2Client.DeleteInternetGateway(ctx, &ec2.DeleteInternetGatewayInput{
+			InternetGatewayId: igw.InternetGatewayId,
+		})
+		if err != nil {
+			log.Warnf("Failed to delete internet gateway %s: %v", *igw.InternetGatewayId, err)
+		}
+	}
+
+	return nil
+}
+
+func (k *driver) deleteRouteTables(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	result, err := k.ec2Client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("vpc-id"),
+				Values: []string{k.vpcId},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe route tables: %w", err)
+	}
+
+	for _, rt := range result.RouteTables {
+		if rt.RouteTableId == nil {
+			continue
+		}
+
+		// Skip main route table
+		isMain := false
+		for _, assoc := range rt.Associations {
+			if assoc.Main != nil && *assoc.Main {
+				isMain = true
+				break
+			}
+		}
+		if isMain {
+			continue
+		}
+
+		log.Infof("Deleting route table %s", *rt.RouteTableId)
+		_, err := k.ec2Client.DeleteRouteTable(ctx, &ec2.DeleteRouteTableInput{
+			RouteTableId: rt.RouteTableId,
+		})
+		if err != nil {
+			log.Warnf("Failed to delete route table %s: %v", *rt.RouteTableId, err)
+		}
+	}
+
+	return nil
+}
+
 func (k *driver) createNodeGroup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
@@ -419,6 +710,7 @@ func (k *driver) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 	k.ec2Client = ec2.NewFromConfig(awsCfg)
+	k.eksClient = eks.NewFromConfig(awsCfg)
 
 	usingExistingCluster := false
 	if _, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
@@ -454,6 +746,11 @@ func (k *driver) Setup(ctx context.Context) error {
 			return fmt.Errorf("eksctl create cluster: %w", err)
 		}
 		log.Infof("Created cluster %s without nodegroups", k.clusterName)
+
+		// Retrieve the VPC ID for potential cleanup later
+		if err := k.getClusterVpcId(ctx); err != nil {
+			log.Warnf("Failed to retrieve VPC ID: %v", err)
+		}
 	}
 
 	if err := k.createNodeGroup(ctx); err != nil {
@@ -487,13 +784,20 @@ func (k *driver) Teardown(ctx context.Context) error {
 		return nil
 	}
 
+	// Delete pod identity associations first (before cluster deletion)
+	if k.podIdentityAssociations != nil {
+		if err := k.deletePodIdentityAssociation(ctx); err != nil {
+			return fmt.Errorf("deleting pod identity association: %w", err)
+		}
+	}
+
 	if k.nodeGroup != "" {
 		if err := k.deleteNodeGroup(ctx); err != nil {
 			return err
 		}
 	}
 
-	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.clusterName); err != nil {
+	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.clusterName, "--wait"); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
 
@@ -503,9 +807,11 @@ func (k *driver) Teardown(ctx context.Context) error {
 		}
 	}
 
-	if k.podIdentityAssociations != nil {
-		if err := k.deletePodIdentityAssociation(ctx); err != nil {
-			return fmt.Errorf("deleting pod identity association: %w", err)
+	// Attempt to clean up VPC if eksctl didn't fully delete it
+	// This is a best-effort operation, so we only log warnings on failure
+	if k.vpcId != "" {
+		if err := k.cleanupVpc(ctx); err != nil {
+			clog.FromContext(ctx).Warnf("VPC cleanup failed (this may be expected if eksctl already cleaned it up): %v", err)
 		}
 	}
 
