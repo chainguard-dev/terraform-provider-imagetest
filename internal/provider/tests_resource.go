@@ -502,7 +502,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		trefs = append(trefs, tref)
 	}
 
-	dr, err := t.LoadDriver(ctx, data.Drivers, data.Driver, data.Id.ValueString())
+	dr, err := t.LoadDriver(ctx, data.Drivers, data.Driver, data.Id.ValueString(), data.Timeout.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to load driver", err.Error())}
 	}

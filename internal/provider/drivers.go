@@ -115,7 +115,16 @@ type EC2ExistingInstanceResourceModel struct {
 	SSHKey types.String `tfsdk:"ssh_key"`
 }
 
-func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string) (drivers.Tester, error) {
+// LoadDriver creates and configures a driver instance based on the specified driver type.
+//
+// The driver parameter determines which driver implementation is loaded (k3s_in_docker,
+// docker_in_docker, eks_with_eksctl, or ec2), and the drivers parameter provides the
+// driver-specific configuration.
+//
+// The timeout parameter is passed to the eks_with_eksctl driver to override eksctl's
+// default timeout. Other drivers (k3s_in_docker, docker_in_docker, ec2) do not use this
+// parameter and rely solely on context-based timeout control.
+func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string, timeout string) (drivers.Tester, error) {
 	if drivers == nil {
 		drivers = &TestsDriversResourceModel{}
 	}
@@ -305,6 +314,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			Storage:                 storageOpts,
 			AWSProfile:              cfg.AWSProfile.ValueString(),
 			Tags:                    cfg.Tags,
+			Timeout:                 timeout,
 		})
 
 	case DriverEC2:
