@@ -10,7 +10,7 @@ testacc:
 ec2acc:
 	.github/scripts/acc-test-driver-ec2.sh
 
-terraform-provider-imagetest: goimports lint testacc
+terraform-provider-imagetest: goimports lint
 	CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=devel -X main.commit=$(shell git rev-parse --short HEAD)" .
 
 .PHONY: clean

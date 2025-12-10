@@ -40,6 +40,7 @@ type driver struct {
 	storage    *StorageOptions
 	awsProfile string
 	tags       map[string]string
+	timeout    string // Go duration format for eksctl --timeout flag
 
 	region           string
 	clusterName      string
@@ -65,6 +66,7 @@ type Options struct {
 	PodIdentityAssociations []*PodIdentityAssociationOptions
 	AWSProfile              string
 	Tags                    map[string]string
+	Timeout                 string // Go duration format (e.g., "30m", "1h") for eksctl --timeout flag
 }
 
 type StorageOptions struct {
@@ -84,6 +86,11 @@ type podIdentityAssociation struct {
 	namespace           string
 }
 
+// NewDriver creates a new EKS driver instance that uses eksctl to provision and manage
+// an Amazon EKS cluster for running tests.
+//
+// When opts.Timeout is set, it overrides eksctl's default timeout of 25 minutes for all
+// long-running operations (cluster creation, node group operations, etc.).
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
 		name:       name,
@@ -95,6 +102,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		storage:    opts.Storage,
 		awsProfile: opts.AWSProfile,
 		tags:       opts.Tags,
+		timeout:    opts.Timeout,
 	}
 	if k.region == "" {
 		k.region = regionDefault
@@ -131,6 +139,12 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	args = append(args, []string{
 		"--color", "false", // Disable color output
 	}...)
+
+	// Add timeout flag if configured (empty string = use eksctl default of 25m)
+	if k.timeout != "" {
+		args = append(args, "--timeout", k.timeout)
+	}
+
 	clog.FromContext(ctx).Infof("eksctl %v", args)
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
 	cmd.Env = os.Environ() // Copy the environment
