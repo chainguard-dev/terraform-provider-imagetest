@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 	"github.com/charmbracelet/log"
@@ -54,6 +55,7 @@ type driver struct {
 	nodeGroup        string
 
 	podIdentityAssociations []*podIdentityAssociation
+	registries              map[string]*RegistryConfig
 }
 
 type Options struct {
@@ -67,6 +69,19 @@ type Options struct {
 	AWSProfile              string
 	Tags                    map[string]string
 	Timeout                 string // Go duration format (e.g., "30m", "1h") for eksctl --timeout flag
+	Registries              map[string]*RegistryConfig
+}
+
+// RegistryConfig holds authentication configuration for a container registry.
+type RegistryConfig struct {
+	Auth *RegistryAuthConfig
+}
+
+// RegistryAuthConfig holds the credentials for authenticating to a container registry.
+type RegistryAuthConfig struct {
+	Username string
+	Password string
+	Auth     string
 }
 
 type StorageOptions struct {
@@ -127,6 +142,10 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 				serviceAccountName:  v.ServiceAccountName,
 			})
 		}
+	}
+
+	if opts.Registries != nil {
+		k.registries = opts.Registries
 	}
 
 	if _, err := exec.LookPath("eksctl"); err != nil {
@@ -527,11 +546,27 @@ func (k *driver) Teardown(ctx context.Context) error {
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
+	// Build docker config from registries for pod authentication
+	dcfg := &docker.DockerConfig{
+		Auths: make(map[string]docker.DockerAuthConfig, len(k.registries)),
+	}
+	for reg, cfg := range k.registries {
+		if cfg.Auth == nil {
+			continue
+		}
+		dcfg.Auths[reg] = docker.DockerAuthConfig{
+			Username: cfg.Auth.Username,
+			Password: cfg.Auth.Password,
+			Auth:     cfg.Auth.Auth,
+		}
+	}
+
 	return pod.Run(ctx, k.kcfg,
 		pod.WithImageRef(ref),
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "eks_with_eksctl",
 		}),
+		pod.WithRegistryStaticAuth(dcfg),
 	)
 }
 
