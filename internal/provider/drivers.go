@@ -18,6 +18,7 @@ import (
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -116,32 +117,37 @@ type EC2ExistingInstanceResourceModel struct {
 }
 
 // LoadDriver creates and configures a driver instance based on the specified driver type.
-//
-// The driver parameter determines which driver implementation is loaded (k3s_in_docker,
-// docker_in_docker, eks_with_eksctl, or ec2), and the drivers parameter provides the
-// driver-specific configuration.
-//
-// The timeout parameter is passed to the eks_with_eksctl driver to override eksctl's
-// default timeout. Other drivers (k3s_in_docker, docker_in_docker, ec2) do not use this
-// parameter and rely solely on context-based timeout control.
-func (t TestsResource) LoadDriver(ctx context.Context, drivers *TestsDriversResourceModel, driver DriverResourceModel, id string, timeout string) (drivers.Tester, error) {
-	if drivers == nil {
-		drivers = &TestsDriversResourceModel{}
+func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel) (drivers.Tester, error) {
+	driversCfg := data.Drivers
+	if driversCfg == nil {
+		driversCfg = &TestsDriversResourceModel{}
 	}
 
-	switch driver {
+	id := data.Id.ValueString()
+	timeout := data.Timeout.ValueString()
+
+	repo := t.repo
+	if data.RepoOverride.ValueString() != "" {
+		var err error
+		repo, err = name.NewRepository(data.RepoOverride.ValueString())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse repo override: %w", err)
+		}
+	}
+
+	switch data.Driver {
 	case DriverK3sInDocker:
-		cfg := drivers.K3sInDocker
+		cfg := driversCfg.K3sInDocker
 		if cfg == nil {
 			cfg = &K3sInDockerDriverResourceModel{}
 		}
 
 		opts := []k3sindocker.DriverOpts{
-			k3sindocker.WithRegistry(t.repo.RegistryStr()),
+			k3sindocker.WithRegistry(repo.RegistryStr()),
 		}
 
-		for _, repo := range t.extraRepos {
-			opts = append(opts, k3sindocker.WithRegistry(repo.RegistryStr()))
+		for _, extraRepo := range t.extraRepos {
+			opts = append(opts, k3sindocker.WithRegistry(extraRepo.RegistryStr()))
 		}
 
 		tf, err := os.CreateTemp("", "imagetest-k3s-in-docker")
@@ -242,18 +248,18 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		return k3sindocker.NewDriver(id, opts...)
 
 	case DriverDockerInDocker:
-		cfg := drivers.DockerInDocker
+		cfg := driversCfg.DockerInDocker
 		if cfg == nil {
 			cfg = &DockerInDockerDriverResourceModel{}
 		}
 
 		opts := []dockerindocker.DriverOpts{
 			dockerindocker.WithRemoteOptions(t.ropts...),
-			dockerindocker.WithRegistryAuth(t.repo.RegistryStr()),
+			dockerindocker.WithRegistryAuth(repo.RegistryStr()),
 		}
 
-		for _, repo := range t.extraRepos {
-			opts = append(opts, dockerindocker.WithRegistryAuth(repo.RegistryStr()))
+		for _, extraRepo := range t.extraRepos {
+			opts = append(opts, dockerindocker.WithRegistryAuth(extraRepo.RegistryStr()))
 		}
 
 		if cfg.Image.ValueString() != "" {
@@ -264,8 +270,8 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			opts = append(opts, dockerindocker.WithRegistryMirrors(cfg.Mirrors...))
 		}
 
-		if isLocalRegistry(t.repo.Registry) {
-			u, err := url.Parse("http://" + t.repo.RegistryStr())
+		if isLocalRegistry(repo.Registry) {
+			u, err := url.Parse("http://" + repo.RegistryStr())
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse registry url: %w", err)
 			}
@@ -280,7 +286,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		return dockerindocker.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
-		cfg := drivers.EKSWithEksctl
+		cfg := driversCfg.EKSWithEksctl
 		if cfg == nil {
 			cfg = &EKSWithEksctlDriverResourceModel{}
 		}
@@ -305,6 +311,28 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			}
 		}
 
+		// Build registry auth config from the resolved repo
+		registries := make(map[string]*ekswitheksctl.RegistryConfig)
+		r, err := name.NewRegistry(repo.RegistryStr())
+		if err != nil {
+			return nil, fmt.Errorf("invalid registry name %s: %w", repo.RegistryStr(), err)
+		}
+		a, err := authn.DefaultKeychain.Resolve(r)
+		if err != nil {
+			return nil, fmt.Errorf("resolving keychain for registry %s: %w", r.String(), err)
+		}
+		acfg, err := a.Authorization()
+		if err != nil {
+			return nil, fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
+		}
+		registries[repo.RegistryStr()] = &ekswitheksctl.RegistryConfig{
+			Auth: &ekswitheksctl.RegistryAuthConfig{
+				Username: acfg.Username,
+				Password: acfg.Password,
+				Auth:     acfg.Auth,
+			},
+		}
+
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
 			Region:                  cfg.Region.ValueString(),
 			NodeAMI:                 cfg.NodeAMI.ValueString(),
@@ -315,33 +343,34 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			AWSProfile:              cfg.AWSProfile.ValueString(),
 			Tags:                    cfg.Tags,
 			Timeout:                 timeout,
+			Registries:              registries,
 		})
 
 	case DriverEC2:
 		log := clog.FromContext(ctx)
 
-		if drivers.EC2 == nil {
+		if driversCfg.EC2 == nil {
 			return nil, fmt.Errorf("the EC2 driver was specified, but no configuration was provided")
 		}
 
 		// Build the driver config
 		driverCfg := mc2.Config{
-			VPCID:               drivers.EC2.VPCID.ValueString(),
-			Region:              drivers.EC2.Region.ValueString(),
-			AMI:                 drivers.EC2.AMI.ValueString(),
-			InstanceType:        drivers.EC2.InstanceType.ValueString(),
-			RootVolumeSize:      int32(drivers.EC2.RootVolumeSize.ValueInt64()),
-			InstanceProfileName: drivers.EC2.InstanceProfileName.ValueString(),
-			SubnetCIDR:          drivers.EC2.SubnetCIDR.ValueString(),
-			SSHUser:             drivers.EC2.SSHUser.ValueString(),
-			SSHPort:             int32(drivers.EC2.SSHPort.ValueInt64()),
-			Shell:               drivers.EC2.Shell.ValueString(),
-			UserData:            drivers.EC2.UserData.ValueString(),
-			GPUs:                drivers.EC2.GPUs.ValueString(),
+			VPCID:               driversCfg.EC2.VPCID.ValueString(),
+			Region:              driversCfg.EC2.Region.ValueString(),
+			AMI:                 driversCfg.EC2.AMI.ValueString(),
+			InstanceType:        driversCfg.EC2.InstanceType.ValueString(),
+			RootVolumeSize:      int32(driversCfg.EC2.RootVolumeSize.ValueInt64()),
+			InstanceProfileName: driversCfg.EC2.InstanceProfileName.ValueString(),
+			SubnetCIDR:          driversCfg.EC2.SubnetCIDR.ValueString(),
+			SSHUser:             driversCfg.EC2.SSHUser.ValueString(),
+			SSHPort:             int32(driversCfg.EC2.SSHPort.ValueInt64()),
+			Shell:               driversCfg.EC2.Shell.ValueString(),
+			UserData:            driversCfg.EC2.UserData.ValueString(),
+			GPUs:                driversCfg.EC2.GPUs.ValueString(),
 		}
 
 		// Handle deprecated mount_all_gpus field
-		if drivers.EC2.MountAllGPUs.ValueBool() && driverCfg.GPUs == "" {
+		if driversCfg.EC2.MountAllGPUs.ValueBool() && driverCfg.GPUs == "" {
 			driverCfg.GPUs = "all"
 		}
 
@@ -351,22 +380,22 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 
 		// Handle existing instance mode
-		if drivers.EC2.ExistingInstance != nil {
+		if driversCfg.EC2.ExistingInstance != nil {
 			log.Info("using existing instance mode")
 			driverCfg.ExistingInstance = &mc2.ExistingInstance{
-				IP:     drivers.EC2.ExistingInstance.IP.ValueString(),
-				SSHKey: drivers.EC2.ExistingInstance.SSHKey.ValueString(),
+				IP:     driversCfg.EC2.ExistingInstance.IP.ValueString(),
+				SSHKey: driversCfg.EC2.ExistingInstance.SSHKey.ValueString(),
 			}
 		}
 
 		// Capture setup commands
-		for _, cmd := range drivers.EC2.SetupCommands {
+		for _, cmd := range driversCfg.EC2.SetupCommands {
 			driverCfg.SetupCommands = append(driverCfg.SetupCommands, cmd.ValueString())
 		}
 
 		// Capture environment variables
 		driverCfg.Env = make(map[string]string)
-		for k, v := range drivers.EC2.Env.Elements() {
+		for k, v := range driversCfg.EC2.Env.Elements() {
 			if v.IsNull() || v.IsUnknown() {
 				continue
 			}
@@ -376,12 +405,12 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 
 		// Capture volume mounts
-		for _, mount := range drivers.EC2.VolumeMounts {
+		for _, mount := range driversCfg.EC2.VolumeMounts {
 			driverCfg.VolumeMounts = append(driverCfg.VolumeMounts, mount.ValueString())
 		}
 
 		// Capture device mounts
-		for _, mount := range drivers.EC2.DeviceMounts {
+		for _, mount := range driversCfg.EC2.DeviceMounts {
 			driverCfg.DeviceMounts = append(driverCfg.DeviceMounts, mount.ValueString())
 		}
 
@@ -401,7 +430,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		return mc2.NewDriver(driverCfg, ec2Client, iamClient)
 
 	default:
-		return nil, fmt.Errorf("no matching driver: %s", driver)
+		return nil, fmt.Errorf("no matching driver: %s", data.Driver)
 	}
 }
 
