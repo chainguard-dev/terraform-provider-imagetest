@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -370,6 +372,26 @@ func (d *driver) runSetupCommands(ctx context.Context) error {
 	return nil
 }
 
+// sanitizeAWSTagValue sanitizes a string to be a valid AWS tag value.
+// AWS tag values allow: Unicode letters, digits, whitespace, and _ . : / = + - @
+// Max length is 256 characters for values, 128 for keys.
+func sanitizeAWSTagValue(s string, maxLen int) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
+			return r
+		}
+		switch r {
+		case '_', '.', ':', '/', '=', '+', '-', '@':
+			return r
+		}
+		return -1
+	}, s)
+	if len(s) > maxLen {
+		s = s[:maxLen]
+	}
+	return s
+}
+
 func (d *driver) baseTags(name string) map[string]string {
 	tags := map[string]string{
 		"Name":                name,
@@ -414,7 +436,14 @@ func (d *driver) buildTags(name string) []ec2types.Tag {
 	base := d.baseTags(name)
 	tags := make([]ec2types.Tag, 0, len(base))
 	for k, v := range base {
-		tags = append(tags, ec2types.Tag{Key: aws.String(k), Value: aws.String(v)})
+		k = sanitizeAWSTagValue(k, 128)
+		if k == "" {
+			continue
+		}
+		tags = append(tags, ec2types.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(sanitizeAWSTagValue(v, 256)),
+		})
 	}
 	return tags
 }
@@ -423,7 +452,14 @@ func (d *driver) buildIAMTags(name string) []iamtypes.Tag {
 	base := d.baseTags(name)
 	tags := make([]iamtypes.Tag, 0, len(base))
 	for k, v := range base {
-		tags = append(tags, iamtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
+		k = sanitizeAWSTagValue(k, 128)
+		if k == "" {
+			continue
+		}
+		tags = append(tags, iamtypes.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(sanitizeAWSTagValue(v, 256)),
+		})
 	}
 	return tags
 }
