@@ -33,6 +33,8 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 
 	opts := []string{
 		"-o", "StrictHostKeyChecking=no",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=10",
 		"-i", d.sshKeyPath(),
 		"-l", d.cfg.SSHUser,
 	}

@@ -39,7 +39,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-var defaultSSHArgs = []string{"-o", "StrictHostKeyChecking=no"}
+var defaultSSHArgs = []string{
+	"-o", "StrictHostKeyChecking=no",
+	"-o", "ServerAliveInterval=30",
+	"-o", "ServerAliveCountMax=10",
+}
 
 type Client struct {
 	inner     *client.Client
