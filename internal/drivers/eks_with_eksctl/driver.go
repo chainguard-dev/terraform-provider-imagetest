@@ -371,7 +371,7 @@ func (k *driver) cleanupVpc(ctx context.Context) error {
 func (k *driver) deleteNetworkInterfaces(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
-	result, err := k.ec2Client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{
+	paginator := ec2.NewDescribeNetworkInterfacesPaginator(k.ec2Client, &ec2.DescribeNetworkInterfacesInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("vpc-id"),
@@ -379,36 +379,42 @@ func (k *driver) deleteNetworkInterfaces(ctx context.Context) error {
 			},
 		},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to describe network interfaces: %w", err)
-	}
 
-	for _, eni := range result.NetworkInterfaces {
-		if eni.NetworkInterfaceId == nil {
-			continue
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to describe network interfaces: %w", err)
 		}
 
-		// Detach if attached
-		if eni.Attachment != nil && eni.Attachment.AttachmentId != nil {
-			log.Infof("Detaching ENI %s", *eni.NetworkInterfaceId)
-			_, err := k.ec2Client.DetachNetworkInterface(ctx, &ec2.DetachNetworkInterfaceInput{
-				AttachmentId: eni.Attachment.AttachmentId,
-				Force:        aws.Bool(true),
+		for _, eni := range page.NetworkInterfaces {
+			if eni.NetworkInterfaceId == nil {
+				continue
+			}
+
+			// Detach if attached or attaching (skip if already detaching or detached)
+			if eni.Attachment != nil &&
+				(eni.Attachment.Status == ec2types.AttachmentStatusAttached ||
+					eni.Attachment.Status == ec2types.AttachmentStatusAttaching) {
+				log.Infof("Detaching ENI %s", *eni.NetworkInterfaceId)
+				_, err := k.ec2Client.DetachNetworkInterface(ctx, &ec2.DetachNetworkInterfaceInput{
+					AttachmentId: eni.Attachment.AttachmentId,
+					Force:        aws.Bool(true),
+				})
+				if err != nil {
+					log.Warnf("Failed to detach ENI %s: %v", *eni.NetworkInterfaceId, err)
+				}
+				// Wait a bit for detachment to complete
+				time.Sleep(2 * time.Second)
+			}
+
+			// Delete the ENI
+			log.Infof("Deleting ENI %s", *eni.NetworkInterfaceId)
+			_, err := k.ec2Client.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{
+				NetworkInterfaceId: eni.NetworkInterfaceId,
 			})
 			if err != nil {
-				log.Warnf("Failed to detach ENI %s: %v", *eni.NetworkInterfaceId, err)
+				log.Warnf("Failed to delete ENI %s: %v", *eni.NetworkInterfaceId, err)
 			}
-			// Wait a bit for detachment to complete
-			time.Sleep(2 * time.Second)
-		}
-
-		// Delete the ENI
-		log.Infof("Deleting ENI %s", *eni.NetworkInterfaceId)
-		_, err := k.ec2Client.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{
-			NetworkInterfaceId: eni.NetworkInterfaceId,
-		})
-		if err != nil {
-			log.Warnf("Failed to delete ENI %s: %v", *eni.NetworkInterfaceId, err)
 		}
 	}
 
@@ -418,7 +424,7 @@ func (k *driver) deleteNetworkInterfaces(ctx context.Context) error {
 func (k *driver) deleteSecurityGroups(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
-	result, err := k.ec2Client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+	paginator := ec2.NewDescribeSecurityGroupsPaginator(k.ec2Client, &ec2.DescribeSecurityGroupsInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("vpc-id"),
@@ -426,26 +432,30 @@ func (k *driver) deleteSecurityGroups(ctx context.Context) error {
 			},
 		},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to describe security groups: %w", err)
-	}
 
-	for _, sg := range result.SecurityGroups {
-		if sg.GroupId == nil || sg.GroupName == nil {
-			continue
-		}
-
-		// Skip default security group
-		if *sg.GroupName == "default" {
-			continue
-		}
-
-		log.Infof("Deleting security group %s (%s)", *sg.GroupName, *sg.GroupId)
-		_, err := k.ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
-			GroupId: sg.GroupId,
-		})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			log.Warnf("Failed to delete security group %s: %v", *sg.GroupId, err)
+			return fmt.Errorf("failed to describe security groups: %w", err)
+		}
+
+		for _, sg := range page.SecurityGroups {
+			if sg.GroupId == nil || sg.GroupName == nil {
+				continue
+			}
+
+			// Skip default security group
+			if *sg.GroupName == "default" {
+				continue
+			}
+
+			log.Infof("Deleting security group %s (%s)", *sg.GroupName, *sg.GroupId)
+			_, err := k.ec2Client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
+				GroupId: sg.GroupId,
+			})
+			if err != nil {
+				log.Warnf("Failed to delete security group %s: %v", *sg.GroupId, err)
+			}
 		}
 	}
 
@@ -455,7 +465,7 @@ func (k *driver) deleteSecurityGroups(ctx context.Context) error {
 func (k *driver) deleteSubnets(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
-	result, err := k.ec2Client.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
+	paginator := ec2.NewDescribeSubnetsPaginator(k.ec2Client, &ec2.DescribeSubnetsInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("vpc-id"),
@@ -463,21 +473,25 @@ func (k *driver) deleteSubnets(ctx context.Context) error {
 			},
 		},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to describe subnets: %w", err)
-	}
 
-	for _, subnet := range result.Subnets {
-		if subnet.SubnetId == nil {
-			continue
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to describe subnets: %w", err)
 		}
 
-		log.Infof("Deleting subnet %s", *subnet.SubnetId)
-		_, err := k.ec2Client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
-			SubnetId: subnet.SubnetId,
-		})
-		if err != nil {
-			log.Warnf("Failed to delete subnet %s: %v", *subnet.SubnetId, err)
+		for _, subnet := range page.Subnets {
+			if subnet.SubnetId == nil {
+				continue
+			}
+
+			log.Infof("Deleting subnet %s", *subnet.SubnetId)
+			_, err := k.ec2Client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{
+				SubnetId: subnet.SubnetId,
+			})
+			if err != nil {
+				log.Warnf("Failed to delete subnet %s: %v", *subnet.SubnetId, err)
+			}
 		}
 	}
 
@@ -487,7 +501,7 @@ func (k *driver) deleteSubnets(ctx context.Context) error {
 func (k *driver) deleteInternetGateways(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
-	result, err := k.ec2Client.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{
+	paginator := ec2.NewDescribeInternetGatewaysPaginator(k.ec2Client, &ec2.DescribeInternetGatewaysInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("attachment.vpc-id"),
@@ -495,32 +509,36 @@ func (k *driver) deleteInternetGateways(ctx context.Context) error {
 			},
 		},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to describe internet gateways: %w", err)
-	}
 
-	for _, igw := range result.InternetGateways {
-		if igw.InternetGatewayId == nil {
-			continue
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to describe internet gateways: %w", err)
 		}
 
-		// Detach from VPC first
-		log.Infof("Detaching internet gateway %s from VPC %s", *igw.InternetGatewayId, k.vpcId)
-		_, err := k.ec2Client.DetachInternetGateway(ctx, &ec2.DetachInternetGatewayInput{
-			InternetGatewayId: igw.InternetGatewayId,
-			VpcId:             aws.String(k.vpcId),
-		})
-		if err != nil {
-			log.Warnf("Failed to detach internet gateway %s: %v", *igw.InternetGatewayId, err)
-		}
+		for _, igw := range page.InternetGateways {
+			if igw.InternetGatewayId == nil {
+				continue
+			}
 
-		// Delete the internet gateway
-		log.Infof("Deleting internet gateway %s", *igw.InternetGatewayId)
-		_, err = k.ec2Client.DeleteInternetGateway(ctx, &ec2.DeleteInternetGatewayInput{
-			InternetGatewayId: igw.InternetGatewayId,
-		})
-		if err != nil {
-			log.Warnf("Failed to delete internet gateway %s: %v", *igw.InternetGatewayId, err)
+			// Detach from VPC first
+			log.Infof("Detaching internet gateway %s from VPC %s", *igw.InternetGatewayId, k.vpcId)
+			_, err := k.ec2Client.DetachInternetGateway(ctx, &ec2.DetachInternetGatewayInput{
+				InternetGatewayId: igw.InternetGatewayId,
+				VpcId:             aws.String(k.vpcId),
+			})
+			if err != nil {
+				log.Warnf("Failed to detach internet gateway %s: %v", *igw.InternetGatewayId, err)
+			}
+
+			// Delete the internet gateway
+			log.Infof("Deleting internet gateway %s", *igw.InternetGatewayId)
+			_, err = k.ec2Client.DeleteInternetGateway(ctx, &ec2.DeleteInternetGatewayInput{
+				InternetGatewayId: igw.InternetGatewayId,
+			})
+			if err != nil {
+				log.Warnf("Failed to delete internet gateway %s: %v", *igw.InternetGatewayId, err)
+			}
 		}
 	}
 
@@ -530,7 +548,7 @@ func (k *driver) deleteInternetGateways(ctx context.Context) error {
 func (k *driver) deleteRouteTables(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
-	result, err := k.ec2Client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
+	paginator := ec2.NewDescribeRouteTablesPaginator(k.ec2Client, &ec2.DescribeRouteTablesInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("vpc-id"),
@@ -538,33 +556,37 @@ func (k *driver) deleteRouteTables(ctx context.Context) error {
 			},
 		},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to describe route tables: %w", err)
-	}
 
-	for _, rt := range result.RouteTables {
-		if rt.RouteTableId == nil {
-			continue
-		}
-
-		// Skip main route table
-		isMain := false
-		for _, assoc := range rt.Associations {
-			if assoc.Main != nil && *assoc.Main {
-				isMain = true
-				break
-			}
-		}
-		if isMain {
-			continue
-		}
-
-		log.Infof("Deleting route table %s", *rt.RouteTableId)
-		_, err := k.ec2Client.DeleteRouteTable(ctx, &ec2.DeleteRouteTableInput{
-			RouteTableId: rt.RouteTableId,
-		})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			log.Warnf("Failed to delete route table %s: %v", *rt.RouteTableId, err)
+			return fmt.Errorf("failed to describe route tables: %w", err)
+		}
+
+		for _, rt := range page.RouteTables {
+			if rt.RouteTableId == nil {
+				continue
+			}
+
+			// Skip main route table
+			isMain := false
+			for _, assoc := range rt.Associations {
+				if assoc.Main != nil && *assoc.Main {
+					isMain = true
+					break
+				}
+			}
+			if isMain {
+				continue
+			}
+
+			log.Infof("Deleting route table %s", *rt.RouteTableId)
+			_, err := k.ec2Client.DeleteRouteTable(ctx, &ec2.DeleteRouteTableInput{
+				RouteTableId: rt.RouteTableId,
+			})
+			if err != nil {
+				log.Warnf("Failed to delete route table %s: %v", *rt.RouteTableId, err)
+			}
 		}
 	}
 
@@ -830,7 +852,7 @@ func (k *driver) Teardown(ctx context.Context) error {
 		}
 	}
 
-	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.clusterName, "--wait"); err != nil {
+	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.clusterName, "--force"); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
 
