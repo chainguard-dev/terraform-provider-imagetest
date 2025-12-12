@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 	"text/template"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -316,7 +316,7 @@ func (k *driver) cleanupVpc(ctx context.Context) error {
 	maxRetries := 10
 	retryDelay := 5 * time.Second
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		if attempt > 0 {
 			log.Infof("Retry attempt %d/%d for VPC cleanup", attempt+1, maxRetries)
 			time.Sleep(retryDelay)
