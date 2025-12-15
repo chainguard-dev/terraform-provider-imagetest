@@ -166,8 +166,8 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 		args = append(args, "--timeout", k.timeout)
 	}
 
-	clog.FromContext(ctx).Infof("eksctl %v", args)
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
+	clog.FromContext(ctx).Infof("Running command: eksctl %s", strings.Join(args, " "))
 	cmd.Env = os.Environ() // Copy the environment
 	cmd.Env = append(cmd.Env, "KUBECONFIG="+k.kubeconfig)
 	if k.awsProfile != "" {
