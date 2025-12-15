@@ -157,6 +157,8 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	args = append(args, []string{
 		"--color", "false", // Disable color output
+		"--dumpLogs",       // Enable CloudFormation log dumping on failures
+		"--verbose", "4",   // Set maximum verbosity level
 	}...)
 
 	// Add timeout flag if configured (empty string = use eksctl default of 25m)
