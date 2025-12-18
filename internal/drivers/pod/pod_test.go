@@ -404,7 +404,7 @@ func TestMonitor(t *testing.T) {
 			}
 
 			// Create a fake clientset
-			client := fake.NewSimpleClientset()
+			client := fake.NewClientset()
 
 			// Set up fake watchers
 			podWatcher := watch.NewFakeWithChanSize(10, false)
