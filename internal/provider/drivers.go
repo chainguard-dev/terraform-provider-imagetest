@@ -56,6 +56,7 @@ type AKSDriverResourceModel struct {
 	KubernetesVersion       types.String                              `tfsdk:"kubernetes_version"`
 	Tags                    map[string]string                         `tfsdk:"tags"`
 	PodIdentityAssociations []*AKSPodIdentityAssociationResourceModel `tfsdk:"pod_identity_associations"`
+	AttachedACRs            []*AKSAttachedACR                         `tfsdk:"attached_acrs"`
 }
 
 type AKSPodIdentityAssociationResourceModel struct {
@@ -67,6 +68,12 @@ type AKSPodIdentityAssociationResourceModel struct {
 type AKSRoleAssignment struct {
 	RoleDefinitionID types.String `tfsdk:"role_definition_id"`
 	Scope            types.String `tfsdk:"scope"`
+}
+
+type AKSAttachedACR struct {
+	ResourceGroup   types.String `tfsdk:"resource_group"`
+	Name            types.String `tfsdk:"name"`
+	CreateIfMissing types.Bool   `tfsdk:"create_if_missing"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -212,6 +219,18 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 				podIdentityAssociations = append(podIdentityAssociations, association)
 			}
 		}
+		attachedACRs := []*aks.AttachedACR{}
+		if cfg.AttachedACRs != nil {
+			for _, v := range cfg.AttachedACRs {
+				acr := aks.AttachedACR{
+					Name:            v.Name.ValueString(),
+					ResourceGroup:   v.ResourceGroup.ValueString(),
+					CreateIfMissing: v.CreateIfMissing.ValueBool(),
+				}
+
+				attachedACRs = append(attachedACRs, &acr)
+			}
+		}
 
 		return aks.NewDriver(id, aks.Options{
 			ResourceGroup:           cfg.ResourceGroup.ValueString(),
@@ -228,6 +247,7 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 			Tags:                    cfg.Tags,
 			Registries:              registries,
 			PodIdentityAssociations: podIdentityAssociations,
+			AttachedACRs:            attachedACRs,
 		})
 
 	case DriverK3sInDocker:
@@ -546,7 +566,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Optional:    true,
 					},
 					"dns_prefix": schema.StringAttribute{
-						Description: "The DNS prefix of the AKS cluster (uses the cluster name by default).",
+						Description: "The DNS prefix of the AKS cluster (uses the cluster name by default)",
 						Optional:    true,
 					},
 					"node_count": schema.Int32Attribute{
@@ -558,11 +578,11 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Optional:    true,
 					},
 					"node_pool_name": schema.StringAttribute{
-						Description: "The node pool name to use for the AKS driver.",
+						Description: "The node pool name to use for the AKS driver",
 						Optional:    true,
 					},
 					"node_disk_size": schema.Int32Attribute{
-						Description: "Use a custom VM disk size (GB) instead of the one defined by the VM size.",
+						Description: "Use a custom VM disk size (GB) instead of the one defined by the VM size",
 						Optional:    true,
 					},
 					"node_disk_type": schema.StringAttribute{
@@ -596,7 +616,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 									Optional:    true,
 								},
 								"role_assignments": schema.ListNestedAttribute{
-									Description: "AKS roles to assign.",
+									Description: "AKS roles to assign",
 									Optional:    true,
 									NestedObject: schema.NestedAttributeObject{
 										Attributes: map[string]schema.Attribute{
@@ -610,6 +630,26 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 											},
 										},
 									},
+								},
+							},
+						},
+					},
+					"attached_acrs": schema.ListNestedAttribute{
+						Description: "Attached ACRs, granting image pull rights",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"resource_group": schema.StringAttribute{
+									Description: "The ACR resource group, defaults to the AKS resource group",
+									Optional:    true,
+								},
+								"name": schema.StringAttribute{
+									Description: "",
+									Optional:    true,
+								},
+								"create_if_missing": schema.BoolAttribute{
+									Description: "Whether to create the ACR if missing",
+									Optional:    true,
 								},
 							},
 						},

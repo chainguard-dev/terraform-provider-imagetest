@@ -50,18 +50,29 @@ Optional:
 
 Optional:
 
-- `dns_prefix` (String) The DNS prefix of the AKS cluster (uses the cluster name by default).
+- `attached_acrs` (Attributes List) Attached ACRs, granting image pull rights (see [below for nested schema](#nestedatt--drivers--aks--attached_acrs))
+- `dns_prefix` (String) The DNS prefix of the AKS cluster (uses the cluster name by default)
 - `kubernetes_version` (String) The Kubernetes version to deploy, uses the Azure default if unspecified
 - `location` (String) The Azure region for the AKS driver (default is westeurope)
 - `node_count` (Number) The number of nodes to use for the AKS driver (default is 1)
-- `node_disk_size` (Number) Use a custom VM disk size (GB) instead of the one defined by the VM size.
+- `node_disk_size` (Number) Use a custom VM disk size (GB) instead of the one defined by the VM size
 - `node_disk_type` (String) Ephemeral or Managed. Defaults to 'Ephemeral', which provide better performance but aren't persistent.
-- `node_pool_name` (String) The node pool name to use for the AKS driver.
+- `node_pool_name` (String) The node pool name to use for the AKS driver
 - `node_vm_size` (String) The node size to use for the AKS driver (default is Standard_DS2_v2)
 - `pod_identity_associations` (Attributes List) Pod Identity Associations for the AKS driver (see [below for nested schema](#nestedatt--drivers--aks--pod_identity_associations))
 - `resource_group` (String) The Azure resource group for the AKS driver
 - `subscription_id` (String) The Azure subscription ID for the AKS driver, defaults to AZURE_SUBSCRIPTION_ID env var
 - `tags` (Map of String) Additional tags to apply to all AKS resources created by the driver. Auto-generated tags (imagetest, imagetest:test-name, imagetest:cluster-name) are always included.
+
+<a id="nestedatt--drivers--aks--attached_acrs"></a>
+### Nested Schema for `drivers.aks.attached_acrs`
+
+Optional:
+
+- `create_if_missing` (Boolean) Whether to create the ACR if missing
+- `name` (String)
+- `resource_group` (String) The ACR resource group, defaults to the AKS resource group
+
 
 <a id="nestedatt--drivers--aks--pod_identity_associations"></a>
 ### Nested Schema for `drivers.aks.pod_identity_associations`
@@ -69,7 +80,7 @@ Optional:
 Optional:
 
 - `namespace` (String) Kubernetes namespace of the service account
-- `role_assignments` (Attributes List) AKS roles to assign. (see [below for nested schema](#nestedatt--drivers--aks--pod_identity_associations--role_assignments))
+- `role_assignments` (Attributes List) AKS roles to assign (see [below for nested schema](#nestedatt--drivers--aks--pod_identity_associations--role_assignments))
 - `service_account_name` (String) Name of the Kubernetes service account
 
 <a id="nestedatt--drivers--aks--pod_identity_associations--role_assignments"></a>

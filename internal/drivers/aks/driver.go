@@ -2,7 +2,9 @@ package aks
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v8"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/chainguard-dev/clog"
@@ -51,6 +54,7 @@ type driver struct {
 	subscriptionID    string
 	kubernetesVersion string
 	tags              map[string]string
+	attachedACRs      []*AttachedACR
 
 	clusterName string
 	dnsPrefix   string
@@ -59,8 +63,11 @@ type driver struct {
 	kcli       kubernetes.Interface
 	kcfg       *rest.Config
 
-	aksClient *armcontainerservice.ManagedClustersClient
-	aksCred   azcore.TokenCredential
+	aksClient  *armcontainerservice.ManagedClustersClient
+	acrClient  *armcontainerregistry.RegistriesClient
+	roleClient *armauthorization.RoleAssignmentsClient
+
+	aksCred azcore.TokenCredential
 
 	registries map[string]*RegistryConfig
 
@@ -101,6 +108,12 @@ type Options struct {
 	// DNS prefix. Defaults to the cluster name.
 	DNSPrefix string
 
+	// A list of Azure Container Registries that will be exposed
+	// to this AKS cluster, granting image pull rights.
+	//
+	// https://learn.microsoft.com/en-us/azure/aks/cluster-container-registry-integration
+	AttachedACRs []*AttachedACR
+
 	Registries map[string]*RegistryConfig
 
 	PodIdentityAssociations []*PodIdentityAssociationOptions
@@ -131,6 +144,12 @@ type RoleAssignment struct {
 	// Scope example:
 	// "/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv-name>"
 	Scope string
+}
+
+type AttachedACR struct {
+	ResourceGroup   string
+	Name            string
+	CreateIfMissing bool
 }
 
 // NewDriver creates a new AKS driver instance that uses the Azure SDK to
@@ -214,12 +233,26 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 			k.podIdentityAssociations = append(k.podIdentityAssociations, podIdentityAssociation)
 		}
 	}
+	if opts.AttachedACRs != nil {
+		for _, v := range opts.AttachedACRs {
+			if v == nil {
+				continue
+			}
+			attachedACR := &AttachedACR{
+				Name:            v.Name,
+				ResourceGroup:   v.ResourceGroup,
+				CreateIfMissing: v.CreateIfMissing,
+			}
+			if attachedACR.ResourceGroup == "" {
+				attachedACR.ResourceGroup = k.resourceGroup
+			}
+			k.attachedACRs = append(k.attachedACRs, attachedACR)
+		}
+	}
 	return k, nil
 }
 
-func (k *driver) Setup(ctx context.Context) error {
-	log := clog.FromContext(ctx)
-
+func (k *driver) setupCommonClients() error {
 	// Obtain Azure credentials based on environment variables.
 	aksCred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
@@ -233,6 +266,31 @@ func (k *driver) Setup(ctx context.Context) error {
 		return fmt.Errorf("unable to create AKS client: %v", err)
 	}
 	k.aksClient = aksClient
+
+	acrClient, err := armcontainerregistry.NewRegistriesClient(
+		k.subscriptionID, k.aksCred, nil)
+	if err != nil {
+		return fmt.Errorf("unable to create ACR client: %w", err)
+	}
+	k.acrClient = acrClient
+
+	roleClient, err := armauthorization.NewRoleAssignmentsClient(
+		k.subscriptionID, k.aksCred, nil)
+	if err != nil {
+		return fmt.Errorf("unable to create role client: %v", err)
+	}
+	k.roleClient = roleClient
+
+	return nil
+}
+
+func (k *driver) Setup(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	err := k.setupCommonClients()
+	if err != nil {
+		return err
+	}
 
 	if n, ok := os.LookupEnv("IMAGETEST_AKS_CLUSTER"); ok {
 		log.Infof("Using cluster name from IMAGETEST_AKS_CLUSTER: %s", n)
@@ -270,6 +328,11 @@ func (k *driver) Setup(ctx context.Context) error {
 	}
 
 	err = k.createPodIdentityAssociation(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = k.attachACRs(ctx)
 	if err != nil {
 		return err
 	}
@@ -416,11 +479,6 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unable to create federated idenitity client: %v", err)
 	}
-	aksRoleClient, err := armauthorization.NewRoleAssignmentsClient(
-		k.subscriptionID, k.aksCred, nil)
-	if err != nil {
-		return fmt.Errorf("unable to create role client: %v", err)
-	}
 
 	cluster, err := k.aksClient.Get(ctx, k.resourceGroup, k.clusterName, nil)
 	if err != nil {
@@ -433,7 +491,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 		}
 
 		// Refresh the cluster info.
-		cluster, err := k.aksClient.Get(ctx, k.resourceGroup, k.clusterName, nil)
+		cluster, err = k.aksClient.Get(ctx, k.resourceGroup, k.clusterName, nil)
 		if err != nil {
 			return fmt.Errorf("unable to retrieve cluster: %v", err)
 		}
@@ -531,7 +589,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 			log.Infof("Creating role assignment: %s. "+
 				"Principal ID: %s, role: %s, scope: %s.",
 				assignmentName, principalID, role.RoleDefinitionID, role.Scope)
-			_, err = aksRoleClient.Create(
+			_, err = k.roleClient.Create(
 				ctx,
 				role.Scope,
 				assignmentName,
@@ -548,7 +606,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 			}
 
 			if err := k.stack.Add(func(ctx context.Context) error {
-				_, err := aksRoleClient.Delete(
+				_, err := k.roleClient.Delete(
 					ctx,
 					role.Scope,
 					assignmentName,
@@ -605,6 +663,167 @@ func (k *driver) enableWorkloadIdenity(ctx context.Context) error {
 	}
 
 	log.Info("Enabled AKS Workload Identity.")
+	return nil
+}
+
+func (k *driver) deleteACR(ctx context.Context, acr *AttachedACR) error {
+	if v := os.Getenv("IMAGETEST_AKS_SKIP_TEARDOWN"); v == "true" {
+		log.Info("Skipping ACR teardown due to IMAGETEST_AKS_SKIP_TEARDOWN=true")
+		return nil
+	}
+	log.Info("Initating ACR teardown.")
+	poller, err := k.acrClient.BeginDelete(ctx, acr.ResourceGroup, acr.Name, nil)
+	if err != nil {
+		return fmt.Errorf("failed to initate ACR teardown: %v", err)
+	}
+
+	log.Info("Waiting for ACR teardown.")
+	_, err = poller.PollUntilDone(ctx, &runtime.PollUntilDoneOptions{
+		Frequency: pollFrequency,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete ACR: %v", err)
+	}
+	return nil
+}
+
+func (k *driver) createACR(ctx context.Context, acr *AttachedACR) (*armcontainerregistry.Registry, error) {
+	if acr == nil {
+		return nil, fmt.Errorf("missing ACR details")
+	}
+
+	log := clog.FromContext(ctx)
+	log.Infof("Creating ACR %s, resource group %s", acr.Name, acr.ResourceGroup)
+
+	poller, err := k.acrClient.BeginCreate(
+		ctx,
+		acr.ResourceGroup,
+		acr.Name,
+		armcontainerregistry.Registry{
+			Location: to.Ptr(k.location),
+			SKU: &armcontainerregistry.SKU{
+				Name: to.Ptr(armcontainerregistry.SKUNameBasic),
+			},
+			Properties: &armcontainerregistry.RegistryProperties{
+				AdminUserEnabled: to.Ptr(false),
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to initate ACR creation, error: %w", err)
+	}
+
+	// Ensure that ACRs created by us will be deleted during teardown,
+	// unless requested otherwise.
+	if err := k.stack.Add(func(ctx context.Context) error {
+		return k.deleteACR(ctx, acr)
+	}); err != nil {
+		return nil, err
+	}
+
+	resp, err := poller.PollUntilDone(ctx, &runtime.PollUntilDoneOptions{
+		Frequency: pollFrequency,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ACR creation failed, error: %w", err)
+	}
+
+	log.Infof("ACR created successfully")
+	return &resp.Registry, nil
+}
+
+func (k *driver) attachACRs(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+	log.Infof("Attaching ACRs: %s", k.attachedACRs)
+
+	cluster, err := k.aksClient.Get(ctx, k.resourceGroup, k.clusterName, nil)
+	if err != nil {
+		return fmt.Errorf("unable to retrieve cluster: %v", err)
+	}
+
+	identityProfile := cluster.Properties.IdentityProfile
+	if identityProfile == nil {
+		return errors.New("missing cluster identity profile")
+	}
+
+	kubeletIdentity, ok := identityProfile["kubeletidentity"]
+	if !ok || kubeletIdentity == nil {
+		return errors.New("missing kubelet identity")
+	}
+
+	principalID := *kubeletIdentity.ObjectID
+	acrPullRoleID := "/subscriptions/" + k.subscriptionID +
+		"/providers/Microsoft.Authorization/roleDefinitions/7f951dda-4ed3-4680-a7ca-43fe172d538d"
+
+	for _, v := range k.attachedACRs {
+		if v == nil {
+			continue
+		}
+
+		_, err := k.acrClient.Get(ctx, v.ResourceGroup, v.Name, nil)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) {
+				if respErr.StatusCode != http.StatusNotFound {
+					return fmt.Errorf("unable to retrieve ACR: %s, resource group: %s, error: %w",
+						v.Name, v.ResourceGroup, err)
+				}
+				// The ACR does not exist.
+				if !v.CreateIfMissing {
+					return fmt.Errorf("the specified ACR does not exist: %s, resource group: %s",
+						v.Name, v.ResourceGroup)
+				}
+				_, err = k.createACR(ctx, v)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			log.Infof("ACR already exists: %v, resource group: %s",
+				v.Name, v.ResourceGroup)
+		}
+
+		assignmentName := uuid.New().String()
+		acrResourceID := fmt.Sprintf(
+			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s",
+			k.subscriptionID, v.ResourceGroup, v.Name)
+		log.Infof("attaching ACR: %s, resource group: %s, assignment name: %s, scope: %s, role: %s",
+			v.Name, v.ResourceGroup, assignmentName, acrResourceID, acrPullRoleID)
+		// This is similar to the workload role assignment, however we're using the kubelet
+		// identity here instead of the federated identity associated with the service account.
+		_, err = k.roleClient.Create(
+			ctx,
+			acrResourceID, // scope
+			assignmentName,
+			armauthorization.RoleAssignmentCreateParameters{
+				Properties: &armauthorization.RoleAssignmentProperties{
+					PrincipalID:      to.Ptr(principalID),
+					RoleDefinitionID: to.Ptr(acrPullRoleID),
+				},
+			},
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to create ACR role assignment: %v", err)
+		}
+
+		if err := k.stack.Add(func(ctx context.Context) error {
+			_, err := k.roleClient.Delete(
+				ctx,
+				acrResourceID,
+				assignmentName,
+				nil,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to delete ACR role assignment: %v", err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

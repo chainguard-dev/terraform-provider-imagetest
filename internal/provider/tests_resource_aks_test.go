@@ -105,6 +105,16 @@ resource "imagetest_tests" "foo_with_pod_identity" {
     aks = {
       resource_group = %q
       subscription_id = %q
+
+      // "Owner" role is required (e.g. RG scoped) in order to
+      // attach the ACR.
+      attached_acrs = [
+        {
+          name = "imageTestTempACR"
+          create_if_missing = true
+        }
+      ]
+
       pod_identity_associations = [
         {
           service_account_name = "default",
