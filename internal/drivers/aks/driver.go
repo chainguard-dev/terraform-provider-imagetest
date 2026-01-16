@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -687,6 +688,39 @@ func (k *driver) deleteACR(ctx context.Context, acr *AttachedACR) error {
 	return nil
 }
 
+// Iterates over the list of ACRs belonging to this subscription and returns
+// the resource group if the ACR is found, an empty string otherwise.
+func (k *driver) findACRResourceGroup(ctx context.Context, acrName string) (string, error) {
+	pager := k.acrClient.NewListPager(nil)
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		for _, reg := range page.Value {
+			// We'll perform a case insensitive check.
+			if reg.Name != nil && strings.EqualFold(*reg.Name, acrName) {
+				// Resource ID format:
+				// /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ContainerRegistry/registries/<name>
+				if reg.ID == nil {
+					return "", errors.New("missing registry ID")
+				}
+
+				rgRegex := regexp.MustCompile(`(?i)/resourceGroups/([^/]+)`)
+				match := rgRegex.FindStringSubmatch(*reg.ID)
+				if len(match) != 2 {
+					return "", nil
+				}
+				return match[1], nil
+			}
+		}
+	}
+
+	return "", nil
+}
+
 func (k *driver) createACR(ctx context.Context, acr *AttachedACR) (*armcontainerregistry.Registry, error) {
 	if acr == nil {
 		return nil, fmt.Errorf("missing ACR details")
@@ -760,28 +794,29 @@ func (k *driver) attachACRs(ctx context.Context) error {
 		if v == nil {
 			continue
 		}
+		if v.Name == "" {
+			log.Infof("Missing ACR name: %v", v)
+			continue
+		}
 
-		_, err := k.acrClient.Get(ctx, v.ResourceGroup, v.Name, nil)
+		acrRG, err := k.findACRResourceGroup(ctx, v.Name)
 		if err != nil {
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) {
-				if respErr.StatusCode != http.StatusNotFound {
-					return fmt.Errorf("unable to retrieve ACR: %s, resource group: %s, error: %w",
-						v.Name, v.ResourceGroup, err)
-				}
-				// The ACR does not exist.
-				if !v.CreateIfMissing {
-					return fmt.Errorf("the specified ACR does not exist: %s, resource group: %s",
-						v.Name, v.ResourceGroup)
-				}
-				_, err = k.createACR(ctx, v)
-				if err != nil {
-					return err
-				}
+			return fmt.Errorf("unable to determine ACR resource group: %w", err)
+		}
+		if acrRG == "" {
+			// The ACR does not exist.
+			if !v.CreateIfMissing {
+				return fmt.Errorf("the specified ACR does not exist: %s, resource group: %s",
+					v.Name, v.ResourceGroup)
+			}
+			_, err = k.createACR(ctx, v)
+			if err != nil {
+				return err
 			}
 		} else {
 			log.Infof("ACR already exists: %v, resource group: %s",
-				v.Name, v.ResourceGroup)
+				v.Name, acrRG)
+			v.ResourceGroup = acrRG
 		}
 
 		assignmentName := uuid.New().String()
