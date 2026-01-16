@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -840,10 +841,19 @@ func (k *driver) attachACRs(ctx context.Context) error {
 			nil,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to create ACR role assignment: %v", err)
-		}
-
-		if err := k.stack.Add(func(ctx context.Context) error {
+			var respErr *azcore.ResponseError
+			alreadyDefined := false
+			if errors.As(err, &respErr) {
+				if respErr.StatusCode == http.StatusConflict {
+					alreadyDefined = true
+				}
+			}
+			if alreadyDefined {
+				log.Infof("ACR role already defined.")
+			} else {
+				return fmt.Errorf("unable to create ACR role assignment: %v", err)
+			}
+		} else if err := k.stack.Add(func(ctx context.Context) error {
 			_, err := k.roleClient.Delete(
 				ctx,
 				acrResourceID,
