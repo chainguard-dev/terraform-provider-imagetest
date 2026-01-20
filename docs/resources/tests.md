@@ -22,6 +22,7 @@ description: |-
 
 ### Optional
 
+- `artifact_path` (String) The path to add for storing artifacts.
 - `drivers` (Attributes) The resource specific driver configuration. This is merged with the provider scoped drivers configuration. (see [below for nested schema](#nestedatt--drivers))
 - `labels` (Map of String) Metadata to attach to the tests resource. Used for filtering and grouping.
 - `name` (String) The name of the test. If one is not provided, a random name will be generated.
@@ -175,6 +176,7 @@ Optional:
 - `cmd` (String) When specified, will override the sandbox image's CMD (oci config).
 - `content` (Attributes List) The content to use for the test (see [below for nested schema](#nestedatt--tests--content))
 - `envs` (Map of String) Environment variables to set on the test container. These will overwrite the environment variables set in the image's config on conflicts.
+- `preserve` (Boolean) Whether the artifact from this step should be preserved.
 - `timeout` (String) The maximum amount of time to wait for the individual test to complete. This is encompassed by the overall timeout of the parent tests resource.
 
 <a id="nestedatt--tests--artifact"></a>
