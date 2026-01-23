@@ -44,25 +44,31 @@ type TestsDriversResourceModel struct {
 }
 
 type AKSDriverResourceModel struct {
-	ResourceGroup           types.String                              `tfsdk:"resource_group"`
-	Location                types.String                              `tfsdk:"location"`
-	DNSPrefix               types.String                              `tfsdk:"dns_prefix"`
-	NodeCount               types.Int32                               `tfsdk:"node_count"`
-	NodeVMSize              types.String                              `tfsdk:"node_vm_size"`
-	NodeDiskSize            types.Int32                               `tfsdk:"node_disk_size"`
-	NodeDiskType            types.String                              `tfsdk:"node_disk_type"`
-	NodePoolName            types.String                              `tfsdk:"node_pool_name"`
-	SubscriptionID          types.String                              `tfsdk:"subscription_id"`
-	KubernetesVersion       types.String                              `tfsdk:"kubernetes_version"`
-	Tags                    map[string]string                         `tfsdk:"tags"`
-	PodIdentityAssociations []*AKSPodIdentityAssociationResourceModel `tfsdk:"pod_identity_associations"`
-	AttachedACRs            []*AKSAttachedACR                         `tfsdk:"attached_acrs"`
+	ResourceGroup               types.String                                  `tfsdk:"resource_group"`
+	Location                    types.String                                  `tfsdk:"location"`
+	DNSPrefix                   types.String                                  `tfsdk:"dns_prefix"`
+	NodeCount                   types.Int32                                   `tfsdk:"node_count"`
+	NodeVMSize                  types.String                                  `tfsdk:"node_vm_size"`
+	NodeDiskSize                types.Int32                                   `tfsdk:"node_disk_size"`
+	NodeDiskType                types.String                                  `tfsdk:"node_disk_type"`
+	NodePoolName                types.String                                  `tfsdk:"node_pool_name"`
+	SubscriptionID              types.String                                  `tfsdk:"subscription_id"`
+	KubernetesVersion           types.String                                  `tfsdk:"kubernetes_version"`
+	Tags                        map[string]string                             `tfsdk:"tags"`
+	PodIdentityAssociations     []*AKSPodIdentityAssociationResourceModel     `tfsdk:"pod_identity_associations"`
+	ClusterIdentityAssociations []*AKSClusterIdentityAssociationResourceModel `tfsdk:"cluster_identity_associations"`
+	AttachedACRs                []*AKSAttachedACR                             `tfsdk:"attached_acrs"`
 }
 
 type AKSPodIdentityAssociationResourceModel struct {
 	ServiceAccountName types.String         `tfsdk:"service_account_name"`
 	Namespace          types.String         `tfsdk:"namespace"`
 	RoleAssignments    []*AKSRoleAssignment `tfsdk:"role_assignments"`
+}
+
+type AKSClusterIdentityAssociationResourceModel struct {
+	IdentityName    types.String         `tfsdk:"identity_name"`
+	RoleAssignments []*AKSRoleAssignment `tfsdk:"role_assignments"`
 }
 
 type AKSRoleAssignment struct {
@@ -219,6 +225,23 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 				podIdentityAssociations = append(podIdentityAssociations, association)
 			}
 		}
+		clusterIdentityAssociations := []*aks.ClusterIdentityAssociationOptions{}
+		if cfg.ClusterIdentityAssociations != nil {
+			for _, v := range cfg.ClusterIdentityAssociations {
+				association := new(aks.ClusterIdentityAssociationOptions)
+				association.IdentityName = v.IdentityName.ValueString()
+				roleAssignments := []*aks.RoleAssignment{}
+				for _, in_assignment := range v.RoleAssignments {
+					out_assignment := new(aks.RoleAssignment)
+					out_assignment.RoleDefinitionID = in_assignment.RoleDefinitionID.ValueString()
+					out_assignment.Scope = in_assignment.Scope.ValueString()
+					roleAssignments = append(roleAssignments, out_assignment)
+				}
+				association.RoleAssignments = roleAssignments
+
+				clusterIdentityAssociations = append(clusterIdentityAssociations, association)
+			}
+		}
 		attachedACRs := []*aks.AttachedACR{}
 		if cfg.AttachedACRs != nil {
 			for _, v := range cfg.AttachedACRs {
@@ -233,21 +256,22 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 		}
 
 		return aks.NewDriver(id, aks.Options{
-			ResourceGroup:           cfg.ResourceGroup.ValueString(),
-			Location:                cfg.Location.ValueString(),
-			DNSPrefix:               cfg.DNSPrefix.ValueString(),
-			NodeCount:               cfg.NodeCount.ValueInt32(),
-			NodeVMSize:              cfg.NodeVMSize.ValueString(),
-			NodeDiskSize:            cfg.NodeDiskSize.ValueInt32(),
-			NodeDiskType:            cfg.NodeDiskType.ValueString(),
-			NodePoolName:            cfg.NodePoolName.ValueString(),
-			Timeout:                 timeout,
-			SubscriptionID:          cfg.SubscriptionID.ValueString(),
-			KubernetesVersion:       cfg.KubernetesVersion.ValueString(),
-			Tags:                    cfg.Tags,
-			Registries:              registries,
-			PodIdentityAssociations: podIdentityAssociations,
-			AttachedACRs:            attachedACRs,
+			ResourceGroup:               cfg.ResourceGroup.ValueString(),
+			Location:                    cfg.Location.ValueString(),
+			DNSPrefix:                   cfg.DNSPrefix.ValueString(),
+			NodeCount:                   cfg.NodeCount.ValueInt32(),
+			NodeVMSize:                  cfg.NodeVMSize.ValueString(),
+			NodeDiskSize:                cfg.NodeDiskSize.ValueInt32(),
+			NodeDiskType:                cfg.NodeDiskType.ValueString(),
+			NodePoolName:                cfg.NodePoolName.ValueString(),
+			Timeout:                     timeout,
+			SubscriptionID:              cfg.SubscriptionID.ValueString(),
+			KubernetesVersion:           cfg.KubernetesVersion.ValueString(),
+			Tags:                        cfg.Tags,
+			Registries:                  registries,
+			PodIdentityAssociations:     podIdentityAssociations,
+			ClusterIdentityAssociations: clusterIdentityAssociations,
+			AttachedACRs:                attachedACRs,
 		})
 
 	case DriverK3sInDocker:
@@ -613,6 +637,34 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 								},
 								"namespace": schema.StringAttribute{
 									Description: "Kubernetes namespace of the service account",
+									Optional:    true,
+								},
+								"role_assignments": schema.ListNestedAttribute{
+									Description: "AKS roles to assign",
+									Optional:    true,
+									NestedObject: schema.NestedAttributeObject{
+										Attributes: map[string]schema.Attribute{
+											"role_definition_id": schema.StringAttribute{
+												Description: "The role to assign. Example: /subscriptions/<sub-id>/providers/Microsoft.Authorization/roleDefinitions/<role-guid>",
+												Optional:    true,
+											},
+											"scope": schema.StringAttribute{
+												Description: "The role assignment scope. Example: /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv-name>",
+												Optional:    true,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"cluster_identity_associations": schema.ListNestedAttribute{
+						Description: "Cluster Identity Associations for the AKS driver",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"identity_name": schema.StringAttribute{
+									Description: "Name of the cluster identity (e.g. kubeletidentity)",
 									Optional:    true,
 								},
 								"role_assignments": schema.ListNestedAttribute{

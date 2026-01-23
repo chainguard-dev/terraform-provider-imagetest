@@ -39,6 +39,8 @@ const (
 	timeoutDefault    = 30 * time.Minute
 	pollFrequency     = 30 * time.Second
 	defaultPoolName   = "nodepool0"
+
+	kubeletIdentityName = "kubeletidentity"
 )
 
 type driver struct {
@@ -73,7 +75,8 @@ type driver struct {
 
 	registries map[string]*RegistryConfig
 
-	podIdentityAssociations []*PodIdentityAssociationOptions
+	podIdentityAssociations     []*PodIdentityAssociationOptions
+	clusterIdentityAssociations []*ClusterIdentityAssociationOptions
 }
 
 type Options struct {
@@ -118,7 +121,11 @@ type Options struct {
 
 	Registries map[string]*RegistryConfig
 
+	// Allows assigning Azure roles to Kubernetes service accounts.
 	PodIdentityAssociations []*PodIdentityAssociationOptions
+	// Allows assigning Azure roles to identities used by the Kubernetes services
+	// such as Kubelet.
+	ClusterIdentityAssociations []*ClusterIdentityAssociationOptions
 }
 
 // RegistryConfig holds authentication configuration for a container registry.
@@ -137,6 +144,11 @@ type PodIdentityAssociationOptions struct {
 	ServiceAccountName string
 	Namespace          string
 	RoleAssignments    []*RoleAssignment
+}
+
+type ClusterIdentityAssociationOptions struct {
+	IdentityName    string
+	RoleAssignments []*RoleAssignment
 }
 
 type RoleAssignment struct {
@@ -235,6 +247,26 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 			k.podIdentityAssociations = append(k.podIdentityAssociations, podIdentityAssociation)
 		}
 	}
+	if opts.ClusterIdentityAssociations != nil {
+		for _, v := range opts.ClusterIdentityAssociations {
+			if v == nil {
+				continue
+			}
+			clusterIdentityAssociation := &ClusterIdentityAssociationOptions{
+				IdentityName: v.IdentityName,
+			}
+			for _, role := range v.RoleAssignments {
+				if role == nil {
+					continue
+				}
+				clusterIdentityAssociation.RoleAssignments = append(
+					clusterIdentityAssociation.RoleAssignments, role,
+				)
+			}
+			k.clusterIdentityAssociations = append(
+				k.clusterIdentityAssociations, clusterIdentityAssociation)
+		}
+	}
 	if opts.AttachedACRs != nil {
 		for _, v := range opts.AttachedACRs {
 			if v == nil {
@@ -330,6 +362,11 @@ func (k *driver) Setup(ctx context.Context) error {
 	}
 
 	err = k.createPodIdentityAssociation(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = k.createClusterIdentityAssociation(ctx)
 	if err != nil {
 		return err
 	}
@@ -457,6 +494,49 @@ func (k *driver) createCluster(ctx context.Context) error {
 	return nil
 }
 
+func (k *driver) createRoleAssignment(ctx context.Context, scope string, principalID string, roleDefinitionID string) error {
+	log := clog.FromContext(ctx)
+	log.Infof("Creating role assignment, scope: %s, principalID: %s, role: %s",
+		scope, principalID, roleDefinitionID)
+
+	assignmentName := uuid.New().String()
+
+	_, err := k.roleClient.Create(
+		ctx,
+		scope,
+		assignmentName,
+		armauthorization.RoleAssignmentCreateParameters{
+			Properties: &armauthorization.RoleAssignmentProperties{
+				PrincipalID:      to.Ptr(principalID),
+				RoleDefinitionID: to.Ptr(roleDefinitionID),
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		if isAzureConflictErr(err) {
+			log.Infof("Role assignment already defined.")
+		} else {
+			return fmt.Errorf("unable to create role assignment: %v", err)
+		}
+	} else if err := k.stack.Add(func(ctx context.Context) error {
+		_, err := k.roleClient.Delete(
+			ctx,
+			scope,
+			assignmentName,
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to delete role assignment: %v", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Please refer to the official AKS documentation:
 //
 //	https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview
@@ -469,7 +549,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 		return nil
 	}
 
-	log.Infof("Preparing pod identity assoiations.")
+	log.Infof("Preparing pod identity associations.")
 
 	aksUAIClient, err := armmsi.NewUserAssignedIdentitiesClient(
 		k.subscriptionID, k.aksCred, nil)
@@ -585,41 +665,10 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 			return err
 		}
 
-		assignmentName := uuid.New().String()
-
 		for _, role := range v.RoleAssignments {
-			log.Infof("Creating role assignment: %s. "+
-				"Principal ID: %s, role: %s, scope: %s.",
-				assignmentName, principalID, role.RoleDefinitionID, role.Scope)
-			_, err = k.roleClient.Create(
-				ctx,
-				role.Scope,
-				assignmentName,
-				armauthorization.RoleAssignmentCreateParameters{
-					Properties: &armauthorization.RoleAssignmentProperties{
-						RoleDefinitionID: to.Ptr(role.RoleDefinitionID),
-						PrincipalID:      &principalID,
-					},
-				},
-				nil,
-			)
+			err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID)
 			if err != nil {
 				return fmt.Errorf("unable to create role assignment: %v", err)
-			}
-
-			if err := k.stack.Add(func(ctx context.Context) error {
-				_, err := k.roleClient.Delete(
-					ctx,
-					role.Scope,
-					assignmentName,
-					nil,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to delete role assignment: %v", err)
-				}
-				return nil
-			}); err != nil {
-				return err
 			}
 		}
 
@@ -627,6 +676,34 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 			v.Namespace, v.ServiceAccountName, k.clusterName)
 	}
 
+	return nil
+}
+
+func (k *driver) createClusterIdentityAssociation(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+	log.Infof("Preparing cluster identity associations.")
+
+	for _, v := range k.clusterIdentityAssociations {
+		if v == nil {
+			continue
+		}
+
+		identity, err := k.getClusterIdentityProfile(ctx, v.IdentityName)
+		if err != nil {
+			return err
+		}
+		principalID := *identity.ObjectID
+
+		for _, role := range v.RoleAssignments {
+			err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID)
+			if err != nil {
+				return fmt.Errorf("unable to create role assignment: %v", err)
+			}
+		}
+
+		log.Infof("Created cluster identity associations (%s) for cluster %s.",
+			v.IdentityName, k.clusterName)
+	}
 	return nil
 }
 
@@ -768,23 +845,44 @@ func (k *driver) createACR(ctx context.Context, acr *AttachedACR) (*armcontainer
 	return &resp.Registry, nil
 }
 
+func (k *driver) getClusterIdentityProfile(ctx context.Context, identityName string) (*armcontainerservice.UserAssignedIdentity, error) {
+	cluster, err := k.aksClient.Get(ctx, k.resourceGroup, k.clusterName, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve cluster: %v", err)
+	}
+
+	// "kubeletidentity" is the only identity contained by this map at the
+	// time of writing. We'll allow arbitrary names in order to stay future proof.
+	identityProfile := cluster.Properties.IdentityProfile
+	if identityProfile == nil {
+		return nil, errors.New("missing cluster identity profile")
+	}
+
+	identity, ok := identityProfile[identityName]
+	if !ok || identity == nil {
+		return nil, fmt.Errorf("missing cluster identity: %s", identityName)
+	}
+
+	return identity, nil
+}
+
+func isAzureConflictErr(err error) bool {
+	var respErr *azcore.ResponseError
+	if errors.As(err, &respErr) {
+		if respErr.StatusCode == http.StatusConflict {
+			return true
+		}
+	}
+	return false
+}
+
 func (k *driver) attachACRs(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 	log.Infof("Attaching ACRs: %s", k.attachedACRs)
 
-	cluster, err := k.aksClient.Get(ctx, k.resourceGroup, k.clusterName, nil)
+	kubeletIdentity, err := k.getClusterIdentityProfile(ctx, kubeletIdentityName)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve cluster: %v", err)
-	}
-
-	identityProfile := cluster.Properties.IdentityProfile
-	if identityProfile == nil {
-		return errors.New("missing cluster identity profile")
-	}
-
-	kubeletIdentity, ok := identityProfile["kubeletidentity"]
-	if !ok || kubeletIdentity == nil {
-		return errors.New("missing kubelet identity")
+		return err
 	}
 
 	principalID := *kubeletIdentity.ObjectID
@@ -826,45 +924,9 @@ func (k *driver) attachACRs(ctx context.Context) error {
 			k.subscriptionID, v.ResourceGroup, v.Name)
 		log.Infof("attaching ACR: %s, resource group: %s, assignment name: %s, scope: %s, role: %s",
 			v.Name, v.ResourceGroup, assignmentName, acrResourceID, acrPullRoleID)
-		// This is similar to the workload role assignment, however we're using the kubelet
-		// identity here instead of the federated identity associated with the service account.
-		_, err = k.roleClient.Create(
-			ctx,
-			acrResourceID, // scope
-			assignmentName,
-			armauthorization.RoleAssignmentCreateParameters{
-				Properties: &armauthorization.RoleAssignmentProperties{
-					PrincipalID:      to.Ptr(principalID),
-					RoleDefinitionID: to.Ptr(acrPullRoleID),
-				},
-			},
-			nil,
-		)
+
+		err = k.createRoleAssignment(ctx, acrResourceID, principalID, acrPullRoleID)
 		if err != nil {
-			var respErr *azcore.ResponseError
-			alreadyDefined := false
-			if errors.As(err, &respErr) {
-				if respErr.StatusCode == http.StatusConflict {
-					alreadyDefined = true
-				}
-			}
-			if alreadyDefined {
-				log.Infof("ACR role already defined.")
-			} else {
-				return fmt.Errorf("unable to create ACR role assignment: %v", err)
-			}
-		} else if err := k.stack.Add(func(ctx context.Context) error {
-			_, err := k.roleClient.Delete(
-				ctx,
-				acrResourceID,
-				assignmentName,
-				nil,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to delete ACR role assignment: %v", err)
-			}
-			return nil
-		}); err != nil {
 			return err
 		}
 	}

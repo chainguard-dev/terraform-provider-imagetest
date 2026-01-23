@@ -51,6 +51,7 @@ Optional:
 Optional:
 
 - `attached_acrs` (Attributes List) Attached ACRs, granting image pull rights (see [below for nested schema](#nestedatt--drivers--aks--attached_acrs))
+- `cluster_identity_associations` (Attributes List) Cluster Identity Associations for the AKS driver (see [below for nested schema](#nestedatt--drivers--aks--cluster_identity_associations))
 - `dns_prefix` (String) The DNS prefix of the AKS cluster (uses the cluster name by default)
 - `kubernetes_version` (String) The Kubernetes version to deploy, uses the Azure default if unspecified
 - `location` (String) The Azure region for the AKS driver (default is westeurope)
@@ -72,6 +73,24 @@ Optional:
 - `create_if_missing` (Boolean) Whether to create the ACR if missing
 - `name` (String)
 - `resource_group` (String) The ACR resource group, defaults to the AKS resource group
+
+
+<a id="nestedatt--drivers--aks--cluster_identity_associations"></a>
+### Nested Schema for `drivers.aks.cluster_identity_associations`
+
+Optional:
+
+- `identity_name` (String) Name of the cluster identity (e.g. kubeletidentity)
+- `role_assignments` (Attributes List) AKS roles to assign (see [below for nested schema](#nestedatt--drivers--aks--cluster_identity_associations--role_assignments))
+
+<a id="nestedatt--drivers--aks--cluster_identity_associations--role_assignments"></a>
+### Nested Schema for `drivers.aks.cluster_identity_associations.role_assignments`
+
+Optional:
+
+- `role_definition_id` (String) The role to assign. Example: /subscriptions/<sub-id>/providers/Microsoft.Authorization/roleDefinitions/<role-guid>
+- `scope` (String) The role assignment scope. Example: /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv-name>
+
 
 
 <a id="nestedatt--drivers--aks--pod_identity_associations"></a>

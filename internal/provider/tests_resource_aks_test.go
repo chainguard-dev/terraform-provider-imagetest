@@ -127,6 +127,18 @@ resource "imagetest_tests" "foo_with_pod_identity" {
           ],
         },
       ]
+
+      cluster_identity_associations = [
+        {
+          identity_name = "kubeletidentity"
+          roles = [
+            {
+              scope = %q
+              role_definition_id = %q
+            }
+          ]
+        }
+      ]
     }
   }
 
@@ -145,7 +157,7 @@ resource "imagetest_tests" "foo_with_pod_identity" {
   // Cluster provisioning usually takes about 5 minutes.
   timeout = "30m"
 }
-`, resourceGroup, subscriptionID, scope, role)
+`, resourceGroup, subscriptionID, scope, role, scope, role)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() { testAccPreCheck(t) },
