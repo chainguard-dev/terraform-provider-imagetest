@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.279.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.53.2
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.87.0
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.87.1
 	github.com/aws/smithy-go v1.24.0
 	github.com/chainguard-dev/clog v1.8.0
 	github.com/charmbracelet/log v0.4.2
