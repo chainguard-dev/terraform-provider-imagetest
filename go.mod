@@ -26,7 +26,7 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.14.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/moby/docker-image-spec v1.3.1
-	github.com/samber/slog-multi v1.6.0
+	github.com/samber/slog-multi v1.7.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.19.0
 	k8s.io/api v0.35.0
