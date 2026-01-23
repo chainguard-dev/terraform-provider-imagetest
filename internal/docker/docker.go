@@ -206,7 +206,8 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						// check can report unhealthy because of it. In that case, ignore the
 						// unhealthy status because the main wait loop will catch the exit.
 						if strings.Contains(check.Output, "cannot exec in a stopped container") ||
-							strings.Contains(check.Output, "error executing setns process") {
+							strings.Contains(check.Output, "error executing setns process") ||
+							strings.Contains(check.Output, "procReady not received") {
 							continue
 						}
 
