@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -15,6 +16,7 @@ import (
 func TestAccTestsResource_AKS(t *testing.T) {
 	resourceGroup := os.Getenv("IMAGETEST_AKS_RESOURCE_GROUP")
 	subscriptionID := os.Getenv("IMAGETEST_AKS_SUBSCRIPTION_ID")
+	nodeResourceGroup := resourceGroup + "-node-" + uuid.New().String()
 
 	repo := "ttl.sh/imagetest" // TODO: Don't push to ttl.sh
 
@@ -56,6 +58,7 @@ resource "imagetest_tests" "foo_with_storage" {
   drivers = {
     aks = {
       resource_group = %q
+      node_resource_group = %q
       subscription_id = %q
       node_vm_size = "Standard_DS2_v2"
       node_count = 2
@@ -83,7 +86,7 @@ resource "imagetest_tests" "foo_with_storage" {
   // Cluster provisioning usually takes about 5 minutes.
   timeout = "30m"
 }
-`, resourceGroup, subscriptionID)
+`, resourceGroup, nodeResourceGroup, subscriptionID)
 
 	readerRoleGuid := "acdd72a7-3385-48ef-bd42-f606fba81ae7"
 	scope := fmt.Sprintf(
@@ -131,7 +134,7 @@ resource "imagetest_tests" "foo_with_pod_identity" {
       cluster_identity_associations = [
         {
           identity_name = "kubeletidentity"
-          roles = [
+          role_assignments = [
             {
               scope = %q
               role_definition_id = %q

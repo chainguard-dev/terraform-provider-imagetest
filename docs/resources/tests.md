@@ -59,6 +59,7 @@ Optional:
 - `node_disk_size` (Number) Use a custom VM disk size (GB) instead of the one defined by the VM size
 - `node_disk_type` (String) Ephemeral or Managed. Defaults to 'Ephemeral', which provide better performance but aren't persistent.
 - `node_pool_name` (String) The node pool name to use for the AKS driver
+- `node_resource_group` (String) The Azure resource group to hold AKS node resources
 - `node_vm_size` (String) The node size to use for the AKS driver (default is Standard_DS2_v2)
 - `pod_identity_associations` (Attributes List) Pod Identity Associations for the AKS driver (see [below for nested schema](#nestedatt--drivers--aks--pod_identity_associations))
 - `resource_group` (String) The Azure resource group for the AKS driver

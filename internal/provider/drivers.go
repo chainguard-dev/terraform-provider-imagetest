@@ -45,6 +45,7 @@ type TestsDriversResourceModel struct {
 
 type AKSDriverResourceModel struct {
 	ResourceGroup               types.String                                  `tfsdk:"resource_group"`
+	NodeResourceGroup           types.String                                  `tfsdk:"node_resource_group"`
 	Location                    types.String                                  `tfsdk:"location"`
 	DNSPrefix                   types.String                                  `tfsdk:"dns_prefix"`
 	NodeCount                   types.Int32                                   `tfsdk:"node_count"`
@@ -257,6 +258,7 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 
 		return aks.NewDriver(id, aks.Options{
 			ResourceGroup:               cfg.ResourceGroup.ValueString(),
+			NodeResourceGroup:           cfg.NodeResourceGroup.ValueString(),
 			Location:                    cfg.Location.ValueString(),
 			DNSPrefix:                   cfg.DNSPrefix.ValueString(),
 			NodeCount:                   cfg.NodeCount.ValueInt32(),
@@ -583,6 +585,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 				Attributes: map[string]schema.Attribute{
 					"resource_group": schema.StringAttribute{
 						Description: "The Azure resource group for the AKS driver",
+						Optional:    true,
+					},
+					"node_resource_group": schema.StringAttribute{
+						Description: "The Azure resource group to hold AKS node resources",
 						Optional:    true,
 					},
 					"location": schema.StringAttribute{
