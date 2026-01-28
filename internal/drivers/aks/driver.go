@@ -92,7 +92,7 @@ type Options struct {
 	// provider.
 	NodeResourceGroup string
 	// Azure region.
-	// Default: westeurope
+	// Default: eastus
 	Location string
 	// The AKS cluster node count.
 	// Default: 1.

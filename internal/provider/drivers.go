@@ -592,7 +592,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Optional:    true,
 					},
 					"location": schema.StringAttribute{
-						Description: "The Azure region for the AKS driver (default is westeurope)",
+						Description: "The Azure region for the AKS driver (default is eastus)",
 						Optional:    true,
 					},
 					"dns_prefix": schema.StringAttribute{
