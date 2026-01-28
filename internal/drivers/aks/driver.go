@@ -213,7 +213,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	}
 	if k.subscriptionID == "" {
 		if v, ok := os.LookupEnv("AZURE_SUBSCRIPTION_ID"); ok {
-			log.Infof("Using subscription from AZURE_SUBSCRIPTION_ID")
+			log.Info("Using subscription from AZURE_SUBSCRIPTION_ID")
 			k.subscriptionID = v
 		} else {
 			return nil, fmt.Errorf("no Azure subscription specified")
@@ -221,7 +221,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	}
 	if k.resourceGroup == "" {
 		if v, ok := os.LookupEnv("AZURE_RESOURCE_GROUP"); ok {
-			log.Infof("Using resource group from AZURE_RESOURCE_GROUP")
+			log.Info("Using resource group from AZURE_RESOURCE_GROUP")
 			k.resourceGroup = v
 		} else {
 			return nil, fmt.Errorf("no Azure resource group specified")
@@ -423,21 +423,18 @@ func (k *driver) createCluster(ctx context.Context) error {
 		clusterNodeRG = fmt.Sprintf("%s-%s", k.resourceGroup, k.clusterName)
 	}
 
-	log.Infof("Creating AKS cluster: %v. "+
-		"Resource group: %v, node resource group: %v, pool name: %v, node count: %v, "+
-		"node vm size: %v, node disk size: %v, "+
-		"node disk type: %v, tags: %v, workload identity enabled: %v, dns prefix: %v",
-		k.clusterName,
-		k.resourceGroup,
-		clusterNodeRG,
-		k.nodePoolName,
-		k.nodeCount,
-		k.nodeVMSize,
-		k.nodeDiskSize,
-		nodeDiskType,
-		tags,
-		workload_identity_enabled,
-		k.dnsPrefix)
+	log.Info("Creating AKS cluster",
+		"name", k.clusterName,
+		"resource_group", k.resourceGroup,
+		"node_resource_group", clusterNodeRG,
+		"pool_name", k.nodePoolName,
+		"node_count", k.nodeCount,
+		"node_vm_size", k.nodeVMSize,
+		"node_disk_size", k.nodeDiskSize,
+		"node_disk_type", nodeDiskType,
+		"tags", tags,
+		"workload_identity_enabled", workload_identity_enabled,
+		"dns_prefix", k.dnsPrefix)
 
 	poller, err := k.aksClient.BeginCreateOrUpdate(
 		ctx,
@@ -489,7 +486,7 @@ func (k *driver) createCluster(ctx context.Context) error {
 		return err
 	}
 
-	log.Infof("Waiting for AKS cluster provisioning.")
+	log.Info("Waiting for AKS cluster provisioning.")
 	resp, err := poller.PollUntilDone(ctx, &runtime.PollUntilDoneOptions{
 		Frequency: pollFrequency,
 	})
@@ -523,7 +520,7 @@ func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, r
 
 	// Already exists - nothing to clean up
 	if isAzureConflictErr(err) {
-		log.Infof("Role assignment already defined.")
+		log.Info("Role assignment already defined.")
 		return nil
 	}
 	if err != nil {
@@ -548,11 +545,11 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
 	if k.podIdentityAssociations == nil {
-		log.Infof("No pod identity associations provided.")
+		log.Info("No pod identity associations provided.")
 		return nil
 	}
 
-	log.Infof("Preparing pod identity associations.")
+	log.Info("Preparing pod identity associations.")
 
 	aksUAIClient, err := armmsi.NewUserAssignedIdentitiesClient(
 		k.subscriptionID, k.aksCred, nil)
@@ -844,7 +841,7 @@ func (k *driver) createACR(ctx context.Context, acr *AttachedACR) (*armcontainer
 		return nil, fmt.Errorf("ACR creation failed, error: %w", err)
 	}
 
-	log.Infof("ACR created successfully")
+	log.Info("ACR created successfully")
 	return &resp.Registry, nil
 }
 
@@ -975,7 +972,7 @@ func (k *driver) teardownCluster(ctx context.Context) error {
 		return nil
 	}
 	if _, ok := os.LookupEnv("IMAGETEST_AKS_CLUSTER"); ok {
-		log.Infof("Skipping AKS teardown due to existing cluster: IMAGETEST_AKS_CLUSTER.")
+		log.Info("Skipping AKS teardown due to existing cluster: IMAGETEST_AKS_CLUSTER.")
 		return nil
 	}
 
