@@ -15,7 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v8"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
@@ -500,7 +500,7 @@ func (k *driver) createCluster(ctx context.Context) error {
 	return nil
 }
 
-func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, roleDefinitionID string) error {
+func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, roleDefinitionID string, principalType *armauthorization.PrincipalType) error {
 	log := clog.FromContext(ctx)
 	log.Infof("Creating role assignment, scope: %s, principalID: %s, role: %s",
 		scope, principalID, roleDefinitionID)
@@ -515,6 +515,7 @@ func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, r
 			Properties: &armauthorization.RoleAssignmentProperties{
 				PrincipalID:      to.Ptr(principalID),
 				RoleDefinitionID: to.Ptr(roleDefinitionID),
+				PrincipalType:    principalType,
 			},
 		},
 		nil,
@@ -667,7 +668,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 		}
 
 		for _, role := range v.RoleAssignments {
-			if err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID); err != nil {
+			if err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID, to.Ptr(armauthorization.PrincipalTypeServicePrincipal)); err != nil {
 				return fmt.Errorf("unable to create role assignment: %v", err)
 			}
 		}
@@ -698,7 +699,7 @@ func (k *driver) createClusterIdentityAssociation(ctx context.Context) error {
 		principalID := *identity.ObjectID
 
 		for _, role := range v.RoleAssignments {
-			if err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID); err != nil {
+			if err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID, nil); err != nil {
 				return fmt.Errorf("unable to create role assignment: %v", err)
 			}
 		}
@@ -925,7 +926,7 @@ func (k *driver) attachACRs(ctx context.Context) error {
 		log.Infof("attaching ACR: %s, resource group: %s, assignment name: %s, scope: %s, role: %s",
 			v.Name, v.ResourceGroup, assignmentName, acrResourceID, acrPullRoleID)
 
-		if err = k.createRoleAssignment(ctx, acrResourceID, principalID, acrPullRoleID); err != nil {
+		if err = k.createRoleAssignment(ctx, acrResourceID, principalID, acrPullRoleID, nil); err != nil {
 			return err
 		}
 	}

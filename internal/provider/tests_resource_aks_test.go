@@ -122,7 +122,7 @@ resource "imagetest_tests" "foo_with_pod_identity" {
         {
           service_account_name = "default",
           namespace = "default",
-          roles: [
+          role_assignments: [
             {
               scope = %q
               role_definition_id = %q
