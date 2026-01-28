@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	locationDefault   = "westeurope"
+	locationDefault   = "eastus"
 	nodeCountDefault  = 1
 	nodeVMSizeDefault = "Standard_DS2_v2"
 	timeoutDefault    = 30 * time.Minute
@@ -200,14 +200,13 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	if k.nodeVMSize == "" {
 		k.nodeVMSize = nodeVMSizeDefault
 	}
+    k.timeout = timeoutDefault
 	if opts.Timeout != "" {
 		timeout, err := time.ParseDuration(opts.Timeout)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse timeout setting: %s %v", opts.Timeout, err)
 		}
 		k.timeout = timeout
-	} else {
-		k.timeout = timeoutDefault
 	}
 	if opts.Registries != nil {
 		k.registries = opts.Registries
@@ -328,8 +327,7 @@ func (k *driver) setupCommonClients() error {
 func (k *driver) Setup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
-	err := k.setupCommonClients()
-	if err != nil {
+	if err := k.setupCommonClients(); err != nil {
 		return err
 	}
 
@@ -337,7 +335,7 @@ func (k *driver) Setup(ctx context.Context) error {
 		log.Infof("Using cluster name from IMAGETEST_AKS_CLUSTER: %s", n)
 		k.clusterName = n
 	} else {
-		uid := "imagetest-" + uuid.New().String()
+		uid := "imagetest-" + uuid.New().String()[:8]
 		log.Infof("Using random cluster name: %s", uid)
 		k.clusterName = uid
 	}
@@ -506,7 +504,7 @@ func (k *driver) createCluster(ctx context.Context) error {
 	return nil
 }
 
-func (k *driver) createRoleAssignment(ctx context.Context, scope string, principalID string, roleDefinitionID string) error {
+func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, roleDefinitionID string) error {
 	log := clog.FromContext(ctx)
 	log.Infof("Creating role assignment, scope: %s, principalID: %s, role: %s",
 		scope, principalID, roleDefinitionID)
@@ -525,29 +523,26 @@ func (k *driver) createRoleAssignment(ctx context.Context, scope string, princip
 		},
 		nil,
 	)
-	if err != nil {
-		if isAzureConflictErr(err) {
-			log.Infof("Role assignment already defined.")
-		} else {
-			return fmt.Errorf("unable to create role assignment: %v", err)
-		}
-	} else if err := k.stack.Add(func(ctx context.Context) error {
-		_, err := k.roleClient.Delete(
-			ctx,
-			scope,
-			assignmentName,
-			nil,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to delete role assignment: %v", err)
-		}
+
+	// Already exists - nothing to clean up
+	if isAzureConflictErr(err) {
+		log.Infof("Role assignment already defined.")
 		return nil
-	}); err != nil {
-		return err
+	}
+	if err != nil {
+		return fmt.Errorf("unable to create role assignment: %w", err)
 	}
 
-	return nil
+	// We created it, so register cleanup
+	return k.stack.Add(func(ctx context.Context) error {
+		_, err := k.roleClient.Delete(ctx, scope, assignmentName, nil)
+		if err != nil {
+			return fmt.Errorf("unable to delete role assignment: %w", err)
+		}
+		return nil
+	})
 }
+
 
 // Please refer to the official AKS documentation:
 //
