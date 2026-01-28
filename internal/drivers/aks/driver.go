@@ -43,6 +43,8 @@ const (
 	kubeletIdentityName = "kubeletidentity"
 )
 
+var rgRegex = regexp.MustCompile(`(?i)/resourceGroups/([^/]+)`)
+
 type driver struct {
 	name  string
 	stack *harness.Stack
@@ -786,7 +788,6 @@ func (k *driver) findACRResourceGroup(ctx context.Context, acrName string) (stri
 					return "", errors.New("missing registry ID")
 				}
 
-				rgRegex := regexp.MustCompile(`(?i)/resourceGroups/([^/]+)`)
 				match := rgRegex.FindStringSubmatch(*reg.ID)
 				if len(match) != 2 {
 					return "", nil
