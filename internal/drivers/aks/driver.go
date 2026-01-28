@@ -200,7 +200,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	if k.nodeVMSize == "" {
 		k.nodeVMSize = nodeVMSizeDefault
 	}
-    k.timeout = timeoutDefault
+	k.timeout = timeoutDefault
 	if opts.Timeout != "" {
 		timeout, err := time.ParseDuration(opts.Timeout)
 		if err != nil {
@@ -331,9 +331,11 @@ func (k *driver) Setup(ctx context.Context) error {
 		return err
 	}
 
+	existingCluster := false
 	if n, ok := os.LookupEnv("IMAGETEST_AKS_CLUSTER"); ok {
 		log.Infof("Using cluster name from IMAGETEST_AKS_CLUSTER: %s", n)
 		k.clusterName = n
+		existingCluster = true
 	} else {
 		uid := "imagetest-" + uuid.New().String()[:8]
 		log.Infof("Using random cluster name: %s", uid)
@@ -357,32 +359,27 @@ func (k *driver) Setup(ctx context.Context) error {
 	log.Infof("Using kubeconfig: %s", cfg.Name())
 	k.kubeconfig = cfg.Name()
 
-	if _, ok := os.LookupEnv("IMAGETEST_AKS_CLUSTER"); ok {
+	if existingCluster {
 		log.Infof("Using existing AKS cluster.")
 	} else {
-		err = k.createCluster(ctx)
-		if err != nil {
+		if err = k.createCluster(ctx); err != nil {
 			return err
 		}
 	}
 
-	err = k.createPodIdentityAssociation(ctx)
-	if err != nil {
+	if err = k.createPodIdentityAssociation(ctx); err != nil {
 		return err
 	}
 
-	err = k.createClusterIdentityAssociation(ctx)
-	if err != nil {
+	if err = k.createClusterIdentityAssociation(ctx); err != nil {
 		return err
 	}
 
-	err = k.attachACRs(ctx)
-	if err != nil {
+	if err = k.attachACRs(ctx); err != nil {
 		return err
 	}
 
-	err = k.writeKubeConfig(ctx)
-	if err != nil {
+	if err = k.writeKubeConfig(ctx); err != nil {
 		return err
 	}
 
@@ -543,7 +540,6 @@ func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, r
 	})
 }
 
-
 // Please refer to the official AKS documentation:
 //
 //	https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview
@@ -574,8 +570,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 		return fmt.Errorf("unable to retrieve cluster: %v", err)
 	}
 	if cluster.Properties.OidcIssuerProfile.IssuerURL == nil {
-		err = k.enableWorkloadIdenity(ctx)
-		if err != nil {
+		if err = k.enableWorkloadIdenity(ctx); err != nil {
 			return err
 		}
 
@@ -673,8 +668,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 		}
 
 		for _, role := range v.RoleAssignments {
-			err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID)
-			if err != nil {
+			if err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID); err != nil {
 				return fmt.Errorf("unable to create role assignment: %v", err)
 			}
 		}
@@ -705,8 +699,7 @@ func (k *driver) createClusterIdentityAssociation(ctx context.Context) error {
 		principalID := *identity.ObjectID
 
 		for _, role := range v.RoleAssignments {
-			err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID)
-			if err != nil {
+			if err = k.createRoleAssignment(ctx, role.Scope, principalID, role.RoleDefinitionID); err != nil {
 				return fmt.Errorf("unable to create role assignment: %v", err)
 			}
 		}
@@ -918,8 +911,7 @@ func (k *driver) attachACRs(ctx context.Context) error {
 				return fmt.Errorf("the specified ACR does not exist: %s, resource group: %s",
 					v.Name, v.ResourceGroup)
 			}
-			_, err = k.createACR(ctx, v)
-			if err != nil {
+			if _, err = k.createACR(ctx, v); err != nil {
 				return err
 			}
 		} else {
@@ -935,8 +927,7 @@ func (k *driver) attachACRs(ctx context.Context) error {
 		log.Infof("attaching ACR: %s, resource group: %s, assignment name: %s, scope: %s, role: %s",
 			v.Name, v.ResourceGroup, assignmentName, acrResourceID, acrPullRoleID)
 
-		err = k.createRoleAssignment(ctx, acrResourceID, principalID, acrPullRoleID)
-		if err != nil {
+		if err = k.createRoleAssignment(ctx, acrResourceID, principalID, acrPullRoleID); err != nil {
 			return err
 		}
 	}
@@ -958,8 +949,7 @@ func (k *driver) writeKubeConfig(ctx context.Context) error {
 		return fmt.Errorf("no kubeconfigs retrieved")
 	}
 
-	err = os.WriteFile(k.kubeconfig, creds.Kubeconfigs[0].Value, 0o644)
-	if err != nil {
+	if err = os.WriteFile(k.kubeconfig, creds.Kubeconfigs[0].Value, 0o644); err != nil {
 		return fmt.Errorf("unable to write kubeconfig: %s %v", k.kubeconfig, err)
 	}
 
