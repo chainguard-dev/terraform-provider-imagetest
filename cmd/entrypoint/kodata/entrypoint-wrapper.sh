@@ -36,6 +36,35 @@ validate_cmd() {
   fi
 }
 
+# Initialize and manage an AKS environment.
+# Arguments:
+#   $1: Path to the test script (already validated)
+init_aks() {
+  cmd="$1"
+
+  if which kubectl; then
+    # Set a default context to better mimic a local setup
+    kubectl config set-context default --cluster=kubernetes --user=default --namespace=default
+    kubectl config use-context default
+
+    # Ensure required environment variables are set
+    if [ -z "${POD_NAME-}" ] || [ -z "${POD_NAMESPACE-}" ]; then
+      error "POD_NAME and POD_NAMESPACE environment variables must be set"
+      exit 1
+    fi
+
+    info "Waiting for pod ${POD_NAME} to be ready..."
+    if ! kubectl wait --for=condition=Ready=true pod/"${POD_NAME}" -n "${POD_NAMESPACE}" --timeout=60s; then
+      error "Pod ${POD_NAME} failed to become ready"
+      exit 1
+    fi
+  else
+    echo "kubectl missing, skipping..."
+  fi
+
+  eval "$cmd"
+}
+
 # Initialize and manage a Docker-in-Docker environment.
 # This function handles the Docker daemon startup and monitoring.
 # Arguments:
@@ -139,6 +168,9 @@ validate_cmd "$cmd"
 
 # Initialize the appropriate driver
 case "$IMAGETEST_DRIVER" in
+aks)
+  init_aks "$cmd"
+  ;;
 docker_in_docker)
   init_docker_in_docker "$cmd"
   ;;

@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
+	aks "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/aks"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
@@ -27,6 +28,7 @@ import (
 type DriverResourceModel string
 
 const (
+	DriverAKS            DriverResourceModel = "aks"
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
@@ -34,10 +36,51 @@ const (
 )
 
 type TestsDriversResourceModel struct {
+	AKS            *AKSDriverResourceModel            `tfsdk:"aks"`
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
 	EC2            *EC2DriverResourceModel            `tfsdk:"ec2"`
+}
+
+type AKSDriverResourceModel struct {
+	ResourceGroup               types.String                                  `tfsdk:"resource_group"`
+	NodeResourceGroup           types.String                                  `tfsdk:"node_resource_group"`
+	Location                    types.String                                  `tfsdk:"location"`
+	DNSPrefix                   types.String                                  `tfsdk:"dns_prefix"`
+	NodeCount                   types.Int32                                   `tfsdk:"node_count"`
+	NodeVMSize                  types.String                                  `tfsdk:"node_vm_size"`
+	NodeDiskSize                types.Int32                                   `tfsdk:"node_disk_size"`
+	NodeDiskType                types.String                                  `tfsdk:"node_disk_type"`
+	NodePoolName                types.String                                  `tfsdk:"node_pool_name"`
+	SubscriptionID              types.String                                  `tfsdk:"subscription_id"`
+	KubernetesVersion           types.String                                  `tfsdk:"kubernetes_version"`
+	Tags                        map[string]string                             `tfsdk:"tags"`
+	PodIdentityAssociations     []*AKSPodIdentityAssociationResourceModel     `tfsdk:"pod_identity_associations"`
+	ClusterIdentityAssociations []*AKSClusterIdentityAssociationResourceModel `tfsdk:"cluster_identity_associations"`
+	AttachedACRs                []*AKSAttachedACR                             `tfsdk:"attached_acrs"`
+}
+
+type AKSPodIdentityAssociationResourceModel struct {
+	ServiceAccountName types.String         `tfsdk:"service_account_name"`
+	Namespace          types.String         `tfsdk:"namespace"`
+	RoleAssignments    []*AKSRoleAssignment `tfsdk:"role_assignments"`
+}
+
+type AKSClusterIdentityAssociationResourceModel struct {
+	IdentityName    types.String         `tfsdk:"identity_name"`
+	RoleAssignments []*AKSRoleAssignment `tfsdk:"role_assignments"`
+}
+
+type AKSRoleAssignment struct {
+	RoleDefinitionID types.String `tfsdk:"role_definition_id"`
+	Scope            types.String `tfsdk:"scope"`
+}
+
+type AKSAttachedACR struct {
+	ResourceGroup   types.String `tfsdk:"resource_group"`
+	Name            types.String `tfsdk:"name"`
+	CreateIfMissing types.Bool   `tfsdk:"create_if_missing"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -136,6 +179,103 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 	}
 
 	switch data.Driver {
+	case DriverAKS:
+		cfg := driversCfg.AKS
+		if cfg == nil {
+			cfg = &AKSDriverResourceModel{}
+		}
+
+		// Build registry auth config from the resolved repo.
+		// TODO: consider reusing the registry related code since it's not driver
+		// specific.
+		registries := make(map[string]*aks.RegistryConfig)
+		r, err := name.NewRegistry(repo.RegistryStr())
+		if err != nil {
+			return nil, fmt.Errorf("invalid registry name %s: %w", repo.RegistryStr(), err)
+		}
+		a, err := authn.DefaultKeychain.Resolve(r)
+		if err != nil {
+			return nil, fmt.Errorf("resolving keychain for registry %s: %w", r.String(), err)
+		}
+		acfg, err := a.Authorization()
+		if err != nil {
+			return nil, fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
+		}
+		registries[repo.RegistryStr()] = &aks.RegistryConfig{
+			Auth: &aks.RegistryAuthConfig{
+				Username: acfg.Username,
+				Password: acfg.Password,
+				Auth:     acfg.Auth,
+			},
+		}
+		podIdentityAssociations := []*aks.PodIdentityAssociationOptions{}
+		if cfg.PodIdentityAssociations != nil {
+			for _, v := range cfg.PodIdentityAssociations {
+				association := new(aks.PodIdentityAssociationOptions)
+				association.ServiceAccountName = v.ServiceAccountName.ValueString()
+				association.Namespace = v.Namespace.ValueString()
+				roleAssignments := []*aks.RoleAssignment{}
+				for _, in_assignment := range v.RoleAssignments {
+					out_assignment := new(aks.RoleAssignment)
+					out_assignment.RoleDefinitionID = in_assignment.RoleDefinitionID.ValueString()
+					out_assignment.Scope = in_assignment.Scope.ValueString()
+					roleAssignments = append(roleAssignments, out_assignment)
+				}
+				association.RoleAssignments = roleAssignments
+
+				podIdentityAssociations = append(podIdentityAssociations, association)
+			}
+		}
+		clusterIdentityAssociations := []*aks.ClusterIdentityAssociationOptions{}
+		if cfg.ClusterIdentityAssociations != nil {
+			for _, v := range cfg.ClusterIdentityAssociations {
+				association := new(aks.ClusterIdentityAssociationOptions)
+				association.IdentityName = v.IdentityName.ValueString()
+				roleAssignments := []*aks.RoleAssignment{}
+				for _, in_assignment := range v.RoleAssignments {
+					out_assignment := new(aks.RoleAssignment)
+					out_assignment.RoleDefinitionID = in_assignment.RoleDefinitionID.ValueString()
+					out_assignment.Scope = in_assignment.Scope.ValueString()
+					roleAssignments = append(roleAssignments, out_assignment)
+				}
+				association.RoleAssignments = roleAssignments
+
+				clusterIdentityAssociations = append(clusterIdentityAssociations, association)
+			}
+		}
+		attachedACRs := []*aks.AttachedACR{}
+		if cfg.AttachedACRs != nil {
+			for _, v := range cfg.AttachedACRs {
+				acr := aks.AttachedACR{
+					Name:            v.Name.ValueString(),
+					ResourceGroup:   v.ResourceGroup.ValueString(),
+					CreateIfMissing: v.CreateIfMissing.ValueBool(),
+				}
+
+				attachedACRs = append(attachedACRs, &acr)
+			}
+		}
+
+		return aks.NewDriver(id, aks.Options{
+			ResourceGroup:               cfg.ResourceGroup.ValueString(),
+			NodeResourceGroup:           cfg.NodeResourceGroup.ValueString(),
+			Location:                    cfg.Location.ValueString(),
+			DNSPrefix:                   cfg.DNSPrefix.ValueString(),
+			NodeCount:                   cfg.NodeCount.ValueInt32(),
+			NodeVMSize:                  cfg.NodeVMSize.ValueString(),
+			NodeDiskSize:                cfg.NodeDiskSize.ValueInt32(),
+			NodeDiskType:                cfg.NodeDiskType.ValueString(),
+			NodePoolName:                cfg.NodePoolName.ValueString(),
+			Timeout:                     timeout,
+			SubscriptionID:              cfg.SubscriptionID.ValueString(),
+			KubernetesVersion:           cfg.KubernetesVersion.ValueString(),
+			Tags:                        cfg.Tags,
+			Registries:                  registries,
+			PodIdentityAssociations:     podIdentityAssociations,
+			ClusterIdentityAssociations: clusterIdentityAssociations,
+			AttachedACRs:                attachedACRs,
+		})
+
 	case DriverK3sInDocker:
 		cfg := driversCfg.K3sInDocker
 		if cfg == nil {
@@ -439,6 +579,141 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 		Description: "The resource specific driver configuration. This is merged with the provider scoped drivers configuration.",
 		Optional:    true,
 		Attributes: map[string]schema.Attribute{
+			"aks": schema.SingleNestedAttribute{
+				Description: "The AKS driver",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"resource_group": schema.StringAttribute{
+						Description: "The Azure resource group for the AKS driver",
+						Optional:    true,
+					},
+					"node_resource_group": schema.StringAttribute{
+						Description: "The Azure resource group to hold AKS node resources",
+						Optional:    true,
+					},
+					"location": schema.StringAttribute{
+						Description: "The Azure region for the AKS driver (default is eastus)",
+						Optional:    true,
+					},
+					"dns_prefix": schema.StringAttribute{
+						Description: "The DNS prefix of the AKS cluster (uses the cluster name by default)",
+						Optional:    true,
+					},
+					"node_count": schema.Int32Attribute{
+						Description: "The number of nodes to use for the AKS driver (default is 1)",
+						Optional:    true,
+					},
+					"node_vm_size": schema.StringAttribute{
+						Description: "The node size to use for the AKS driver (default is Standard_DS2_v2)",
+						Optional:    true,
+					},
+					"node_pool_name": schema.StringAttribute{
+						Description: "The node pool name to use for the AKS driver",
+						Optional:    true,
+					},
+					"node_disk_size": schema.Int32Attribute{
+						Description: "Use a custom VM disk size (GB) instead of the one defined by the VM size",
+						Optional:    true,
+					},
+					"node_disk_type": schema.StringAttribute{
+						Description: "Ephemeral or Managed. Defaults to 'Ephemeral', which provide better performance but aren't persistent.",
+						Optional:    true,
+					},
+					"subscription_id": schema.StringAttribute{
+						Description: "The Azure subscription ID for the AKS driver, defaults to AZURE_SUBSCRIPTION_ID env var",
+						Optional:    true,
+					},
+					"kubernetes_version": schema.StringAttribute{
+						Description: "The Kubernetes version to deploy, uses the Azure default if unspecified",
+						Optional:    true,
+					},
+					"tags": schema.MapAttribute{
+						Description: "Additional tags to apply to all AKS resources created by the driver. Auto-generated tags (imagetest, imagetest:test-name, imagetest:cluster-name) are always included.",
+						ElementType: types.StringType,
+						Optional:    true,
+					},
+					"pod_identity_associations": schema.ListNestedAttribute{
+						Description: "Pod Identity Associations for the AKS driver",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"service_account_name": schema.StringAttribute{
+									Description: "Name of the Kubernetes service account",
+									Optional:    true,
+								},
+								"namespace": schema.StringAttribute{
+									Description: "Kubernetes namespace of the service account",
+									Optional:    true,
+								},
+								"role_assignments": schema.ListNestedAttribute{
+									Description: "AKS roles to assign",
+									Optional:    true,
+									NestedObject: schema.NestedAttributeObject{
+										Attributes: map[string]schema.Attribute{
+											"role_definition_id": schema.StringAttribute{
+												Description: "The role to assign. Example: /subscriptions/<sub-id>/providers/Microsoft.Authorization/roleDefinitions/<role-guid>",
+												Optional:    true,
+											},
+											"scope": schema.StringAttribute{
+												Description: "The role assignment scope. Example: /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv-name>",
+												Optional:    true,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"cluster_identity_associations": schema.ListNestedAttribute{
+						Description: "Cluster Identity Associations for the AKS driver",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"identity_name": schema.StringAttribute{
+									Description: "Name of the cluster identity (e.g. kubeletidentity)",
+									Optional:    true,
+								},
+								"role_assignments": schema.ListNestedAttribute{
+									Description: "AKS roles to assign",
+									Optional:    true,
+									NestedObject: schema.NestedAttributeObject{
+										Attributes: map[string]schema.Attribute{
+											"role_definition_id": schema.StringAttribute{
+												Description: "The role to assign. Example: /subscriptions/<sub-id>/providers/Microsoft.Authorization/roleDefinitions/<role-guid>",
+												Optional:    true,
+											},
+											"scope": schema.StringAttribute{
+												Description: "The role assignment scope. Example: /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv-name>",
+												Optional:    true,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"attached_acrs": schema.ListNestedAttribute{
+						Description: "Attached ACRs, granting image pull rights",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"resource_group": schema.StringAttribute{
+									Description: "The ACR resource group, defaults to the AKS resource group",
+									Optional:    true,
+								},
+								"name": schema.StringAttribute{
+									Description: "",
+									Optional:    true,
+								},
+								"create_if_missing": schema.BoolAttribute{
+									Description: "Whether to create the ACR if missing",
+									Optional:    true,
+								},
+							},
+						},
+					},
+				},
+			},
 			"k3s_in_docker": schema.SingleNestedAttribute{
 				Description: "The k3s_in_docker driver",
 				Optional:    true,
