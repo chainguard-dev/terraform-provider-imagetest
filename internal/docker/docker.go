@@ -175,6 +175,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	unhealthyCh := make(chan error)
 	if req.HealthCheck != nil {
 		go func() {
+			var negativeExitCodeRetries int
 			for {
 				time.Sleep(time.Second)
 				select {
@@ -203,8 +204,22 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
 
 						// There is a race condition where the container can exit and the health
-						// check can report unhealthy because of it. In that case, ignore the
-						// unhealthy status because the main wait loop will catch the exit.
+						// check can report unhealthy because of it. Negative exit codes indicate
+						// the exec infrastructure failed (command never ran), which typically
+						// happens when the container is exiting. Give it a few iterations to
+						// resolve - if the container exited, we'll see !Running above and the
+						// main wait loop will handle the actual exit.
+						if check.ExitCode < 0 {
+							negativeExitCodeRetries++
+							if negativeExitCodeRetries < 5 {
+								continue
+							}
+						} else {
+							negativeExitCodeRetries = 0
+						}
+
+						// Additional safety: skip known exec infrastructure error messages that
+						// can occur during the container exit race condition.
 						if strings.Contains(check.Output, "cannot exec in a stopped container") ||
 							strings.Contains(check.Output, "error executing setns process") ||
 							strings.Contains(check.Output, "procReady not received") {
