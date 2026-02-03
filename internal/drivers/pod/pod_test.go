@@ -387,10 +387,15 @@ func TestMonitor(t *testing.T) {
 					Phase: corev1.PodPending,
 				},
 			},
-			podEvents:     []watch.Event{},
-			k8sEvents:     []watch.Event{},
-			expectError:   true,
-			expectedError: "context cancelled: context canceled",
+			podEvents:   []watch.Event{},
+			k8sEvents:   []watch.Event{},
+			expectError: true,
+			expectedExitErr: &PodMonitorError{
+				Name:      "test-pod",
+				Namespace: "test-namespace",
+				Reason:    "context cancelled: context canceled",
+				ExitCode:  -1,
+			},
 		},
 	}
 
