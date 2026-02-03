@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
@@ -351,7 +352,13 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 			}
 
 		case <-ctx.Done():
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
+			return PodMonitorError{
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Reason:    fmt.Sprintf("context cancelled: %v", ctx.Err()),
+				ExitCode:  -1,
+				Logs:      maybeLog(ctx, cli, pod),
+			}
 		}
 	}
 }
@@ -397,6 +404,11 @@ func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.P
 }
 
 func maybeLog(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) string {
+	// Use a fresh context with a reasonable timeout to ensure we can fetch logs
+	// even when the caller's context has been cancelled (e.g., deadline exceeded).
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	req := cli.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
 		Container: SandboxContainerName,
 		// limit to 1mb of logs
