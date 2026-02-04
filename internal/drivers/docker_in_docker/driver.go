@@ -23,6 +23,7 @@ import (
 	ggcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/uuid"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 )
 
@@ -196,9 +197,10 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	clog.InfoContext(ctx, "running docker-in-docker test", "image_ref", tref.String())
+	cname := fmt.Sprintf("%s-%s", d.name, uuid.New().String()[:8])
+	clog.InfoContext(ctx, "running docker-in-docker test", "image_ref", tref.String(), "container_name", cname)
 	cid, err := d.cli.Run(ctx, &docker.Request{
-		Name:       d.name,
+		Name:       cname,
 		Ref:        tref,
 		Privileged: true, // Required for dind
 		User:       "0:0",
