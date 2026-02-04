@@ -457,7 +457,7 @@ func (k *driver) Setup(ctx context.Context) error {
 
 	usingExistingCluster := false
 	if _, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
-		if err := k.eksctl(ctx, "utils", "write-kubeconfig", "--cluster", k.clusterName, "--kubeconfig", "--region", k.kubeconfig); err != nil {
+		if err := k.eksctl(ctx, "utils", "write-kubeconfig", "--cluster", k.clusterName, "--region", k.region, "--kubeconfig", k.kubeconfig); err != nil {
 			return fmt.Errorf("eksctl utils write-kubeconfig: %w", err)
 		}
 		usingExistingCluster = true
