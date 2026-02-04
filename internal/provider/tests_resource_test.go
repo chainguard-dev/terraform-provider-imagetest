@@ -57,7 +57,13 @@ resource "imagetest_tests" "foo" {
 
   tests = [
     {
-      name    = "sample"
+      name    = "first"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    },
+    {
+      name    = "second"
       image   = "cgr.dev/chainguard/busybox:latest"
       content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
       cmd     = "./%[1]s"
