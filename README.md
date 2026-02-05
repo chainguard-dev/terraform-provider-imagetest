@@ -40,7 +40,7 @@ KUBECONFIG=$TMPDIR/imagetest-<uid> kubectl get nodes
 When the test completes, it should delete the cluster, but just in case it doesn't, you can delete it with:
 
 ```
-eksctl delete cluster --name=imagetest-<uid>
+eksctl delete cluster --force --name=imagetest-<uid>
 ```
 
 You can also find the cluster in the AWS Console: https://us-west-2.console.aws.amazon.com/eks/home
