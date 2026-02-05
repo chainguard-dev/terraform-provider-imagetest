@@ -51,7 +51,7 @@ jobs:
         with:
           version: latest
 
-      - uses: ko-build/setup-ko@d006021bd0c28d1ce33a07e7943d48b079944c8d # v0.9
+      - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
         env:
           KO_DOCKER_REPO: "ttl.sh/imagetest" # Avoid using GH registry for presubmit and plumbing auth
 
