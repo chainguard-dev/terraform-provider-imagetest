@@ -528,7 +528,7 @@ func (k *driver) Teardown(ctx context.Context) error {
 		}
 	}
 
-	if err := k.eksctl(ctx, "delete", "cluster", "--name", k.clusterName); err != nil {
+	if err := k.eksctl(ctx, "delete", "cluster", "--force", "--name", k.clusterName); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
 
