@@ -573,10 +573,7 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 }
 
 func (k *driver) amiFamily() string {
-	if strings.Contains(k.nodeAMI, "chainguard") {
-		return "AmazonLinux2023"
-	}
-	return "AmazonLinux2"
+	return "AmazonLinux2023"
 }
 
 func (k *driver) buildTags() map[string]string {
