@@ -57,6 +57,12 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 	}
 	ropts = append(ropts, remote.Reuse(pusher))
 
+	puller, err := remote.NewPuller(ropts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create puller: %w", err)
+	}
+	ropts = append(ropts, remote.Reuse(puller))
+
 	el, err := getEntrypointLayers(ropts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get entrypoint layers: %w", err)

@@ -324,8 +324,6 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	t.ropts = append(t.ropts, remote.WithContext(ctx))
-
 	imgsResolved, err := data.Images.Resolve()
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to resolve images", err.Error())}

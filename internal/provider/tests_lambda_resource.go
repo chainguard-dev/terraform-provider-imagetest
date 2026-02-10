@@ -9,7 +9,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/lambda"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -27,8 +26,6 @@ type TestsLambdaResource struct {
 	framework.WithTypeName
 	framework.WithNoOpDelete
 	framework.WithNoOpRead
-
-	ropts []remote.Option
 }
 
 type TestsLambdaResourceModel struct {
@@ -98,8 +95,6 @@ func (t *TestsLambdaResource) do(ctx context.Context, data *TestsLambdaResourceM
 	}
 
 	data.Id = types.StringValue(ref.DigestStr())
-
-	t.ropts = append(t.ropts, remote.WithContext(ctx))
 
 	dr, err := lambda.NewDriver(data.Region.ValueString(), data.ExecutionRole.ValueString())
 	if err != nil {
