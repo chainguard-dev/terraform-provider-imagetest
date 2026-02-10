@@ -25,7 +25,9 @@ type MutateOpts struct {
 }
 
 func Mutate(ctx context.Context, base name.Reference, target name.Repository, opts MutateOpts) (name.Reference, error) {
-	desc, err := remote.Get(base, opts.RemoteOptions...)
+	ropts := append(opts.RemoteOptions, remote.WithContext(ctx))
+
+	desc, err := remote.Get(base, ropts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
@@ -61,7 +63,7 @@ func Mutate(ctx context.Context, base name.Reference, target name.Repository, op
 				return nil, fmt.Errorf("failed to get digest: %w", err)
 			}
 
-			if err := remote.Write(target.Digest(dig.String()), img, opts.RemoteOptions...); err != nil {
+			if err := remote.Write(target.Digest(dig.String()), img, ropts...); err != nil {
 				return nil, fmt.Errorf("failed to push image: %w", err)
 			}
 
@@ -83,14 +85,14 @@ func Mutate(ctx context.Context, base name.Reference, target name.Repository, op
 		}
 
 		ref := target.Digest(dig.String())
-		if err := remote.WriteIndex(ref, midx, opts.RemoteOptions...); err != nil {
+		if err := remote.WriteIndex(ref, midx, ropts...); err != nil {
 			return nil, fmt.Errorf("failed to push index: %w", err)
 		}
 
 		return ref, nil
 
 	} else if desc.MediaType.IsImage() {
-		img, err := remote.Image(base, opts.RemoteOptions...)
+		img, err := remote.Image(base, ropts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get image: %w", err)
 		}
@@ -108,7 +110,7 @@ func Mutate(ctx context.Context, base name.Reference, target name.Repository, op
 		}
 
 		ref := target.Digest(mdig.String())
-		if err := remote.Write(ref, img, opts.RemoteOptions...); err != nil {
+		if err := remote.Write(ref, img, ropts...); err != nil {
 			return nil, fmt.Errorf("failed to push image: %w", err)
 		}
 
@@ -121,7 +123,9 @@ func Mutate(ctx context.Context, base name.Reference, target name.Repository, op
 // Append mutates the source Image or ImageIndex with the provided append
 // options, and pushes it to the target repository via its digest.
 func Append(ctx context.Context, base name.Reference, target name.Repository, opts AppendOpts) (name.Reference, error) {
-	desc, err := remote.Get(base, opts.RemoteOptions...)
+	ropts := append(opts.RemoteOptions, remote.WithContext(ctx))
+
+	desc, err := remote.Get(base, ropts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
@@ -155,7 +159,7 @@ func Append(ctx context.Context, base name.Reference, target name.Repository, op
 				return nil, fmt.Errorf("failed to get digest: %w", err)
 			}
 
-			if err := remote.Write(target.Digest(mdig.String()), mutated, opts.RemoteOptions...); err != nil {
+			if err := remote.Write(target.Digest(mdig.String()), mutated, ropts...); err != nil {
 				return nil, fmt.Errorf("failed to push image: %w", err)
 			}
 
@@ -177,14 +181,14 @@ func Append(ctx context.Context, base name.Reference, target name.Repository, op
 		}
 
 		ref := target.Digest(dig.String())
-		if err := remote.WriteIndex(ref, idx, opts.RemoteOptions...); err != nil {
+		if err := remote.WriteIndex(ref, idx, ropts...); err != nil {
 			return nil, fmt.Errorf("failed to push index: %w", err)
 		}
 
 		return ref, nil
 
 	} else if desc.MediaType.IsImage() {
-		baseimg, err := remote.Image(base, opts.RemoteOptions...)
+		baseimg, err := remote.Image(base, ropts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get image: %w", err)
 		}
@@ -200,7 +204,7 @@ func Append(ctx context.Context, base name.Reference, target name.Repository, op
 		}
 
 		ref := target.Digest(mdig.String())
-		if err := remote.Write(ref, mutated, opts.RemoteOptions...); err != nil {
+		if err := remote.Write(ref, mutated, ropts...); err != nil {
 			return nil, fmt.Errorf("failed to push image: %w", err)
 		}
 
