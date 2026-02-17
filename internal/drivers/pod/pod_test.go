@@ -11,8 +11,10 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
@@ -528,5 +530,134 @@ func TestPodMonitorErrorLogs(t *testing.T) {
 		if !strings.Contains(errMsg, part) {
 			t.Errorf("Expected error message to contain %q, but it did not\nActual: %s", part, errMsg)
 		}
+	}
+}
+
+func TestClusterLogs(t *testing.T) {
+	tests := []struct {
+		name string
+		pods []*corev1.Pod
+		want map[string]string
+	}{{
+		name: "collects logs from non-system namespaces",
+		pods: []*corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "nginx"},
+					},
+				},
+			},
+		},
+		want: map[string]string{
+			"default/nginx/nginx": "fake logs",
+		},
+	}, {
+		name: "skips system namespaces",
+		pods: []*corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "coredns",
+					Namespace: "kube-system",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "coredns"},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "kube-proxy",
+					Namespace: "kube-public",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "kube-proxy"},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "lease-holder",
+					Namespace: "kube-node-lease",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "lease-holder"},
+					},
+				},
+			},
+		},
+		want: map[string]string{},
+	}, {
+		name: "skips imagetest-labeled pods",
+		pods: []*corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "imagetest-abc",
+					Namespace: "imagetest",
+					Labels: map[string]string{
+						imagetestLabelKey: "true",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "sandbox"},
+					},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-pod",
+					Namespace: "imagetest",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app"},
+					},
+				},
+			},
+		},
+		want: map[string]string{
+			"imagetest/app-pod/app": "fake logs",
+		},
+	}, {
+		name: "collects multiple containers per pod",
+		pods: []*corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "multi",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "main"},
+						{Name: "sidecar"},
+					},
+				},
+			},
+		},
+		want: map[string]string{
+			"default/multi/main":    "fake logs",
+			"default/multi/sidecar": "fake logs",
+		},
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := make([]runtime.Object, len(tt.pods))
+			for i, p := range tt.pods {
+				objs[i] = p
+			}
+			client := fake.NewClientset(objs...)
+
+			result := clusterLogs(t.Context(), client)
+			require.Equal(t, tt.want, result)
+		})
 	}
 }

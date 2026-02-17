@@ -35,6 +35,8 @@ import (
 const (
 	SandboxContainerName  = "sandbox"
 	ArtifactContainerName = "artifacts"
+
+	imagetestLabelKey = "dev.chainguard.imagetest"
 )
 
 type opts struct {
@@ -63,7 +65,7 @@ func Run(ctx context.Context, kcfg *rest.Config, options ...RunOpts) (*drivers.R
 		ImageRef:   name.MustParseReference("cgr.dev/chainguard/kubectl:latest-dev"),
 		WorkingDir: entrypoint.DefaultWorkDir,
 		ExtraLabels: map[string]string{
-			"dev.chainguard.imagetest": "true",
+			imagetestLabelKey: "true",
 		},
 		ExtraAnnotations: map[string]string{},
 		ExtraEnvs: map[string]string{
@@ -281,11 +283,12 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 					default:
 						clog.ErrorContextf(ctx, "sandbox container failed with non-zero exit code %d", ec)
 						return PodMonitorError{
-							Name:      pod.Name,
-							Namespace: pod.Namespace,
-							Reason:    fmt.Sprintf("container %s terminated: %s", SandboxContainerName, cs.State.Terminated.Reason),
-							ExitCode:  int(ec),
-							Logs:      maybeLog(ctx, cli, pod),
+							Name:        pod.Name,
+							Namespace:   pod.Namespace,
+							Reason:      fmt.Sprintf("container %s terminated: %s", SandboxContainerName, cs.State.Terminated.Reason),
+							ExitCode:    int(ec),
+							Logs:        maybeLog(ctx, cli, pod),
+							ClusterLogs: clusterLogs(ctx, cli),
 						}
 					}
 				}
@@ -337,11 +340,12 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 					return nil
 				} else {
 					return PodMonitorError{
-						Name:      pod.Name,
-						Namespace: pod.Namespace,
-						Reason:    e.Reason,
-						ExitCode:  int(msg.ExitCode),
-						Logs:      maybeLog(ctx, cli, pod),
+						Name:        pod.Name,
+						Namespace:   pod.Namespace,
+						Reason:      e.Reason,
+						ExitCode:    int(msg.ExitCode),
+						Logs:        maybeLog(ctx, cli, pod),
+						ClusterLogs: clusterLogs(ctx, cli),
 					}
 				}
 			}
@@ -353,11 +357,12 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 
 		case <-ctx.Done():
 			return PodMonitorError{
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-				Reason:    fmt.Sprintf("context cancelled: %v", ctx.Err()),
-				ExitCode:  -1,
-				Logs:      maybeLog(ctx, cli, pod),
+				Name:        pod.Name,
+				Namespace:   pod.Namespace,
+				Reason:      fmt.Sprintf("context cancelled: %v", ctx.Err()),
+				ExitCode:    -1,
+				Logs:        maybeLog(ctx, cli, pod),
+				ClusterLogs: clusterLogs(ctx, cli),
 			}
 		}
 	}
@@ -427,6 +432,101 @@ func maybeLog(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) st
 	}
 
 	return buf.String()
+}
+
+const (
+	clusterLogsMaxPerContainer = 1024 * 1024 // 1MB per container
+	clusterLogsHalfMax         = clusterLogsMaxPerContainer / 2
+	clusterLogsMaxTotal        = 10 * 1024 * 1024 // 10MB total
+	clusterLogsTruncMarker     = "\n\n... truncated ...\n\n"
+)
+
+var clusterLogsSkipNamespaces = map[string]bool{
+	"kube-system":     true,
+	"kube-public":     true,
+	"kube-node-lease": true,
+}
+
+// clusterLogs fetches logs from all pods in the cluster, up to a reasonable
+// maximum, skipping system namespaces and other imagetest pods to avoid noise.
+// This is intended to provide additional context in the case of failures that
+// may be related to cluster state, without overwhelming users with too much
+// information.
+func clusterLogs(ctx context.Context, cli kubernetes.Interface) map[string]string {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+
+	podList, err := cli.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		clog.WarnContext(ctx, "failed to list cluster pods for logs", "error", err)
+		return nil
+	}
+
+	result := make(map[string]string)
+	totalBytes := 0
+	limitReached := false
+
+	for _, p := range podList.Items {
+		if clusterLogsSkipNamespaces[p.Namespace] {
+			// Skip kubernetes system namespaces.
+			continue
+		}
+
+		if p.Labels[imagetestLabelKey] == "true" {
+			// Skip other imagetest pods to avoid noise. We're already fetching this.
+			continue
+		}
+
+		for _, c := range p.Spec.Containers {
+			key := fmt.Sprintf("%s/%s/%s", p.Namespace, p.Name, c.Name)
+
+			if limitReached {
+				result[key] = "(omitted: cluster log limit reached)"
+				continue
+			}
+
+			logs := fetchContainerLog(ctx, cli, p.Namespace, p.Name, c.Name)
+			result[key] = logs
+			totalBytes += len(logs)
+
+			if totalBytes >= clusterLogsMaxTotal {
+				limitReached = true
+			}
+		}
+	}
+
+	return result
+}
+
+// fetchContainerLog retrieves logs for a specific container in a pod, truncating
+// if they exceed the per-container maximum.
+func fetchContainerLog(ctx context.Context, cli kubernetes.Interface, namespace, pod, container string) string {
+	req := cli.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{
+		Container: container,
+	})
+
+	rc, err := req.Stream(ctx)
+	if err != nil {
+		return fmt.Sprintf("failed to get logs: %v", err)
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return fmt.Sprintf("failed to read logs: %v", err)
+	}
+
+	if len(data) > clusterLogsMaxPerContainer {
+		// If logs exceed the per-container max, truncate the middle of the logs
+		// to preserve both the beginning and end, which often contain the most
+		// relevant information.
+		head := data[:clusterLogsHalfMax]
+		tail := data[len(data)-clusterLogsHalfMax:]
+		data = append(head, []byte(clusterLogsTruncMarker)...)
+		data = append(data, tail...)
+	}
+
+	return string(data)
 }
 
 func (o *opts) pod() *corev1.Pod {
@@ -700,12 +800,13 @@ func (o *opts) getArtifact(ctx context.Context, pod *corev1.Pod, result *drivers
 }
 
 type PodMonitorError struct {
-	Name      string
-	Namespace string
-	Reason    string
-	ExitCode  int
-	Logs      string
-	e         error
+	Name        string
+	Namespace   string
+	Reason      string
+	ExitCode    int
+	Logs        string
+	ClusterLogs map[string]string
+	e           error
 }
 
 func (e PodMonitorError) Error() string {
@@ -723,6 +824,13 @@ func (e PodMonitorError) Error() string {
 	if e.Logs != "" {
 		sb.WriteString(", Pod Logs:\n\n")
 		sb.WriteString(e.Logs)
+	}
+
+	if len(e.ClusterLogs) > 0 {
+		sb.WriteString("\n\nCluster Pod Logs:\n")
+		for key, logs := range e.ClusterLogs {
+			fmt.Fprintf(&sb, "\n--- %s ---\n%s\n", key, logs)
+		}
 	}
 
 	return sb.String()
