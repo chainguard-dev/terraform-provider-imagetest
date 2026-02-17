@@ -57,41 +57,32 @@ func SetupTestsLogging(ctx context.Context, logsDirectory, testID, testName stri
 	}
 }
 
-// testsHandler is an internal slog handler that only writes driver_log attribute values to a file.
+// testsHandler is an internal slog handler that only writes driver log output to a file.
+// It tracks whether driver_log was set via WithAttrs (context-level), avoiding
+// per-record attribute iteration.
 type testsHandler struct {
-	w io.WriteCloser
+	w           io.WriteCloser
+	isDriverLog bool
 }
 
 func (d *testsHandler) Enabled(_ context.Context, _ slog.Level) bool {
-	return true
+	return d.isDriverLog
 }
 
 func (d *testsHandler) Handle(_ context.Context, record slog.Record) error {
-	// Look for the driver_log attribute
-	var driverLog string
-	record.Attrs(func(a slog.Attr) bool {
-		if a.Key == drivers.LogAttributeKey {
-			driverLog = a.Value.String()
-			return false // stop iteration
-		}
-		return true
-	})
-
-	// Only write if we found a driver_log attribute
-	if driverLog != "" {
-		_, err := fmt.Fprintln(d.w, driverLog)
-		return err
-	}
-
-	return nil
+	_, err := fmt.Fprintln(d.w, record.Message)
+	return err
 }
 
 func (d *testsHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	// Return the same handler - we don't need to track attrs
+	for _, a := range attrs {
+		if a.Key == drivers.LogAttributeKey {
+			return &testsHandler{w: d.w, isDriverLog: true}
+		}
+	}
 	return d
 }
 
-func (d *testsHandler) WithGroup(name string) slog.Handler {
-	// Return the same handler - we don't need to track groups
+func (d *testsHandler) WithGroup(_ string) slog.Handler {
 	return d
 }

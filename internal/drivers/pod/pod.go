@@ -381,6 +381,7 @@ func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.P
 		defer logs.Close()
 		defer close(errch)
 
+		dctx := clog.WithValues(ctx, drivers.LogAttributeKey, true)
 		scanner := bufio.NewScanner(logs)
 		buf := make([]byte, 0, 512*1024)
 		scanner.Buffer(buf, 512*1024)
@@ -391,7 +392,7 @@ func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.P
 				return
 			default:
 				line := scanner.Text()
-				clog.InfoContext(ctx, "received pod log line", drivers.LogAttributeKey, line)
+				clog.InfoContext(dctx, line)
 			}
 		}
 

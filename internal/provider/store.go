@@ -42,6 +42,7 @@ type ProviderStore struct {
 	ropts                []remote.Option
 	entrypointLayers     map[string][]v1.Layer
 	logsDirectory        string // Base directory for test logs
+	traceID              string // Trace ID from parent TRACEPARENT, for log correlation
 }
 
 func NewProviderStore(repo name.Repository) (*ProviderStore, error) {

@@ -57,6 +57,7 @@ type TestsResource struct {
 	includeTests     map[string]string
 	excludeTests     map[string]string
 	logsDirectory    string
+	traceID          string // Trace ID from parent TRACEPARENT, for log correlation
 }
 
 type TestsResourceModel struct {
@@ -249,6 +250,7 @@ func (t *TestsResource) Configure(ctx context.Context, req resource.ConfigureReq
 	t.includeTests = store.includeTests
 	t.excludeTests = store.excludeTests
 	t.logsDirectory = store.logsDirectory
+	t.traceID = store.traceID
 }
 
 func (t *TestsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -282,8 +284,8 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
 	ctx = clog.WithValues(ctx,
 		"test_id", id,
-		"test_name", data.Name.ValueString(),
 		"driver", data.Driver,
+		"trace_id", t.traceID,
 	)
 
 	// Store test_id in context to deconflict with other tests
@@ -568,7 +570,21 @@ func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *Test
 		"checksum": types.StringNull(),
 	}
 
+	clog.InfoContext(ctx, "imagetest.test.start")
+	testStart := time.Now()
+
 	result, err := d.Run(ctx, ref)
+
+	duration := time.Since(testStart)
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+	}
+	clog.InfoContext(ctx, "imagetest.test.complete",
+		"exit_code", exitCode,
+		"duration_s", duration.Seconds(),
+	)
+
 	if result != nil && result.Artifact != nil {
 		artifact["uri"] = types.StringValue(result.Artifact.URI)
 		artifact["checksum"] = types.StringValue(result.Artifact.Checksum)

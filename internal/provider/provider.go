@@ -13,6 +13,8 @@ import (
 	rschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ provider.Provider = &ImageTestProvider{}
@@ -383,6 +385,15 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	// Check for environment variable override
 	if v := os.Getenv("IMAGETEST_LOGS"); v != "" {
 		store.logsDirectory = v
+	}
+
+	// Extract parent trace context from environment for log correlation
+	pctx := propagation.TraceContext{}.Extract(context.Background(), propagation.MapCarrier{
+		"traceparent": os.Getenv("TRACEPARENT"),
+		"tracestate":  os.Getenv("TRACESTATE"),
+	})
+	if sc := trace.SpanContextFromContext(pctx); sc.IsValid() {
+		store.traceID = sc.TraceID().String()
 	}
 
 	// Store any "global" provider configuration in the store

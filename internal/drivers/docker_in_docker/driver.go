@@ -183,9 +183,10 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 
 	go func() {
 		defer r.Close()
+		dctx := clog.WithValues(ctx, drivers.LogAttributeKey, true)
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
-			clog.InfoContext(ctx, "received container log line", drivers.LogAttributeKey, scanner.Text())
+			clog.InfoContext(dctx, scanner.Text())
 		}
 	}()
 
