@@ -40,13 +40,14 @@ const (
 )
 
 type opts struct {
-	ProcessLogPath string
-	CommandTimeout time.Duration
-	GracePeriod    time.Duration
-	WaitForProbe   bool
-	PauseMode      entrypoint.PauseMode
-	ArtifactsDir   string
-	ArtifactPath   string
+	ProcessLogPath    string
+	CommandTimeout    time.Duration
+	GracePeriod       time.Duration
+	WaitForProbe      bool
+	PauseMode         entrypoint.PauseMode
+	ArtifactsDir      string
+	ArtifactPath      string
+	OnFailureCommands []string
 
 	healthStatus *healthStatus
 	args         []string
@@ -182,6 +183,12 @@ func main() {
 }
 
 func (o *opts) Run(ctx context.Context) int {
+	if v := os.Getenv(entrypoint.OnFailureEnvVar); v != "" {
+		if err := json.Unmarshal([]byte(v), &o.OnFailureCommands); err != nil {
+			clog.WarnContextf(ctx, "failed to parse %s: %v", entrypoint.OnFailureEnvVar, err)
+		}
+	}
+
 	healthCleanup, err := o.healthStatus.startSocket()
 	if err != nil {
 		clog.ErrorContextf(ctx, "failed to start health socket: %v", err)
@@ -289,7 +296,50 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 	return 0, nil
 }
 
+func (o *opts) runOnFailure(ctx context.Context) {
+	if len(o.OnFailureCommands) == 0 {
+		return
+	}
+
+	logPath := filepath.Join(o.ArtifactsDir, "logs", "on_failure.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		clog.ErrorContext(ctx, "failed to create on_failure log directory", "error", err)
+		return
+	}
+
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		clog.ErrorContext(ctx, "failed to create on_failure log file", "error", err)
+		return
+	}
+	defer logFile.Close()
+
+	out := io.MultiWriter(os.Stdout, logFile)
+
+	clog.InfoContext(ctx, "running on_failure commands", "count", len(o.OnFailureCommands))
+	for _, command := range o.OnFailureCommands {
+		cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+
+		_, _ = fmt.Fprintf(out, "$ %s\n", command)
+		cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
+		cmd.Stdout = out
+		cmd.Stderr = out
+		cmd.Env = os.Environ()
+		if err := cmd.Run(); err != nil {
+			_, _ = fmt.Fprintf(out, "[exit: %v]\n", err)
+		}
+		_, _ = fmt.Fprintln(out)
+
+		cancel()
+	}
+	clog.InfoContext(ctx, "on_failure commands complete")
+}
+
 func (o *opts) finalize(ctx context.Context, code int, execErr error) int {
+	if execErr != nil {
+		o.runOnFailure(ctx)
+	}
+
 	berr := o.bundleArtifacts(ctx)
 	if berr != nil {
 		clog.ErrorContextf(ctx, "failed to bundle artifacts: %v", berr)

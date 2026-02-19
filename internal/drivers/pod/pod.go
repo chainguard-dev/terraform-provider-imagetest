@@ -116,16 +116,14 @@ func Run(ctx context.Context, kcfg *rest.Config, options ...RunOpts) (*drivers.R
 		"pod_namespace", pobj.Namespace,
 	)
 
-	if err := monitor(ctx, o.client, pobj); err != nil {
-		return nil, err
-	}
+	monitorErr := monitor(ctx, o.client, pobj)
 
 	result := &drivers.RunResult{Artifact: &drivers.RunArtifactResult{}}
 	if err := o.getArtifact(ctx, pobj, result); err != nil {
 		clog.ErrorContext(ctx, "failed to get artifact", "error", err)
 	}
 
-	return result, nil
+	return result, monitorErr
 }
 
 func (o *opts) preflight(ctx context.Context) error {

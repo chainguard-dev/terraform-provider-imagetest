@@ -31,6 +31,7 @@ const (
 	DefaultWorkDir = "/imagetest/work"
 
 	AritfactsDirEnvVar = "IMAGETEST_ARTIFACTS"
+	OnFailureEnvVar    = "IMAGETEST_ON_FAILURE"
 	ArtifactsMountPath = "/mnt/imagetest"
 	ArtifactsDir       = ArtifactsMountPath + "/artifacts"
 	ArtifactsPath      = ArtifactsMountPath + "/artifacts.tar.gz"
