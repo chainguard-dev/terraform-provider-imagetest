@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -384,6 +385,14 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	if v := os.Getenv("IMAGETEST_LOGS"); v != "" {
 		store.logsDirectory = v
 	}
+
+	// this is a no-op if no otlp endpoint is configured
+	shutdownTracing, err := o11y.SetupTracing(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to setup tracing", err.Error())
+		return
+	}
+	store.shutdownTracing = shutdownTracing
 
 	// Store any "global" provider configuration in the store
 	store.providerResourceData = data

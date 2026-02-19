@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/chainguard-dev/clog"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/gosimple/slug"
 	slogmulti "github.com/samber/slog-multi"
 )
@@ -66,7 +65,7 @@ func SetupTestsLogging(ctx context.Context, logsDirectory, testID, testName stri
 	return ctx, tl
 }
 
-// testsHandler is an internal slog handler that only writes driver_log attribute values to a file.
+// testsHandler is an internal slog handler that writes log messages to a file.
 type testsHandler struct {
 	w io.WriteCloser
 }
@@ -76,23 +75,8 @@ func (d *testsHandler) Enabled(_ context.Context, _ slog.Level) bool {
 }
 
 func (d *testsHandler) Handle(_ context.Context, record slog.Record) error {
-	// Look for the driver_log attribute
-	var driverLog string
-	record.Attrs(func(a slog.Attr) bool {
-		if a.Key == drivers.LogAttributeKey {
-			driverLog = a.Value.String()
-			return false // stop iteration
-		}
-		return true
-	})
-
-	// Only write if we found a driver_log attribute
-	if driverLog != "" {
-		_, err := fmt.Fprintln(d.w, driverLog)
-		return err
-	}
-
-	return nil
+	_, err := fmt.Fprintln(d.w, record.Message)
+	return err
 }
 
 func (d *testsHandler) WithAttrs(attrs []slog.Attr) slog.Handler {

@@ -389,7 +389,7 @@ func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.P
 				return
 			default:
 				line := scanner.Text()
-				clog.InfoContext(ctx, "received pod log line", drivers.LogAttributeKey, line)
+				clog.InfoContext(ctx, line)
 			}
 		}
 
