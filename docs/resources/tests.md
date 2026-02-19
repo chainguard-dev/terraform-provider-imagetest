@@ -245,6 +245,7 @@ Optional:
 - `cmd` (String) When specified, will override the sandbox image's CMD (oci config).
 - `content` (Attributes List) The content to use for the test (see [below for nested schema](#nestedatt--tests--content))
 - `envs` (Map of String) Environment variables to set on the test container. These will overwrite the environment variables set in the image's config on conflicts.
+- `on_failure` (List of String) Commands to run in the sandbox on test failure for diagnostic collection. Each command runs independently (best-effort); failures do not prevent subsequent commands from executing.
 - `timeout` (String) The maximum amount of time to wait for the individual test to complete. This is encompassed by the overall timeout of the parent tests resource.
 
 <a id="nestedatt--tests--artifact"></a>

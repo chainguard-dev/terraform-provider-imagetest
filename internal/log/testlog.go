@@ -14,47 +14,56 @@ import (
 	slogmulti "github.com/samber/slog-multi"
 )
 
+// TestLog holds the result of setting up test logging.
+type TestLog struct {
+	// Path is the path to the log file on the host. Empty if file logging is not configured.
+	Path  string
+	close func()
+}
+
+// Close closes the underlying log file.
+func (t *TestLog) Close() {
+	if t.close != nil {
+		t.close()
+	}
+}
+
 // SetupTestsLogging configures logging with optional file output for a specific test.
-func SetupTestsLogging(ctx context.Context, logsDirectory, testID, testName string) (context.Context, func()) {
+func SetupTestsLogging(ctx context.Context, logsDirectory, testID, testName string) (context.Context, *TestLog) {
+	tl := &TestLog{}
+
 	if logsDirectory == "" {
-		return ctx, func() {}
+		return ctx, tl
 	}
 
-	// Create subdirectory for this test resource
 	testDir := filepath.Join(logsDirectory, testID)
 	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		clog.WarnContext(ctx, "failed to create test directory", "path", testDir, "error", err.Error())
-		return ctx, func() {}
+		return ctx, tl
 	}
 
-	// Create a safe filename for this test
 	safeTestName := slug.Make(testName)
-	logPath := filepath.Join(testDir, fmt.Sprintf("%s.log", safeTestName))
+	tl.Path = filepath.Join(testDir, fmt.Sprintf("%s.log", safeTestName))
 
-	logFile, err := os.Create(logPath)
+	logFile, err := os.Create(tl.Path)
 	if err != nil {
-		clog.WarnContext(ctx, "failed to create test log file", "path", logPath, "error", err.Error())
-		return ctx, func() {}
+		clog.WarnContext(ctx, "failed to create test log file", "path", tl.Path, "error", err.Error())
+		tl.Path = ""
+		return ctx, tl
 	}
-
-	// Create a custom handler that only writes driver_log content
-	fileHandler := &testsHandler{
-		w: logFile,
-	}
-
-	// Use slog-multi to tee to both handlers
-	handler := clog.FromContext(ctx).Handler()
-	handler = slogmulti.Fanout(handler, fileHandler)
-
-	// Update the context with the new handler
-	clog.InfoContext(ctx, "logging test output to file", "path", logPath)
-	ctx = clog.WithLogger(ctx, clog.New(handler))
-
-	return ctx, func() {
+	tl.close = func() {
 		if err := logFile.Close(); err != nil {
-			clog.WarnContext(ctx, "failed to close log file", "path", logPath, "error", err.Error())
+			clog.WarnContext(ctx, "failed to close log file", "path", tl.Path, "error", err.Error())
 		}
 	}
+
+	handler := clog.FromContext(ctx).Handler()
+	handler = slogmulti.Fanout(handler, &testsHandler{w: logFile})
+
+	clog.InfoContext(ctx, "logging test output to file", "path", tl.Path)
+	ctx = clog.WithLogger(ctx, clog.New(handler))
+
+	return ctx, tl
 }
 
 // testsHandler is an internal slog handler that only writes driver_log attribute values to a file.

@@ -211,6 +211,64 @@ resource "imagetest_tests" "foo" {
 				Check: checkArtifact(t),
 			},
 		},
+		"dockerindocker-on-failure": {
+			{
+				ExpectError: regexp.MustCompile(`on-failure-sentinel-dind-abc123`),
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name       = "sample"
+      image      = "cgr.dev/chainguard/busybox:latest"
+      content    = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd        = "./%[1]s"
+      on_failure = ["echo on-failure-sentinel-dind-abc123"]
+    }
+  ]
+
+  timeout = "5m"
+}
+					`, "on-failure.sh"),
+			},
+		},
+		"k3sindocker-on-failure": {
+			{
+				ExpectError: regexp.MustCompile(`on-failure-sentinel-k3s-abc123`),
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "k3s_in_docker"
+
+  drivers = {
+    k3s_in_docker = {}
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name       = "sample"
+      image      = "cgr.dev/chainguard/kubectl:latest-dev"
+      content    = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd        = "./%[1]s"
+      on_failure = ["echo on-failure-sentinel-k3s-abc123"]
+    }
+  ]
+
+  timeout = "5m"
+}
+					`, "on-failure.sh"),
+			},
+		},
 		"dockerindocker-artifacts": {
 			{
 				Config: fmt.Sprintf(`

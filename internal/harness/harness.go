@@ -38,7 +38,7 @@ type RunError struct {
 func (e *RunError) Error() string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Error executing command (exit code %d)\n\n", e.ExitCode))
+	fmt.Fprintf(&sb, "Error executing command (exit code %d)\n\n", e.ExitCode)
 
 	sb.WriteString("Command:\n")
 
