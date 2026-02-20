@@ -16,6 +16,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	internallog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -29,6 +30,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type contextKey string
@@ -286,10 +292,15 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 	// Set up basic logging without file teeing (that happens per test)
 	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
+
+	ctx = propagation.TraceContext{}.Extract(ctx, propagation.MapCarrier{
+		"traceparent": os.Getenv("TRACEPARENT"),
+	})
+
 	ctx = clog.WithValues(ctx,
-		"test_id", id,
-		"test_name", data.Name.ValueString(),
-		"driver", data.Driver,
+		o11y.AttrTestID, id,
+		o11y.AttrName, data.Name.ValueString(),
+		o11y.AttrDriver, string(data.Driver),
 	)
 
 	// Store test_id in context to deconflict with other tests
@@ -363,7 +374,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 	trefs := make([]name.Reference, 0, len(data.Tests))
 	for _, test := range data.Tests {
-		l := clog.FromContext(ctx).With("test_name", test.Name.ValueString(), "test_id", id)
+		l := clog.FromContext(ctx).With(o11y.AttrTest, test.Name.ValueString(), o11y.AttrTestID, id)
 		l.InfoContext(ctx, "starting test")
 
 		// for each test, we build the test image. The test image is assembled
@@ -510,7 +521,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to mutate test image", err.Error())}
 		}
 
-		clog.InfoContext(ctx, fmt.Sprintf("build test image [%s]", tref.String()), "test_name", test.Name.ValueString(), "test_id", id)
+		clog.InfoContext(ctx, fmt.Sprintf("build test image [%s]", tref.String()), o11y.AttrTest, test.Name.ValueString(), o11y.AttrTestID, id)
 		trefs = append(trefs, tref)
 	}
 
@@ -519,16 +530,51 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to load driver", err.Error())}
 	}
 
+	tracer := otel.Tracer("imagetest")
+
+	ctx, suiteSpan := tracer.Start(ctx, "imagetest.suite",
+		trace.WithAttributes(
+			attribute.String(o11y.AttrName, data.Name.ValueString()),
+			attribute.String(o11y.AttrDriver, string(data.Driver)),
+			attribute.Int("test.count", len(data.Tests)),
+			attribute.String("timeout", data.Timeout.ValueString()),
+		),
+	)
 	defer func() {
-		if teardownErr := t.maybeTeardown(ctx, dr, ds.HasError()); teardownErr != nil {
-			ds = append(ds, teardownErr)
+		if ds.HasError() {
+			suiteSpan.RecordError(fmt.Errorf("test suite failed"))
+			suiteSpan.SetStatus(codes.Error, "test suite failed")
+		} else {
+			suiteSpan.SetStatus(codes.Ok, "")
 		}
+		suiteSpan.End()
 	}()
 
-	clog.InfoContext(ctx, "setting up driver")
+	defer func() {
+		ctx, teardownSpan := tracer.Start(ctx, "imagetest.teardown")
+		if d := t.maybeTeardown(ctx, dr, ds.HasError()); d != nil {
+			teardownSpan.RecordError(fmt.Errorf("%s", d.Detail()))
+			teardownSpan.SetStatus(codes.Error, d.Detail())
+			ds = append(ds, d)
+		} else {
+			teardownSpan.SetStatus(codes.Ok, "")
+		}
+		teardownSpan.End()
+	}()
+
+	ctx, setupSpan := tracer.Start(ctx, "imagetest.setup",
+		trace.WithAttributes(
+			attribute.String(o11y.AttrDriver, string(data.Driver)),
+		),
+	)
 	if err := dr.Setup(ctx); err != nil {
+		setupSpan.RecordError(err)
+		setupSpan.SetStatus(codes.Error, err.Error())
+		setupSpan.End()
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to setup driver", err.Error())}
 	}
+	setupSpan.SetStatus(codes.Ok, "")
+	setupSpan.End()
 
 	for i, tref := range trefs {
 		ds.Append(t.doTest(ctx, dr, data.Tests[i], tref)...)
@@ -553,7 +599,7 @@ func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *Test
 	defer testLog.Close()
 
 	ctx = clog.WithValues(ctx,
-		"test_name", test.Name.ValueString(),
+		o11y.AttrTest, testName,
 		"test_ref", ref.String(),
 	)
 
@@ -577,6 +623,14 @@ func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *Test
 	ctx, cancel := context.WithTimeout(ctx, tduration)
 	defer cancel()
 
+	ctx, testSpan := otel.Tracer("imagetest").Start(ctx, "imagetest.test",
+		trace.WithAttributes(
+			attribute.String(o11y.AttrTest, testName),
+			attribute.String("test.image_ref", ref.String()),
+			attribute.String("test.timeout", timeout),
+		),
+	)
+
 	artifact := map[string]attr.Value{
 		"uri":      types.StringNull(),
 		"checksum": types.StringNull(),
@@ -586,6 +640,10 @@ func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *Test
 	if result != nil && result.Artifact != nil {
 		artifact["uri"] = types.StringValue(result.Artifact.URI)
 		artifact["checksum"] = types.StringValue(result.Artifact.Checksum)
+		testSpan.SetAttributes(
+			attribute.String("test.artifact.uri", result.Artifact.URI),
+			attribute.String("test.artifact.checksum", result.Artifact.Checksum),
+		)
 
 		artifactObj, objDiags := types.ObjectValue(testArtifactAttTypes, artifact)
 		diags.Append(objDiags...)
@@ -593,6 +651,9 @@ func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *Test
 	}
 
 	if err != nil {
+		testSpan.RecordError(err)
+		testSpan.SetStatus(codes.Error, err.Error())
+		testSpan.End()
 		var artifactURI string
 		if result != nil && result.Artifact != nil {
 			artifactURI = result.Artifact.URI
@@ -601,7 +662,8 @@ func (t *TestsResource) doTest(ctx context.Context, d drivers.Tester, test *Test
 		return diags
 	}
 
-	// Return the diags we've been filling with warnings
+	testSpan.SetStatus(codes.Ok, "")
+	testSpan.End()
 	return diags
 }
 
