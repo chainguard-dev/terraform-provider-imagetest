@@ -20,19 +20,19 @@ const (
 
 // SetupTracing configures the global otel TracerProvider. When
 // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is set, spans are exported via OTLP/HTTP.
-func SetupTracing(ctx context.Context) (func(context.Context) error, error) {
+func SetupTracing(ctx context.Context) error {
 	if os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
-		return func(context.Context) error { return nil }, nil
+		return nil
 	}
 
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	res, err := resource.New(ctx, resource.WithFromEnv())
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	provider := sdktrace.NewTracerProvider(
@@ -42,5 +42,5 @@ func SetupTracing(ctx context.Context) (func(context.Context) error, error) {
 	)
 	otel.SetTracerProvider(provider)
 
-	return provider.Shutdown, nil
+	return nil
 }

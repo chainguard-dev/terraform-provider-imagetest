@@ -387,12 +387,10 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	// this is a no-op if no otlp endpoint is configured
-	shutdownTracing, err := o11y.SetupTracing(ctx)
-	if err != nil {
+	if err := o11y.SetupTracing(ctx); err != nil {
 		resp.Diagnostics.AddError("failed to setup tracing", err.Error())
 		return
 	}
-	store.shutdownTracing = shutdownTracing
 
 	// Store any "global" provider configuration in the store
 	store.providerResourceData = data
