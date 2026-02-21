@@ -5,7 +5,9 @@ import (
 	"os"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
@@ -18,16 +20,20 @@ const (
 	AttrTest   = "test"
 )
 
-// SetupTracing configures the global otel TracerProvider. When
-// OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is set, spans are exported via OTLP/HTTP.
-func SetupTracing(ctx context.Context) error {
-	if os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
-		return nil
-	}
+// loggerProvider holds the global LoggerProvider for use by the OTel slog
+// handler. Nil when OTLP is not configured.
+var loggerProvider *sdklog.LoggerProvider
 
-	exporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return err
+// LoggerProvider returns the configured LoggerProvider, or nil.
+func LoggerProvider() *sdklog.LoggerProvider { return loggerProvider }
+
+// Setup configures the global OTel TracerProvider and LoggerProvider. This is
+// a no-op when no OTLP endpoint is configured.
+func Setup(ctx context.Context) error {
+	// Check both the generic and trace-specific env vars.
+	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" &&
+		os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
+		return nil
 	}
 
 	res, err := resource.New(ctx, resource.WithFromEnv())
@@ -35,12 +41,24 @@ func SetupTracing(ctx context.Context) error {
 		return err
 	}
 
-	provider := sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(exporter),
+	traceExp, err := otlptracehttp.New(ctx)
+	if err != nil {
+		return err
+	}
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(traceExp),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	))
+
+	logExp, err := otlploghttp.New(ctx)
+	if err != nil {
+		return err
+	}
+	loggerProvider = sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewSimpleProcessor(logExp)),
+		sdklog.WithResource(res),
 	)
-	otel.SetTracerProvider(provider)
 
 	return nil
 }

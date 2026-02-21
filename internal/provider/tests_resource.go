@@ -30,6 +30,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -290,8 +291,15 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
 	data.Id = types.StringValue(id)
 
-	// Set up basic logging without file teeing (that happens per test)
-	ctx = clog.WithLogger(ctx, clog.New(slog.Default().Handler()))
+	// When a valid OTLP endpoint is configured, use that for provider logs,
+	// otherwise use the default slog handler.
+	var logHandler slog.Handler
+	if lp := o11y.LoggerProvider(); lp != nil {
+		logHandler = otelslog.NewHandler("imagetest", otelslog.WithLoggerProvider(lp))
+	} else {
+		logHandler = slog.Default().Handler()
+	}
+	ctx = clog.WithLogger(ctx, clog.New(logHandler))
 
 	ctx = propagation.TraceContext{}.Extract(ctx, propagation.MapCarrier{
 		"traceparent": os.Getenv("TRACEPARENT"),
@@ -534,6 +542,8 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 	ctx, suiteSpan := tracer.Start(ctx, "imagetest.suite",
 		trace.WithAttributes(
+			attribute.String("tf.resource.id", id),
+			attribute.String(o11y.AttrTestID, id),
 			attribute.String(o11y.AttrName, data.Name.ValueString()),
 			attribute.String(o11y.AttrDriver, string(data.Driver)),
 			attribute.Int("test.count", len(data.Tests)),
