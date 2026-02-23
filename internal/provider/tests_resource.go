@@ -380,165 +380,17 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create target repository", err.Error())}
 	}
 
-	trefs := make([]name.Reference, 0, len(data.Tests))
-	for _, test := range data.Tests {
-		l := clog.FromContext(ctx).With(o11y.AttrTest, test.Name.ValueString(), o11y.AttrTestID, id)
-		l.InfoContext(ctx, "starting test")
+	tracer := otel.Tracer("imagetest")
 
-		// for each test, we build the test image. The test image is assembled
-		// using a combination of the user provided "base" image, the entrypoint
-		// image, and the user provided test contents. Fully assembled, the layers
-		// looks something like:
-		//
-		// 0: The test image
-		// 1: The entrypoint image
-		// 2: The test content
-		//
-		// The entrypoint image supports linux/arm64 and linux/amd64 architectures.
-		// This accommodates for either single or multiarch test images,
-		// but there must be at _least_ a linux/arm64 or linux/amd64 variant. The
-		// test content is assumed to be architecture independent (source files),
-		// but we do not check. This may lead to runtime errors if a user is
-		// attempting to assemble runtime tools, but for now we'll combat that with
-		// documentation.
-		//
-		// The resulting name.Reference will depend on whether the base image is an
-		// index or an image.
-
-		baseref, err := name.ParseReference(test.Image.ValueString())
-		if err != nil {
-			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse base image reference", err.Error())}
-		}
-
-		// We assume, but do not check, that the test contents are architecture independent
-		sls := make([]v1.Layer, 0, len(test.Content))
-		for _, c := range test.Content {
-			target := c.Target.ValueString()
-			if target == "" {
-				target = entrypoint.DefaultWorkDir
-			}
-
-			layer, err := bundler.NewLayerFromPath(c.Source.ValueString(), target)
-			if err != nil {
-				return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create layer", err.Error())}
-			}
-			sls = append(sls, layer)
-		}
-
-		tref, err := bundler.Mutate(ctx, baseref, trepo, bundler.MutateOpts{
-			RemoteOptions: t.ropts,
-			ImageMutators: []func(v1.Image) (v1.Image, error){
-				// Mutator to append the arch specific entrypoint layers
-				func(base v1.Image) (v1.Image, error) {
-					cfg, err := base.ConfigFile()
-					if err != nil {
-						return nil, fmt.Errorf("failed to get config file: %w", err)
-					}
-
-					clog.InfoContext(ctx, "using entrypoint layers", "platform", cfg.Platform())
-					el, ok := t.entrypointLayers[cfg.Platform().Architecture]
-					if !ok {
-						return base, nil
-					}
-
-					return mutate.AppendLayers(base, el...)
-				},
-				// Mutator to append the test source layers
-				func(base v1.Image) (v1.Image, error) {
-					return mutate.AppendLayers(base, sls...)
-				},
-				// Mutator to rejigger the final image config
-				func(img v1.Image) (v1.Image, error) {
-					cfgf, err := img.ConfigFile()
-					if err != nil {
-						return nil, fmt.Errorf("failed to get config file: %w", err)
-					}
-
-					envs := make(map[string]string)
-					maps.Copy(envs, test.Envs)
-					envs["IMAGES"] = string(imgsResolvedData)
-					envs["IMAGETEST_DRIVER"] = string(data.Driver)
-					envs["IMAGETEST_REGISTRY"] = trepo.RegistryStr()
-					envs["IMAGETEST_REPO"] = trepo.String()
-					envs[entrypoint.AritfactsDirEnvVar] = entrypoint.ArtifactsDir
-
-					if len(test.OnFailure) > 0 {
-						ofdata, err := json.Marshal(test.OnFailure)
-						if err != nil {
-							return nil, fmt.Errorf("failed to marshal on_failure commands: %w", err)
-						}
-						envs[entrypoint.OnFailureEnvVar] = string(ofdata)
-					}
-
-					if os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
-						envs[entrypoint.PauseModeEnvVar] = string(entrypoint.PauseAlways)
-					}
-
-					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" {
-						envs[entrypoint.PauseModeEnvVar] = string(entrypoint.PauseOnError)
-					}
-
-					// Add some extra env vars for the entrypoint to potentially key off of
-					if isLocalRegistry(trepo.Registry) {
-						clog.InfoContext(ctx, "using local registry", "registry", trepo.RegistryStr())
-
-						u, err := url.Parse("http://" + trepo.RegistryStr())
-						if err != nil {
-							return nil, fmt.Errorf("failed to parse registry url: %w", err)
-						}
-
-						envs[entrypoint.DriverLocalRegistryEnvVar] = "1"
-						envs[entrypoint.DriverLocalRegistryHostnameEnvVar] = u.Hostname()
-						envs[entrypoint.DriverLocalRegistryPortEnvVar] = u.Port()
-					}
-
-					if cfgf.Config.Env == nil {
-						cfgf.Config.Env = make([]string, 0)
-					}
-
-					for k, v := range envs {
-						cfgf.Config.Env = append(cfgf.Config.Env, fmt.Sprintf("%s=%s", k, v))
-					}
-
-					// Use a standard entrypoint
-					cfgf.Config.Entrypoint = entrypoint.DefaultEntrypoint
-
-					cfgf.Config.Cmd = []string{test.Cmd.ValueString()}
-
-					if cfgf.Config.WorkingDir == "" {
-						cfgf.Config.WorkingDir = entrypoint.DefaultWorkDir
-					}
-
-					cfgf.Config.User = "0:0"
-
-					return mutate.ConfigFile(img, cfgf)
-				},
-				// Mutator to annotate the image with the test name
-				func(i v1.Image) (v1.Image, error) {
-					img, ok := mutate.Annotations(i, map[string]string{
-						"imagetest.test_name": test.Name.ValueString(),
-					}).(v1.Image)
-					if !ok {
-						return nil, fmt.Errorf("failed to assert mutate.Annotations result as v1.Image")
-					}
-					return img, nil
-				},
-			},
-		})
-		if err != nil {
-			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to mutate test image", err.Error())}
-		}
-
-		clog.InfoContext(ctx, fmt.Sprintf("build test image [%s]", tref.String()), o11y.AttrTest, test.Name.ValueString(), o11y.AttrTestID, id)
-		trefs = append(trefs, tref)
+	trefs, buildDiags := t.buildTestImages(ctx, data, trepo, imgsResolvedData, id)
+	if buildDiags.HasError() {
+		return buildDiags
 	}
 
 	dr, err := t.LoadDriver(ctx, data)
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to load driver", err.Error())}
 	}
-
-	tracer := otel.Tracer("imagetest")
 
 	ctx, suiteSpan := tracer.Start(ctx, "imagetest.suite",
 		trace.WithAttributes(
@@ -561,7 +413,11 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	}()
 
 	defer func() {
-		ctx, teardownSpan := tracer.Start(ctx, "imagetest.teardown")
+		ctx, teardownSpan := tracer.Start(ctx, "imagetest.teardown",
+			trace.WithAttributes(
+				attribute.String(o11y.AttrDriver, string(data.Driver)),
+			),
+		)
 		if d := t.maybeTeardown(ctx, dr, ds.HasError()); d != nil {
 			teardownSpan.RecordError(fmt.Errorf("%s", d.Detail()))
 			teardownSpan.SetStatus(codes.Error, d.Detail())
@@ -722,4 +578,147 @@ type TestsImagesParsed struct {
 	Digest       string `json:"digest"`
 	PseudoTag    string `json:"pseudo_tag"`
 	Ref          string `json:"ref"`
+}
+
+func (t *TestsResource) buildTestImages(ctx context.Context, data *TestsResourceModel, trepo name.Repository, imgsResolvedData []byte, id string) ([]name.Reference, diag.Diagnostics) {
+	_, buildSpan := otel.Tracer("imagetest").Start(ctx, "imagetest.build",
+		trace.WithAttributes(
+			attribute.Int("test.count", len(data.Tests)),
+		),
+	)
+	defer buildSpan.End()
+
+	trefs := make([]name.Reference, 0, len(data.Tests))
+	for _, test := range data.Tests {
+		l := clog.FromContext(ctx).With(o11y.AttrTest, test.Name.ValueString(), o11y.AttrTestID, id)
+		l.InfoContext(ctx, "starting test")
+
+		baseref, err := name.ParseReference(test.Image.ValueString())
+		if err != nil {
+			buildSpan.RecordError(err)
+			buildSpan.SetStatus(codes.Error, err.Error())
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse base image reference", err.Error())}
+		}
+
+		sls := make([]v1.Layer, 0, len(test.Content))
+		for _, c := range test.Content {
+			target := c.Target.ValueString()
+			if target == "" {
+				target = entrypoint.DefaultWorkDir
+			}
+
+			layer, err := bundler.NewLayerFromPath(c.Source.ValueString(), target)
+			if err != nil {
+				buildSpan.RecordError(err)
+				buildSpan.SetStatus(codes.Error, err.Error())
+				return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to create layer", err.Error())}
+			}
+			sls = append(sls, layer)
+		}
+
+		tref, err := bundler.Mutate(ctx, baseref, trepo, bundler.MutateOpts{
+			RemoteOptions: t.ropts,
+			ImageMutators: []func(v1.Image) (v1.Image, error){
+				func(base v1.Image) (v1.Image, error) {
+					cfg, err := base.ConfigFile()
+					if err != nil {
+						return nil, fmt.Errorf("failed to get config file: %w", err)
+					}
+
+					clog.InfoContext(ctx, "using entrypoint layers", "platform", cfg.Platform())
+					el, ok := t.entrypointLayers[cfg.Platform().Architecture]
+					if !ok {
+						return base, nil
+					}
+
+					return mutate.AppendLayers(base, el...)
+				},
+				func(base v1.Image) (v1.Image, error) {
+					return mutate.AppendLayers(base, sls...)
+				},
+				func(img v1.Image) (v1.Image, error) {
+					cfgf, err := img.ConfigFile()
+					if err != nil {
+						return nil, fmt.Errorf("failed to get config file: %w", err)
+					}
+
+					envs := make(map[string]string)
+					maps.Copy(envs, test.Envs)
+					envs["IMAGES"] = string(imgsResolvedData)
+					envs["IMAGETEST_DRIVER"] = string(data.Driver)
+					envs["IMAGETEST_REGISTRY"] = trepo.RegistryStr()
+					envs["IMAGETEST_REPO"] = trepo.String()
+					envs[entrypoint.AritfactsDirEnvVar] = entrypoint.ArtifactsDir
+
+					if len(test.OnFailure) > 0 {
+						ofdata, err := json.Marshal(test.OnFailure)
+						if err != nil {
+							return nil, fmt.Errorf("failed to marshal on_failure commands: %w", err)
+						}
+						envs[entrypoint.OnFailureEnvVar] = string(ofdata)
+					}
+
+					if os.Getenv("IMAGETEST_SKIP_TEARDOWN") != "" {
+						envs[entrypoint.PauseModeEnvVar] = string(entrypoint.PauseAlways)
+					}
+
+					if os.Getenv("IMAGETEST_SKIP_TEARDOWN_ON_FAILURE") != "" {
+						envs[entrypoint.PauseModeEnvVar] = string(entrypoint.PauseOnError)
+					}
+
+					if isLocalRegistry(trepo.Registry) {
+						clog.InfoContext(ctx, "using local registry", "registry", trepo.RegistryStr())
+
+						u, err := url.Parse("http://" + trepo.RegistryStr())
+						if err != nil {
+							return nil, fmt.Errorf("failed to parse registry url: %w", err)
+						}
+
+						envs[entrypoint.DriverLocalRegistryEnvVar] = "1"
+						envs[entrypoint.DriverLocalRegistryHostnameEnvVar] = u.Hostname()
+						envs[entrypoint.DriverLocalRegistryPortEnvVar] = u.Port()
+					}
+
+					if cfgf.Config.Env == nil {
+						cfgf.Config.Env = make([]string, 0)
+					}
+
+					for k, v := range envs {
+						cfgf.Config.Env = append(cfgf.Config.Env, fmt.Sprintf("%s=%s", k, v))
+					}
+
+					cfgf.Config.Entrypoint = entrypoint.DefaultEntrypoint
+					cfgf.Config.Cmd = []string{test.Cmd.ValueString()}
+
+					if cfgf.Config.WorkingDir == "" {
+						cfgf.Config.WorkingDir = entrypoint.DefaultWorkDir
+					}
+
+					cfgf.Config.User = "0:0"
+
+					return mutate.ConfigFile(img, cfgf)
+				},
+				func(i v1.Image) (v1.Image, error) {
+					img, ok := mutate.Annotations(i, map[string]string{
+						"imagetest.test_name": test.Name.ValueString(),
+					}).(v1.Image)
+					if !ok {
+						return nil, fmt.Errorf("failed to assert mutate.Annotations result as v1.Image")
+					}
+					return img, nil
+				},
+			},
+		})
+		if err != nil {
+			buildSpan.RecordError(err)
+			buildSpan.SetStatus(codes.Error, err.Error())
+			return nil, []diag.Diagnostic{diag.NewErrorDiagnostic("failed to mutate test image", err.Error())}
+		}
+
+		clog.InfoContext(ctx, fmt.Sprintf("build test image [%s]", tref.String()), o11y.AttrTest, test.Name.ValueString(), o11y.AttrTestID, id)
+		trefs = append(trefs, tref)
+	}
+
+	buildSpan.SetStatus(codes.Ok, "")
+	return trefs, nil
 }

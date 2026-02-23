@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/uuid"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type driver struct {
@@ -106,6 +107,8 @@ func (d *driver) Teardown(ctx context.Context) error {
 // Run implements drivers.TestDriver.
 func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
 	// Build the driver image, uses the provided dind image appended with the ref
+	span := trace.SpanFromContext(ctx)
+
 	tref, err := bundler.Mutate(ctx, d.ImageRef, ref.Context(), bundler.MutateOpts{
 		RemoteOptions: d.ropts,
 		ImageMutators: []func(ggcrv1.Image) (ggcrv1.Image, error){
@@ -150,6 +153,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	if err != nil {
 		return nil, fmt.Errorf("failed to build driver image: %w", err)
 	}
+	span.AddEvent("dind.image.built")
 
 	nw, err := d.cli.CreateNetwork(ctx, &docker.NetworkRequest{})
 	if err != nil {
@@ -161,6 +165,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	}); err != nil {
 		return nil, err
 	}
+	span.AddEvent("dind.network.created")
 
 	cliCfg, err := d.cliCfg.Content()
 	if err != nil {
@@ -199,6 +204,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 
 	cname := fmt.Sprintf("%s-%s", d.name, uuid.New().String()[:8])
 	clog.InfoContext(ctx, "running docker-in-docker test", "image_ref", tref.String(), "container_name", cname)
+	span.AddEvent("dind.container.started")
 	cid, err := d.cli.Run(ctx, &docker.Request{
 		Name:       cname,
 		Ref:        tref,
@@ -223,6 +229,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	})
 
 	result := &drivers.RunResult{}
+	span.AddEvent("dind.container.completed")
 
 	arc, aerr := docker.GetFile(ctx, d.cli, cid, entrypoint.ArtifactsPath)
 	if aerr != nil {

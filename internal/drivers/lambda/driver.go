@@ -12,6 +12,7 @@ import (
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/name"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type driver struct {
@@ -74,6 +75,8 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		return nil, fmt.Errorf("creating Lambda function: %w", err)
 	}
 	clog.FromContext(ctx).Info("Created Lambda function", "name", k.functionName)
+	span := trace.SpanFromContext(ctx)
+	span.AddEvent("lambda.function.created")
 
 	var out *lambda.GetFunctionOutput
 L:
@@ -99,6 +102,7 @@ L:
 		return nil, fmt.Errorf("function state is %s: %s", out.Configuration.State, *out.Configuration.StateReason)
 	}
 	clog.FromContext(ctx).Info("Lambda function is active", "name", k.functionName)
+	span.AddEvent("lambda.function.active")
 
 	// Invoke the function to ensure it is ready.
 	if out, err := k.client.Invoke(ctx, &lambda.InvokeInput{FunctionName: &k.functionName}); err != nil {

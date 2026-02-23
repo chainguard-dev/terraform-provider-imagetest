@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -428,6 +429,7 @@ func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
 
 func (k *driver) Setup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
+	span := trace.SpanFromContext(ctx)
 
 	if n, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
 		log.Infof("Using cluster name from IMAGETEST_EKS_CLUSTER: %s", n)
@@ -489,16 +491,19 @@ func (k *driver) Setup(ctx context.Context) error {
 			return fmt.Errorf("eksctl create cluster: %w", err)
 		}
 		log.Infof("Created cluster %s without nodegroups", k.clusterName)
+		span.AddEvent("eks.cluster.created")
 	}
 
 	if err := k.createNodeGroup(ctx); err != nil {
 		return err
 	}
+	span.AddEvent("eks.nodegroup.created")
 
 	if k.podIdentityAssociations != nil {
 		if err = k.createPodIdentityAssociation(ctx); err != nil {
 			return fmt.Errorf("creating pod identity association: %w", err)
 		}
+		span.AddEvent("eks.identity.configured")
 	}
 
 	config, err := clientcmd.BuildConfigFromFlags("", k.kubeconfig)

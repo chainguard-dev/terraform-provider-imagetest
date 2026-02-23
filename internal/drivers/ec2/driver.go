@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"github.com/kballard/go-shellquote"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/ssh"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -103,6 +104,7 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 
 func (d *driver) setupNewInstance(ctx context.Context) error {
 	log := clog.FromContext(ctx)
+	span := trace.SpanFromContext(ctx)
 
 	d.name = "imagetest-ec2-" + uuid.New().String()[:8]
 	log.Info("setting up EC2 driver", "name", d.name, "vpc_id", d.cfg.VPCID)
@@ -167,18 +169,22 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	if err := d.create(ctx, d.instance); err != nil {
 		return fmt.Errorf("creating instance: %w", err)
 	}
+	span.AddEvent("ec2.instance.created")
 
 	if err := d.instance.wait(ctx); err != nil {
 		return fmt.Errorf("waiting for instance: %w", err)
 	}
+	span.AddEvent("ec2.instance.running")
 
 	if err := d.prepareInstance(ctx); err != nil {
 		return fmt.Errorf("preparing instance: %w", err)
 	}
+	span.AddEvent("ec2.cloudinit.complete")
 
 	if err := d.runSetupCommands(ctx); err != nil {
 		return fmt.Errorf("running setup commands: %w", err)
 	}
+	span.AddEvent("ec2.setup.complete")
 
 	log.Info("EC2 driver setup complete", "instance_id", d.instance.id, "public_ip", d.instance.publicIP)
 

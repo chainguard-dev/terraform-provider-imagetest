@@ -17,6 +17,8 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/google/go-containerregistry/pkg/name"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -85,15 +87,19 @@ func Run(ctx context.Context, kcfg *rest.Config, options ...RunOpts) (*drivers.R
 	}
 	o.client = kcli
 
+	span := trace.SpanFromContext(ctx)
+
 	if err := o.preflight(ctx); err != nil {
 		return nil, err
 	}
+	span.AddEvent("pod.preflight.complete")
 
 	pobj, err := o.client.CoreV1().Pods(o.Namespace).
 		Create(ctx, o.pod(), metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod: %w", err)
 	}
+	span.AddEvent("pod.created")
 
 	pw, err := o.client.CoreV1().Pods(pobj.Namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", pobj.Name),
@@ -121,6 +127,8 @@ func Run(ctx context.Context, kcfg *rest.Config, options ...RunOpts) (*drivers.R
 	result := &drivers.RunResult{Artifact: &drivers.RunArtifactResult{}}
 	if err := o.getArtifact(ctx, pobj, result); err != nil {
 		clog.ErrorContext(ctx, "failed to get artifact", "error", err)
+	} else {
+		span.AddEvent("pod.artifact.retrieved")
 	}
 
 	return result, monitorErr
@@ -253,6 +261,7 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 
 			if !logStarted && p.Status.Phase == corev1.PodRunning {
 				logStarted = true
+				trace.SpanFromContext(ctx).AddEvent("pod.running")
 				clog.InfoContext(ctx, "starting log stream")
 				logch = startLogStream(ctx, cli, pod)
 			}
@@ -263,6 +272,9 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 
 			for _, cs := range p.Status.ContainerStatuses {
 				if cs.Name == SandboxContainerName && cs.State.Terminated != nil {
+					trace.SpanFromContext(ctx).AddEvent("pod.completed",
+						trace.WithAttributes(attribute.Int64("exit_code", int64(cs.State.Terminated.ExitCode))),
+					)
 					clog.InfoContext(ctx, "sandbox container terminated",
 						"exit_code", cs.State.Terminated.ExitCode,
 						"reason", cs.State.Terminated.Reason,

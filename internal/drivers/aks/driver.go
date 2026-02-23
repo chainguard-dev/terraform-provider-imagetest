@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -328,6 +329,7 @@ func (k *driver) setupCommonClients() error {
 
 func (k *driver) Setup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
+	span := trace.SpanFromContext(ctx)
 
 	if err := k.setupCommonClients(); err != nil {
 		return err
@@ -367,6 +369,7 @@ func (k *driver) Setup(ctx context.Context) error {
 		if err = k.createCluster(ctx); err != nil {
 			return err
 		}
+		span.AddEvent("aks.cluster.created")
 	}
 
 	if err = k.createPodIdentityAssociation(ctx); err != nil {
@@ -376,10 +379,12 @@ func (k *driver) Setup(ctx context.Context) error {
 	if err = k.createClusterIdentityAssociation(ctx); err != nil {
 		return err
 	}
+	span.AddEvent("aks.identity.configured")
 
 	if err = k.attachACRs(ctx); err != nil {
 		return err
 	}
+	span.AddEvent("aks.acr.attached")
 
 	if err = k.writeKubeConfig(ctx); err != nil {
 		return err

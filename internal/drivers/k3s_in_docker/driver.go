@@ -19,6 +19,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -162,6 +163,7 @@ configs:
 	if err != nil {
 		return fmt.Errorf("creating docker network: %w", err)
 	}
+	trace.SpanFromContext(ctx).AddEvent("k3s.network.created")
 
 	if err := k.stack.Add(func(ctx context.Context) error {
 		return cli.RemoveNetwork(ctx, nw)
@@ -224,6 +226,7 @@ configs:
 	}); err != nil {
 		return err
 	}
+	trace.SpanFromContext(ctx).AddEvent("k3s.container.started")
 
 	kcfgraw, err := resp.ReadFile(ctx, "/etc/rancher/k3s/k3s.yaml")
 	if err != nil {
@@ -251,6 +254,7 @@ configs:
 	}
 
 	config.Host = fmt.Sprintf("https://%s:%s", binding.HostIP, binding.HostPort)
+	trace.SpanFromContext(ctx).AddEvent("k3s.kubeconfig.ready")
 
 	kcli, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -288,6 +292,7 @@ configs:
 	if err := k.waitReady(ctx); err != nil {
 		return fmt.Errorf("waiting for k3s to be ready: %w", err)
 	}
+	trace.SpanFromContext(ctx).AddEvent("k3s.cluster.ready")
 
 	// Ensure some common mount propagation fixes are applied to make this feel
 	// more like a "real" cluster
@@ -315,6 +320,7 @@ configs:
 				return fmt.Errorf("running post start hook: %w", err)
 			}
 		}
+		trace.SpanFromContext(ctx).AddEvent("k3s.hooks.complete")
 	}
 
 	return nil
