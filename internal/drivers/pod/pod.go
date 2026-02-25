@@ -326,7 +326,7 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 				}
 
 				var msg struct {
-					ExitCode int64  `json:"exit_code"`
+					ExitCode *int64 `json:"exit_code"`
 					Msg      string `json:"msg"`
 				}
 
@@ -335,14 +335,23 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 					continue
 				}
 
+				if msg.ExitCode == nil {
+					// The probe output didn't include an exit_code field (e.g.
+					// the healthcheck couldn't connect to the health socket
+					// because the container is exiting). Defer to the pod status
+					// watcher which is the authoritative source for container
+					// termination status.
+					continue
+				}
+
 				// At this point, this is a termination event, so figure out what to do
 
 				ctx = clog.WithValues(ctx,
-					"exit_code", msg.ExitCode,
+					"exit_code", *msg.ExitCode,
 					"probe message", msg.Msg,
 				)
 
-				if msg.ExitCode == entrypoint.ProcessPausedCode {
+				if *msg.ExitCode == entrypoint.ProcessPausedCode {
 					clog.InfoContext(ctx, "test sandbox successfully completed and is paused")
 					return nil
 				} else {
@@ -350,7 +359,7 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 						Name:      pod.Name,
 						Namespace: pod.Namespace,
 						Reason:    e.Reason,
-						ExitCode:  int(msg.ExitCode),
+						ExitCode:  int(*msg.ExitCode),
 						Logs:      maybeLog(ctx, cli, pod),
 					}
 				}

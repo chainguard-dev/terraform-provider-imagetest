@@ -377,6 +377,71 @@ func TestMonitor(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name: "readiness_probe_without_exit_code_defers_to_pod_status",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-namespace",
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodPending,
+				},
+			},
+			podEvents: []watch.Event{
+				{
+					Type: watch.Modified,
+					Object: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-pod",
+							Namespace: "test-namespace",
+						},
+						Status: corev1.PodStatus{
+							Phase: corev1.PodRunning,
+						},
+					},
+				},
+				{
+					Type: watch.Modified,
+					Object: &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-pod",
+							Namespace: "test-namespace",
+						},
+						Status: corev1.PodStatus{
+							Phase: corev1.PodRunning,
+							ContainerStatuses: []corev1.ContainerStatus{
+								{
+									Name: SandboxContainerName,
+									State: corev1.ContainerState{
+										Terminated: &corev1.ContainerStateTerminated{
+											ExitCode: 0,
+											Reason:   "Completed",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			k8sEvents: []watch.Event{
+				{
+					Type: watch.Added,
+					Object: &corev1.Event{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "test-event",
+						},
+						Reason: string(corev1.ResourceHealthStatusUnhealthy),
+						// Simulates a healthcheck that couldn't connect to the
+						// health socket (no exit_code field). The monitor should
+						// ignore this and defer to the pod status watcher.
+						Message: `Readiness probe failed: {"level":"ERROR","msg":"failed to connect to health socket: dial unix /tmp/imagetest.health.sock: connect: no such file or directory"}`,
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
 			name: "context_cancelled",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
