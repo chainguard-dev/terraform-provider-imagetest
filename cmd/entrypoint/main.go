@@ -301,6 +301,10 @@ func (o *opts) runOnFailure(ctx context.Context) {
 		return
 	}
 
+	// Detach from the parent's cancellation so on_failure hooks run even if
+	// the command timeout has already expired.
+	ctx = context.WithoutCancel(ctx)
+
 	logPath := filepath.Join(o.ArtifactsDir, "logs", "on_failure.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		clog.ErrorContext(ctx, "failed to create on_failure log directory", "error", err)
