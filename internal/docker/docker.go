@@ -472,16 +472,33 @@ func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 		return fmt.Errorf("marshaling auth data: %w", err)
 	}
 
-	pull, err := d.inner.ImagePull(ctx, ref.Name(), image.PullOptions{
-		RegistryAuth: base64.URLEncoding.EncodeToString(authdata),
-	})
-	if err != nil {
-		return err
-	}
+	var lastErr error
+	if err := wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   2.0,
+		Jitter:   0.1,
+		Steps:    5,
+		Cap:      1 * time.Minute,
+	}, func(ctx context.Context) (bool, error) {
+		pull, err := d.inner.ImagePull(ctx, ref.Name(), image.PullOptions{
+			RegistryAuth: base64.URLEncoding.EncodeToString(authdata),
+		})
+		if err != nil {
+			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
+			lastErr = err
+			return false, nil
+		}
 
-	// Block until the image is pulled by discarding the reader
-	if _, err := io.Copy(io.Discard, pull); err != nil {
-		return fmt.Errorf("pulling image: %w", err)
+		// Block until the image is pulled by discarding the reader
+		if _, err := io.Copy(io.Discard, pull); err != nil {
+			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
+			lastErr = err
+			return false, nil
+		}
+
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("pulling image: %w: last error: %w", err, lastErr)
 	}
 
 	return nil
