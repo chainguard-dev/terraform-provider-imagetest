@@ -20,10 +20,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	"go.opentelemetry.io/otel/trace"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -363,40 +362,12 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 // "kube-system" to be ready, because that typically takes too long, and isn't
 // actually required to start scheduling pods.
 func (k *driver) waitReady(ctx context.Context) error {
-	if _, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{}); err == nil {
-		// sa already exists, we're good to go
-		return nil
-	}
-
-	saw, err := k.kcli.CoreV1().ServiceAccounts("default").Watch(ctx, metav1.ListOptions{
-		Watch:         true,
-		FieldSelector: "metadata.name=default",
-	})
-	if err != nil {
-		return fmt.Errorf("watching serviceaccount: %w", err)
-	}
-	defer saw.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case e, ok := <-saw.ResultChan():
-			if !ok {
-				return fmt.Errorf("service account watcher closed prematurely")
-			}
-
-			if e.Object == nil {
-				return fmt.Errorf("saw event with nil object")
-			}
-
-			if e.Type == watch.Added {
-				sa, ok := e.Object.(*corev1.ServiceAccount)
-				if ok && sa.Name == "default" {
-					// SA created, we're good to go
-					return nil
-				}
-			}
+	return wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{})
+		if err != nil {
+			clog.DebugContext(ctx, "waiting for default service account", "error", err)
+			return false, nil
 		}
-	}
+		return true, nil
+	})
 }
