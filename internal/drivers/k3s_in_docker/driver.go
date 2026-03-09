@@ -20,15 +20,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	"go.opentelemetry.io/otel/trace"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
-	toolswatch "k8s.io/client-go/tools/watch"
 )
 
 // driver is a k8s driver that spins up a k3s cluster in docker alongside a
@@ -365,49 +362,12 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 // "kube-system" to be ready, because that typically takes too long, and isn't
 // actually required to start scheduling pods.
 func (k *driver) waitReady(ctx context.Context) error {
-	if _, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{}); err == nil {
-		// sa already exists, we're good to go
-		return nil
-	}
-
-	lw := &cache.ListWatch{
-		WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
-			opts.FieldSelector = "metadata.name=default"
-			return k.kcli.CoreV1().ServiceAccounts("default").Watch(ctx, opts)
-		},
-	}
-
-	rw, err := toolswatch.NewRetryWatcherWithContext(ctx, "1", cache.ToWatcherWithContext(lw))
-	if err != nil {
-		return fmt.Errorf("creating retry watcher: %w", err)
-	}
-	defer rw.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case e, ok := <-rw.ResultChan():
-			if !ok {
-				// The watcher closed (e.g. due to 410 Gone). Re-check with a
-				// GET before giving up — the SA may already exist.
-				if _, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{}); err == nil {
-					return nil
-				}
-				return fmt.Errorf("service account watcher closed prematurely")
-			}
-
-			if e.Type == watch.Error {
-				clog.WarnContext(ctx, "watch error while waiting for service account", "object", e.Object)
-				continue
-			}
-
-			if e.Type == watch.Added {
-				if sa, ok := e.Object.(*corev1.ServiceAccount); ok && sa.Name == "default" {
-					// SA created, we're good to go
-					return nil
-				}
-			}
+	return wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{})
+		if err != nil {
+			clog.DebugContext(ctx, "waiting for default service account", "error", err)
+			return false, nil
 		}
-	}
+		return true, nil
+	})
 }
