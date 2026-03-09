@@ -389,6 +389,11 @@ func (k *driver) waitReady(ctx context.Context) error {
 			return ctx.Err()
 		case e, ok := <-rw.ResultChan():
 			if !ok {
+				// The watcher closed (e.g. due to 410 Gone). Re-check with a
+				// GET before giving up — the SA may already exist.
+				if _, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{}); err == nil {
+					return nil
+				}
 				return fmt.Errorf("service account watcher closed prematurely")
 			}
 
