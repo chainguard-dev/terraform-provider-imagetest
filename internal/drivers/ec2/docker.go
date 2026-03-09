@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
@@ -75,14 +76,31 @@ func (d *driver) pullImage(ctx context.Context, cli *client.Client, ref name.Ref
 	}
 	authStr := base64.URLEncoding.EncodeToString(authJSON)
 
-	result, err := cli.ImagePull(ctx, ref.Name(), image.PullOptions{RegistryAuth: authStr})
-	if err != nil {
-		return fmt.Errorf("pulling image: %w", err)
-	}
-	defer result.Close()
+	var lastErr error
+	if err := wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   2.0,
+		Jitter:   0.1,
+		Steps:    5,
+		Cap:      1 * time.Minute,
+	}, func(ctx context.Context) (bool, error) {
+		result, err := cli.ImagePull(ctx, ref.Name(), image.PullOptions{RegistryAuth: authStr})
+		if err != nil {
+			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
+			lastErr = err
+			return false, nil
+		}
+		defer result.Close()
 
-	if _, err := io.Copy(io.Discard, result); err != nil {
-		return fmt.Errorf("reading pull response: %w", err)
+		if _, err := io.Copy(io.Discard, result); err != nil {
+			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
+			lastErr = err
+			return false, nil
+		}
+
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("pulling image: %w: last error: %w", err, lastErr)
 	}
 
 	return nil
