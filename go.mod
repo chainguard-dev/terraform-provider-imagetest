@@ -17,7 +17,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.1
 	github.com/aws/smithy-go v1.24.2
 	github.com/chainguard-dev/clog v1.8.0
-	github.com/charmbracelet/log v0.4.2
+	github.com/charmbracelet/log v1.0.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/cli v29.2.1+incompatible
 	github.com/docker/go-connections v0.6.0
@@ -104,7 +104,7 @@ require (
 	github.com/go-git/go-billy/v5 v5.8.0 // indirect
 	github.com/go-git/go-git/v5 v5.17.0 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
-	github.com/go-logfmt/logfmt v0.6.0 // indirect
+	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
