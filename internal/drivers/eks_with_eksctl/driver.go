@@ -492,6 +492,18 @@ func (k *driver) Setup(ctx context.Context) error {
 		}
 		log.Infof("Created cluster %s without nodegroups", k.clusterName)
 		span.AddEvent("eks.cluster.created")
+
+		log.Infof("Enabling all cluster logging for %s", k.clusterName)
+		updateArgs := []string{
+			"utils", "update-cluster-logging",
+			"--cluster=" + k.clusterName,
+			"--region=" + k.region,
+			"--enable-types=all",
+		}
+		if err := k.eksctl(ctx, args...); err != nil {
+			return fmt.Errorf("eksctl update-cluster-logging: %w", err)
+		}
+		log.Infof("Enabled all cluster logging for %s", k.clusterName)
 	}
 
 	if err := k.createNodeGroup(ctx); err != nil {
