@@ -500,7 +500,7 @@ func (k *driver) Setup(ctx context.Context) error {
 			"--region=" + k.region,
 			"--enable-types=all",
 		}
-		if err := k.eksctl(ctx, args...); err != nil {
+		if err := k.eksctl(ctx, updateArgs...); err != nil {
 			return fmt.Errorf("eksctl update-cluster-logging: %w", err)
 		}
 		log.Infof("Enabled all cluster logging for %s", k.clusterName)
