@@ -499,6 +499,10 @@ func (k *driver) Setup(ctx context.Context) error {
 			"--cluster=" + k.clusterName,
 			"--region=" + k.region,
 			"--enable-types=all",
+			// per AWS: Note this command runs in plan mode by default,
+			// you will need to specify --approve flag to apply the
+			// changes to your cluster.
+			"--approve",
 		}
 		if err := k.eksctl(ctx, updateArgs...); err != nil {
 			return fmt.Errorf("eksctl update-cluster-logging: %w", err)
