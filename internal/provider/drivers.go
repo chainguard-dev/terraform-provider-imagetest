@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	compute "cloud.google.com/go/compute/apiv1"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -18,6 +19,7 @@ import (
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
+	mgce "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/gce"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -33,6 +35,7 @@ const (
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
 	DriverEC2            DriverResourceModel = "ec2"
+	DriverGCE            DriverResourceModel = "gce"
 )
 
 type TestsDriversResourceModel struct {
@@ -41,6 +44,7 @@ type TestsDriversResourceModel struct {
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
 	EC2            *EC2DriverResourceModel            `tfsdk:"ec2"`
+	GCE            *GCEDriverResourceModel            `tfsdk:"gce"`
 }
 
 type AKSDriverResourceModel struct {
@@ -155,6 +159,34 @@ type EC2DriverResourceModel struct {
 }
 
 type EC2ExistingInstanceResourceModel struct {
+	IP     types.String `tfsdk:"ip"`
+	SSHKey types.String `tfsdk:"ssh_key"`
+}
+
+type GCEDriverResourceModel struct {
+	ProjectID           types.String                      `tfsdk:"project_id"`
+	Zone                types.String                      `tfsdk:"zone"`
+	Network             types.String                      `tfsdk:"network"`
+	Image               types.String                      `tfsdk:"image"`
+	MachineType         types.String                      `tfsdk:"machine_type"`
+	AcceleratorType     types.String                      `tfsdk:"accelerator_type"`
+	AcceleratorCount    types.Int64                       `tfsdk:"accelerator_count"`
+	RootDiskSizeGB      types.Int64                       `tfsdk:"root_disk_size_gb"`
+	RootDiskType        types.String                      `tfsdk:"root_disk_type"`
+	ServiceAccountEmail types.String                      `tfsdk:"service_account_email"`
+	SSHUser             types.String                      `tfsdk:"ssh_user"`
+	SSHPort             types.Int64                       `tfsdk:"ssh_port"`
+	Shell               types.String                      `tfsdk:"shell"`
+	SetupCommands       []types.String                    `tfsdk:"setup_commands"`
+	Env                 types.Map                         `tfsdk:"env"`
+	StartupScript       types.String                      `tfsdk:"startup_script"`
+	VolumeMounts        []types.String                    `tfsdk:"volume_mounts"`
+	DeviceMounts        []types.String                    `tfsdk:"device_mounts"`
+	GPUs                types.String                      `tfsdk:"gpus"`
+	ExistingInstance    *GCEExistingInstanceResourceModel `tfsdk:"existing_instance"`
+}
+
+type GCEExistingInstanceResourceModel struct {
 	IP     types.String `tfsdk:"ip"`
 	SSHKey types.String `tfsdk:"ssh_key"`
 }
@@ -569,6 +601,84 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 
 		return mc2.NewDriver(driverCfg, ec2Client, iamClient)
 
+	case DriverGCE:
+		log := clog.FromContext(ctx)
+
+		if driversCfg.GCE == nil {
+			return nil, fmt.Errorf("the GCE driver was specified, but no configuration was provided")
+		}
+
+		// Build the driver config
+		driverCfg := mgce.Config{
+			ProjectID:           driversCfg.GCE.ProjectID.ValueString(),
+			Zone:                driversCfg.GCE.Zone.ValueString(),
+			Network:             driversCfg.GCE.Network.ValueString(),
+			Image:               driversCfg.GCE.Image.ValueString(),
+			MachineType:         driversCfg.GCE.MachineType.ValueString(),
+			AcceleratorType:     driversCfg.GCE.AcceleratorType.ValueString(),
+			AcceleratorCount:    int32(driversCfg.GCE.AcceleratorCount.ValueInt64()),
+			RootDiskSizeGB:      driversCfg.GCE.RootDiskSizeGB.ValueInt64(),
+			RootDiskType:        driversCfg.GCE.RootDiskType.ValueString(),
+			ServiceAccountEmail: driversCfg.GCE.ServiceAccountEmail.ValueString(),
+			SSHUser:             driversCfg.GCE.SSHUser.ValueString(),
+			SSHPort:             int32(driversCfg.GCE.SSHPort.ValueInt64()),
+			Shell:               driversCfg.GCE.Shell.ValueString(),
+			StartupScript:       driversCfg.GCE.StartupScript.ValueString(),
+			GPUs:                driversCfg.GCE.GPUs.ValueString(),
+		}
+
+		// Check for skip teardown env var
+		if v, ok := os.LookupEnv("IMAGETEST_SKIP_TEARDOWN"); ok && v != "" {
+			driverCfg.SkipTeardown = true
+		}
+
+		// Handle existing instance mode
+		if driversCfg.GCE.ExistingInstance != nil {
+			log.Info("using existing instance mode")
+			driverCfg.ExistingInstance = &mgce.ExistingInstance{
+				IP:     driversCfg.GCE.ExistingInstance.IP.ValueString(),
+				SSHKey: driversCfg.GCE.ExistingInstance.SSHKey.ValueString(),
+			}
+		}
+
+		// Capture setup commands
+		for _, cmd := range driversCfg.GCE.SetupCommands {
+			driverCfg.SetupCommands = append(driverCfg.SetupCommands, cmd.ValueString())
+		}
+
+		// Capture environment variables
+		driverCfg.Env = make(map[string]string)
+		for k, v := range driversCfg.GCE.Env.Elements() {
+			if v.IsNull() || v.IsUnknown() {
+				continue
+			}
+			if strVal, ok := v.(types.String); ok {
+				driverCfg.Env[k] = strVal.ValueString()
+			}
+		}
+
+		// Capture volume mounts
+		for _, m := range driversCfg.GCE.VolumeMounts {
+			driverCfg.VolumeMounts = append(driverCfg.VolumeMounts, m.ValueString())
+		}
+
+		// Capture device mounts
+		for _, m := range driversCfg.GCE.DeviceMounts {
+			driverCfg.DeviceMounts = append(driverCfg.DeviceMounts, m.ValueString())
+		}
+
+		// Init GCP clients
+		instancesClient, err := compute.NewInstancesRESTClient(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GCE instances client: %w", err)
+		}
+		firewallsClient, err := compute.NewFirewallsRESTClient(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GCE firewalls client: %w", err)
+		}
+
+		return mgce.NewDriver(driverCfg, instancesClient, firewallsClient)
+
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", data.Driver)
 	}
@@ -852,6 +962,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 				},
 			},
 			"ec2": driverResourceSchemaEC2,
+			"gce": driverResourceSchemaGCE,
 		},
 	}
 }
@@ -932,6 +1043,107 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			Description:        "Deprecated: use gpus = 'all' instead.",
 			Optional:           true,
 			DeprecationMessage: "Use gpus = 'all' instead.",
+		},
+		"existing_instance": schema.SingleNestedAttribute{
+			Description: "Use an existing instance instead of creating new resources.",
+			Optional:    true,
+			Attributes: map[string]schema.Attribute{
+				"ip": schema.StringAttribute{
+					Description: "IP address of the existing instance.",
+					Required:    true,
+				},
+				"ssh_key": schema.StringAttribute{
+					Description: "Path to the SSH private key file.",
+					Required:    true,
+				},
+			},
+		},
+	},
+}
+
+var driverResourceSchemaGCE = schema.SingleNestedAttribute{
+	Description: "The Google Compute Engine (GCE) driver.",
+	Optional:    true,
+	Attributes: map[string]schema.Attribute{
+		"project_id": schema.StringAttribute{
+			Description: "The GCP project ID. Required unless using existing_instance.",
+			Optional:    true,
+		},
+		"zone": schema.StringAttribute{
+			Description: "The GCE zone (e.g., us-west1-b). Required unless using existing_instance.",
+			Optional:    true,
+		},
+		"network": schema.StringAttribute{
+			Description: "The VPC network name or self-link. Required unless using existing_instance.",
+			Optional:    true,
+		},
+		"image": schema.StringAttribute{
+			Description: "The source image for the boot disk (e.g., projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts).",
+			Optional:    true,
+		},
+		"machine_type": schema.StringAttribute{
+			Description: "The GCE machine type (default: n1-standard-4).",
+			Optional:    true,
+		},
+		"accelerator_type": schema.StringAttribute{
+			Description: "The GPU accelerator type (e.g., nvidia-tesla-t4, nvidia-l4).",
+			Optional:    true,
+		},
+		"accelerator_count": schema.Int64Attribute{
+			Description: "The number of GPUs to attach (default: 0).",
+			Optional:    true,
+		},
+		"root_disk_size_gb": schema.Int64Attribute{
+			Description: "Root disk size in GB (default: 50).",
+			Optional:    true,
+		},
+		"root_disk_type": schema.StringAttribute{
+			Description: "Root disk type (default: pd-ssd).",
+			Optional:    true,
+		},
+		"service_account_email": schema.StringAttribute{
+			Description: "Service account email. If not specified, the default compute service account is used.",
+			Optional:    true,
+		},
+		"ssh_user": schema.StringAttribute{
+			Description: "SSH user for connecting to the instance (default: ubuntu).",
+			Optional:    true,
+		},
+		"ssh_port": schema.Int64Attribute{
+			Description: "SSH port for connecting to the instance (default: 22).",
+			Optional:    true,
+		},
+		"shell": schema.StringAttribute{
+			Description: "Shell to use for commands (default: bash).",
+			Optional:    true,
+		},
+		"setup_commands": schema.ListAttribute{
+			Description: "Commands to run on the instance before tests.",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"env": schema.MapAttribute{
+			Description: "Environment variables for setup commands and container.",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"startup_script": schema.StringAttribute{
+			Description: "Startup script passed as GCE instance metadata (cloud-init or shell script).",
+			Optional:    true,
+		},
+		"volume_mounts": schema.ListAttribute{
+			Description: "Volume mounts for the test container (format: src:dst).",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"device_mounts": schema.ListAttribute{
+			Description: "Device mounts for the test container (format: src:dst).",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"gpus": schema.StringAttribute{
+			Description: "GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.",
+			Optional:    true,
 		},
 		"existing_instance": schema.SingleNestedAttribute{
 			Description: "Use an existing instance instead of creating new resources.",
