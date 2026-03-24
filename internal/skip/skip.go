@@ -20,16 +20,16 @@ func Skip(t, include, exclude map[string]string) (bool, string) {
 	case len(include) == 0 && len(exclude) == 0:
 		return false, ""
 	case len(include) != 0:
-		reason := ""
+		var reason strings.Builder
 		for k, v := range include {
 			if t[k] != v {
-				reason += k + "=" + v + " "
+				reason.WriteString(k + "=" + v + " ")
 			}
 		}
-		if reason == "" {
+		if reason.Len() == 0 {
 			return shouldExclude(t, exclude)
 		}
-		return true, "skipped due to missing required labels: " + strings.TrimSpace(reason)
+		return true, "skipped due to missing required labels: " + strings.TrimSpace(reason.String())
 	case len(exclude) != 0:
 		return shouldExclude(t, exclude)
 	default:
@@ -38,14 +38,14 @@ func Skip(t, include, exclude map[string]string) (bool, string) {
 }
 
 func shouldExclude(a, b map[string]string) (bool, string) {
-	reason := ""
+	var reason strings.Builder
 	for k, v := range b {
 		if a[k] == v {
-			reason += k + "=" + v + " "
+			reason.WriteString(k + "=" + v + " ")
 		}
 	}
-	if reason == "" {
+	if reason.Len() == 0 {
 		return false, ""
 	}
-	return true, "skipped due to presence of excluded labels: " + strings.TrimSpace(reason)
+	return true, "skipped due to presence of excluded labels: " + strings.TrimSpace(reason.String())
 }
