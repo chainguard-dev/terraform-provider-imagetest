@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -170,6 +171,7 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 		return nil, fmt.Errorf("fetching container logs: %w", err)
 	}
 
+	var logBuf bytes.Buffer
 	logDone := make(chan struct{})
 	go func() {
 		defer close(logDone)
@@ -182,7 +184,9 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 			default:
 				n, err := logs.Read(buf)
 				if n > 0 {
-					log.Info("container output", "output", string(buf[:n]))
+					chunk := string(buf[:n])
+					log.Info("container output", "output", chunk)
+					logBuf.WriteString(chunk)
 				}
 				if err != nil {
 					return
@@ -250,6 +254,10 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	// Cancel background goroutines and wait for log streaming to finish
 	cancelRun()
 	<-logDone
+
+	if runErr != nil && logBuf.Len() > 0 {
+		runErr = fmt.Errorf("%w\n\nContainer %s logs:\n%s", runErr, containerName, logBuf.String())
+	}
 
 	return result, runErr
 }
