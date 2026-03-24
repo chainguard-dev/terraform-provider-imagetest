@@ -41,6 +41,7 @@ type driver struct {
 	Namespace     string            // The namespace to use for the test pods
 	Hooks         *K3sHooks         // Run commands at various lifecycle events
 	SandboxEnvs   map[string]string // Additional environment variables to set in the sandbox
+	SetupTimeout  time.Duration     // The maximum time to wait for the k3s cluster to be ready
 
 	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host
 
@@ -77,6 +78,7 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 		MetricsServer: false,
 		NetworkPolicy: false,
 		Namespace:     "imagetest",
+		SetupTimeout:  5 * time.Minute,
 
 		name:  n,
 		stack: harness.NewStack(),
@@ -92,6 +94,9 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, k.SetupTimeout)
+	defer cancel()
+
 	cli, err := docker.New()
 	if err != nil {
 		return fmt.Errorf("creating docker client: %w", err)

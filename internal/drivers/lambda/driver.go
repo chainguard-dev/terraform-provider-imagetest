@@ -19,6 +19,7 @@ type driver struct {
 	region        string
 	executionRole string
 	functionName  string
+	setupTimeout  time.Duration
 
 	client *lambda.Client
 }
@@ -31,10 +32,14 @@ func NewDriver(region, executionRole string) (drivers.Tester, error) {
 	return &driver{
 		region:        region,
 		executionRole: executionRole,
+		setupTimeout:  1 * time.Minute,
 	}, nil
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, k.setupTimeout)
+	defer cancel()
+
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(k.region))
 	if err != nil {
 		return fmt.Errorf("loading AWS config: %w", err)

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -35,14 +36,15 @@ const (
 )
 
 type driver struct {
-	name       string
-	nodeAMI    string
-	nodeType   string
-	nodeCount  int
-	storage    *StorageOptions
-	awsProfile string
-	tags       map[string]string
-	timeout    string // Go duration format for eksctl --timeout flag
+	name         string
+	nodeAMI      string
+	nodeType     string
+	nodeCount    int
+	storage      *StorageOptions
+	awsProfile   string
+	tags         map[string]string
+	timeout      string        // Go duration format for eksctl --timeout flag
+	setupTimeout time.Duration // The maximum time to wait for setup to complete
 
 	region           string
 	clusterName      string
@@ -69,7 +71,8 @@ type Options struct {
 	PodIdentityAssociations []*PodIdentityAssociationOptions
 	AWSProfile              string
 	Tags                    map[string]string
-	Timeout                 string // Go duration format (e.g., "30m", "1h") for eksctl --timeout flag
+	Timeout                 string        // Go duration format (e.g., "30m", "1h") for eksctl --timeout flag
+	SetupTimeout            time.Duration // The maximum time to wait for setup to complete
 	Registries              map[string]*RegistryConfig
 }
 
@@ -109,16 +112,17 @@ type podIdentityAssociation struct {
 // long-running operations (cluster creation, node group operations, etc.).
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
-		name:       name,
-		region:     opts.Region,
-		nodeAMI:    opts.NodeAMI,
-		nodeType:   opts.NodeType,
-		nodeCount:  opts.NodeCount,
-		namespace:  opts.Namespace,
-		storage:    opts.Storage,
-		awsProfile: opts.AWSProfile,
-		tags:       opts.Tags,
-		timeout:    opts.Timeout,
+		name:         name,
+		region:       opts.Region,
+		nodeAMI:      opts.NodeAMI,
+		nodeType:     opts.NodeType,
+		nodeCount:    opts.NodeCount,
+		namespace:    opts.Namespace,
+		storage:      opts.Storage,
+		awsProfile:   opts.AWSProfile,
+		tags:         opts.Tags,
+		timeout:      opts.Timeout,
+		setupTimeout: opts.SetupTimeout,
 	}
 	if k.region == "" {
 		k.region = regionDefault
@@ -131,6 +135,9 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	}
 	if k.nodeCount <= 0 {
 		k.nodeCount = 1 // Default to 1 node if not specified
+	}
+	if k.setupTimeout == 0 {
+		k.setupTimeout = 20 * time.Minute
 	}
 	if opts.PodIdentityAssociations != nil {
 		for _, v := range opts.PodIdentityAssociations {
@@ -428,6 +435,9 @@ func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, k.setupTimeout)
+	defer cancel()
+
 	log := clog.FromContext(ctx)
 	span := trace.SpanFromContext(ctx)
 
