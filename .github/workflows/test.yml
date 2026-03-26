@@ -33,7 +33,38 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
-          egress-policy: audit
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
+          allowed-endpoints: >
+            *.blob.core.windows.net:443
+            *.githubapp.com:443
+            9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com:443
+            api.github.com:443
+            apk.cgr.dev:443
+            auth.docker.io:443
+            cgr.dev:443
+            checkpoint-api.hashicorp.com:443
+            docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com:443
+            ghcr.io:443
+            github.com:443
+            go.dev:443
+            golangci-lint.run:443
+            mirror.gcr.io:443
+            packages.cgr.dev:443
+            packages.wolfi.dev:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudflare.docker.com:443
+            proxy.golang.org:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            registry.terraform.io:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            repo.maven.apache.org:443
+            spdx.org:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+            tomcat.apache.org:443
+            ttl.sh:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
@@ -70,7 +101,38 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
-          egress-policy: audit
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
+          allowed-endpoints: >
+            *.blob.core.windows.net:443
+            *.githubapp.com:443
+            9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com:443
+            api.github.com:443
+            apk.cgr.dev:443
+            auth.docker.io:443
+            cgr.dev:443
+            checkpoint-api.hashicorp.com:443
+            docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com:443
+            ghcr.io:443
+            github.com:443
+            go.dev:443
+            golangci-lint.run:443
+            mirror.gcr.io:443
+            packages.cgr.dev:443
+            packages.wolfi.dev:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudflare.docker.com:443
+            proxy.golang.org:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            registry.terraform.io:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            repo.maven.apache.org:443
+            spdx.org:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+            tomcat.apache.org:443
+            ttl.sh:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -118,8 +180,39 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
-          egress-policy: audit
-      
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
+          allowed-endpoints: >
+            *.blob.core.windows.net:443
+            *.githubapp.com:443
+            9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com:443
+            api.github.com:443
+            apk.cgr.dev:443
+            auth.docker.io:443
+            cgr.dev:443
+            checkpoint-api.hashicorp.com:443
+            docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com:443
+            ghcr.io:443
+            github.com:443
+            go.dev:443
+            golangci-lint.run:443
+            mirror.gcr.io:443
+            packages.cgr.dev:443
+            packages.wolfi.dev:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudflare.docker.com:443
+            proxy.golang.org:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            registry.terraform.io:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            repo.maven.apache.org:443
+            spdx.org:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+            tomcat.apache.org:443
+            ttl.sh:443
+
       # In some cases, we runs out of disk space during tests, so this hack frees up approx 10G.
       # See the following issue for more info: https://github.com/actions/runner-images/issues/2840#issuecomment-1284059930
       - name: Free up runner disk space
@@ -190,7 +283,38 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
         with:
-          egress-policy: audit
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
+          allowed-endpoints: >
+            *.blob.core.windows.net:443
+            *.githubapp.com:443
+            9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com:443
+            api.github.com:443
+            apk.cgr.dev:443
+            auth.docker.io:443
+            cgr.dev:443
+            checkpoint-api.hashicorp.com:443
+            docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com:443
+            ghcr.io:443
+            github.com:443
+            go.dev:443
+            golangci-lint.run:443
+            mirror.gcr.io:443
+            packages.cgr.dev:443
+            packages.wolfi.dev:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudflare.docker.com:443
+            proxy.golang.org:443
+            raw.githubusercontent.com:443
+            registry-1.docker.io:443
+            registry.terraform.io:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            repo.maven.apache.org:443
+            spdx.org:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+            tomcat.apache.org:443
+            ttl.sh:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
