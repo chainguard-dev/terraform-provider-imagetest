@@ -33,7 +33,7 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
         with:
-          egress-policy: block
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
             *.blob.core.windows.net:443
             *.githubapp.com:443
@@ -101,7 +101,7 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
         with:
-          egress-policy: block
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
             *.blob.core.windows.net:443
             *.githubapp.com:443
@@ -178,7 +178,7 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
         with:
-          egress-policy: block
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
             *.blob.core.windows.net:443
             *.githubapp.com:443
@@ -210,7 +210,7 @@ jobs:
             sum.golang.org:443
             tomcat.apache.org:443
             ttl.sh:443
-      
+
       # In some cases, we runs out of disk space during tests, so this hack frees up approx 10G.
       # See the following issue for more info: https://github.com/actions/runner-images/issues/2840#issuecomment-1284059930
       - name: Free up runner disk space
@@ -281,7 +281,7 @@ jobs:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
         with:
-          egress-policy: block
+          egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
             *.blob.core.windows.net:443
             *.githubapp.com:443
