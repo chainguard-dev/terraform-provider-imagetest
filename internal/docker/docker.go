@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/clog"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/cli/cli/connhelper"
@@ -142,20 +141,14 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		return "", fmt.Errorf("starting container: %w", err)
 	}
 
-	// Use a grace period context for all wait/poll operations so they survive
-	// the caller's deadline, giving the entrypoint time to run on_failure
-	// commands and bundle artifacts.
-	graceCtx, graceCancel := drivers.WithGracePeriod(ctx, drivers.GracePeriod)
-	defer graceCancel()
-
-	statusCh, errCh := d.inner.ContainerWait(graceCtx, cid, container.WaitConditionNotRunning)
+	statusCh, errCh := d.inner.ContainerWait(ctx, cid, container.WaitConditionNotRunning)
 
 	// TODO: This is specific to Run() and not in Start() because Run() has a
 	// clearly defined exit condition. In the future we may want to consider
 	// adding this to Start(), but its unclear how useful those logs would be,
 	// and how to even surface them without being overly verbose.
 	if req.Logger != nil {
-		logs, err := d.inner.ContainerLogs(graceCtx, cid, container.LogsOptions{
+		logs, err := d.inner.ContainerLogs(ctx, cid, container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
@@ -186,10 +179,10 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 			for {
 				time.Sleep(time.Second)
 				select {
-				case <-graceCtx.Done():
+				case <-ctx.Done():
 					return
 				default:
-					inspect, err := d.inner.ContainerInspect(graceCtx, cid)
+					inspect, err := d.inner.ContainerInspect(ctx, cid)
 					if err != nil {
 						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
 						return
@@ -245,8 +238,8 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	}
 
 	select {
-	case <-graceCtx.Done():
-		return cid, fmt.Errorf("context cancelled and container did not exit within grace period: %w", ctx.Err())
+	case <-ctx.Done():
+		return cid, fmt.Errorf("context cancelled while waiting for container to exit: %w", ctx.Err())
 
 	case err := <-errCh:
 		return cid, fmt.Errorf("waiting for container to exit: %w", err)
@@ -263,11 +256,11 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 			return cid, &RunError{ExitCode: status.StatusCode}
 		}
 
-		return cid, nil
-
 	case err := <-unhealthyCh:
 		return cid, fmt.Errorf("container marked unhealthy by healthcheck: %w", err)
 	}
+
+	return cid, nil
 }
 
 type RunError struct {

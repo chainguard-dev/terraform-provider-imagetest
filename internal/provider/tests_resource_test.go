@@ -296,6 +296,116 @@ resource "imagetest_tests" "foo" {
 				Check: checkArtifact(t),
 			},
 		},
+		// Per-test retry on a passing test: retry block is accepted, test still passes.
+		"dockerindocker-per-test-retry-passes": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "dind-per-test-retry-passes"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+      retry   = { attempts = 3, delay = "1s" }
+    }
+  ]
+
+  timeout = "5m"
+}
+        `, "docker-in-docker-basic.sh"),
+			},
+		},
+		// Per-test retry on a failing test: all attempts exhausted, error surfaces.
+		"dockerindocker-per-test-retry-exhausted": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "dind-per-test-retry-exhausted"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+      retry   = { attempts = 2, delay = "1s" }
+    }
+  ]
+
+  timeout = "5m"
+}
+        `, "docker-in-docker-fails.sh"),
+				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
+			},
+		},
+		// Resource-level retry on a passing test: retry block is accepted, test still passes.
+		"dockerindocker-resource-retry-passes": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "dind-resource-retry-passes"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  retry   = { attempts = 2, delay = "1s" }
+  timeout = "5m"
+}
+        `, "docker-in-docker-basic.sh"),
+			},
+		},
+		// Resource-level retry on a failing test: all attempts exhausted, error surfaces.
+		"dockerindocker-resource-retry-exhausted": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "dind-resource-retry-exhausted"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  retry   = { attempts = 2, delay = "1s" }
+  timeout = "5m"
+}
+        `, "docker-in-docker-fails.sh"),
+				ExpectError: regexp.MustCompile(`.*can't open 'imalittleteapot'.*`),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
