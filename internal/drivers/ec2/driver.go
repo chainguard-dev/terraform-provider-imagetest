@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"github.com/kballard/go-shellquote"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/ssh"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -181,6 +182,8 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	}
 	span.AddEvent("ec2.cloudinit.complete")
 
+	d.collectGPUInfo(ctx)
+
 	if err := d.runSetupCommands(ctx); err != nil {
 		return fmt.Errorf("running setup commands: %w", err)
 	}
@@ -339,6 +342,59 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 		log.Info("cloud-init complete")
 		return true, nil
 	})
+}
+
+// collectGPUInfo connects via SSH and logs GPU and NVIDIA driver information
+// if nvidia-smi is available on the instance. This is non-fatal; failures are
+// logged as warnings.
+func (d *driver) collectGPUInfo(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ctx, span := otel.Tracer("imagetest").Start(ctx, "ec2.gpu_info")
+	defer span.End()
+
+	log := clog.FromContext(ctx)
+
+	signer, err := d.sshSigner()
+	if err != nil {
+		log.Warn("failed to get SSH signer for GPU info", "error", err)
+		return
+	}
+
+	conn, err := issh.Connect(d.instanceIP(), uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer)
+	if err != nil {
+		log.Warn("SSH connection failed for GPU info", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	// Check if nvidia-smi is available
+	checkBuf := new(bytes.Buffer)
+	if err := issh.ExecIn(conn, issh.ShellBash, checkBuf, new(bytes.Buffer), "command -v nvidia-smi"); err != nil {
+		log.Info("nvidia-smi not found, skipping GPU info collection")
+		return
+	}
+
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+
+	// Query all useful GPU properties in a single nvidia-smi call
+	cmds := []string{
+		"nvidia-smi --query-gpu=name,driver_version,vbios_version,pci.bus_id,memory.total,memory.free,compute_cap,gpu_serial,uuid --format=csv",
+		"echo '=== nvidia kernel module ==='",
+		"cat /sys/module/nvidia/version 2>/dev/null || echo 'nvidia kernel module not loaded'",
+		"echo '=== cuda version ==='",
+		"nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1",
+		"nvcc --version 2>/dev/null || echo 'nvcc not installed'",
+	}
+
+	if err := issh.ExecIn(conn, issh.ShellBash, stdout, stderr, cmds...); err != nil {
+		log.Warn("failed to collect GPU info", "error", err, "stderr", stderr.String())
+		return
+	}
+
+	log.Info("GPU info", "output", stdout.String())
 }
 
 func (d *driver) runSetupCommands(ctx context.Context) error {
