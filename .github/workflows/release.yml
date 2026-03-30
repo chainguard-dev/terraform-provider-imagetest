@@ -2,13 +2,12 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions: {}
 
 jobs:
   goreleaser:
-
     permissions:
       contents: write # To publish the release.
       id-token: write # To federate for the GPG key.
@@ -45,6 +44,8 @@ jobs:
             sts.googleapis.com:443
             sum.golang.org:443
             uploads.github.com:443
+            _pgpkey-http._tcp.keys.openpgp.org:443
+            metadata.google.internal:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -52,7 +53,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
           check-latest: true
           cache: false
 
