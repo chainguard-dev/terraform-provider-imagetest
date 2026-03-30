@@ -26,6 +26,7 @@ description: |-
 - `labels` (Map of String) Metadata to attach to the tests resource. Used for filtering and grouping.
 - `name` (String) The name of the test. If one is not provided, a random name will be generated.
 - `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images, overriding provider config.
+- `retry` (Attributes) On failure, tears down the driver completely, creates a fresh one, and re-runs all tests from scratch. This gives each attempt a clean driver, but external side effects from previous attempts are not rolled back: pushed images, written files, cloud resources created outside the driver (e.g. IAM roles, DNS records), and any other out-of-band mutations will still exist. All per-test retry blocks also reset — every test runs from its first attempt on each resource-level retry. (see [below for nested schema](#nestedatt--retry))
 - `skipped` (Boolean) Whether or not the tests were skipped. This is set to true if the tests were skipped, and false otherwise.
 - `tests` (Attributes List) An ordered list of test suites to run (see [below for nested schema](#nestedatt--tests))
 - `timeout` (String) The maximum amount of time to wait for all tests to complete. This includes the time it takes to start and destroy the driver.
@@ -231,6 +232,18 @@ Optional:
 
 
 
+<a id="nestedatt--retry"></a>
+### Nested Schema for `retry`
+
+Required:
+
+- `attempts` (Number) Total number of attempts including the initial run. Must be >= 1.
+
+Optional:
+
+- `delay` (String) Delay between retry attempts as a Go duration string (e.g. "5s", "1m"). Defaults to 5s.
+
+
 <a id="nestedatt--tests"></a>
 ### Nested Schema for `tests`
 
@@ -246,6 +259,7 @@ Optional:
 - `content` (Attributes List) The content to use for the test (see [below for nested schema](#nestedatt--tests--content))
 - `envs` (Map of String) Environment variables to set on the test container. These will overwrite the environment variables set in the image's config on conflicts.
 - `on_failure` (List of String) Commands to run in the sandbox on test failure for diagnostic collection. Each command runs independently (best-effort); failures do not prevent subsequent commands from executing.
+- `retry` (Attributes) Re-runs this individual test within the same driver instance. Each retry launches a fresh test sandbox container, but all driver-level state persists: for Kubernetes-based drivers (k3s_in_docker, EKS, AKS) this means the cluster, namespace, RBAC, secrets, and any objects created by previous attempts are still present. For EC2, the instance filesystem and Docker daemon state carry over. Tests must be idempotent — use create-or-update patterns, unique names, or explicit cleanup to avoid conflicts with leftover state from failed attempts. (see [below for nested schema](#nestedatt--tests--retry))
 - `timeout` (String) The maximum amount of time to wait for the individual test to complete. This is encompassed by the overall timeout of the parent tests resource.
 
 <a id="nestedatt--tests--artifact"></a>
@@ -267,3 +281,15 @@ Required:
 Optional:
 
 - `target` (String) The target path to use for the test
+
+
+<a id="nestedatt--tests--retry"></a>
+### Nested Schema for `tests.retry`
+
+Required:
+
+- `attempts` (Number) Total number of attempts including the initial run. Must be >= 1.
+
+Optional:
+
+- `delay` (String) Delay between retry attempts as a Go duration string (e.g. "5s", "1m"). Defaults to 5s.
