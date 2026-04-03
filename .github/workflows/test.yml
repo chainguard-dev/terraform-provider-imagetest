@@ -5,11 +5,11 @@ name: Tests
 # Optionally, you can turn it on using a schedule for regular testing.
 on:
   pull_request:
-    branches: ['main']
+    branches: ["main"]
     paths-ignore:
       - "README.md"
   push:
-    branches: ['main']
+    branches: ["main"]
     paths-ignore:
       - "README.md"
 
@@ -171,9 +171,6 @@ jobs:
       matrix:
         # list whatever Terraform versions here you would like to support
         terraform:
-          - "1.11.*"
-          - "1.12.*"
-          - "1.13.*"
           - "1.14.*"
 
     steps:
