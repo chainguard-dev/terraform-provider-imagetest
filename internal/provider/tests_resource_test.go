@@ -379,6 +379,31 @@ resource "imagetest_tests" "foo" {
 			},
 		},
 		// Resource-level retry on a failing test: all attempts exhausted, error surfaces.
+		"dockerindocker-nested-content": {
+			{
+				Config: `
+resource "imagetest_tests" "foo" {
+  name   = "dind-nested-content"
+  driver = "docker_in_docker"
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource/nested" }]
+      cmd     = "./check.sh"
+    }
+  ]
+
+  timeout = "5m"
+}
+        `,
+			},
+		},
 		"dockerindocker-resource-retry-exhausted": {
 			{
 				Config: fmt.Sprintf(`
