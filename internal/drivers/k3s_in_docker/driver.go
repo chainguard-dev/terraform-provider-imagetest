@@ -15,6 +15,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/retry"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -93,6 +94,36 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	result := retry.Do(ctx, retry.Config{Attempts: 3, Delay: 5 * time.Second}, func(ctx context.Context, attempt int) error {
+		// Each attempt gets a fresh stack and a scoped timeout
+		k.stack = harness.NewStack()
+
+		timeout := k.timeouts.Setup
+		if timeout == 0 {
+			timeout = 5 * time.Minute
+		}
+		setupCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := k.setup(setupCtx)
+		cancel()
+
+		if err != nil {
+			// Teardown uses the parent context — don't let a setup timeout prevent cleanup
+			if terr := k.stack.Teardown(ctx); terr != nil {
+				clog.WarnContext(ctx, "failed to teardown after setup failure", "error", terr)
+			}
+			return err
+		}
+
+		return nil
+	})
+
+	if result.LastError != nil {
+		return fmt.Errorf("k3s setup failed after %d attempts: %w", result.Attempts, result.LastError)
+	}
+	return nil
+}
+
+func (k *driver) setup(ctx context.Context) error {
 	cli, err := docker.New()
 	if err != nil {
 		return fmt.Errorf("creating docker client: %w", err)
