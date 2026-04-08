@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
@@ -36,6 +37,7 @@ type Config struct {
 
 	// Operational
 	SkipTeardown bool
+	SetupTimeout time.Duration // default: 30m
 
 	// Use existing instance (skips resource creation)
 	ExistingInstance *ExistingInstance
@@ -68,6 +70,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Env == nil {
 		c.Env = make(map[string]string)
+	}
+	if c.SetupTimeout == 0 {
+		c.SetupTimeout = 30 * time.Minute
 	}
 }
 

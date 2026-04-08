@@ -70,6 +70,9 @@ func NewDriver(cfg Config, ec2Client *ec2.Client, iamClient *iam.Client) (*drive
 }
 
 func (d *driver) Setup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, d.cfg.SetupTimeout)
+	defer cancel()
+
 	if d.cfg.ExistingInstance != nil {
 		return d.setupExistingInstance(ctx)
 	}

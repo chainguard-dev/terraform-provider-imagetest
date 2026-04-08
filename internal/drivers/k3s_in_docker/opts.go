@@ -3,6 +3,7 @@ package k3sindocker
 import (
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -143,6 +144,13 @@ func WithSandboxEnvs(envs map[string]string) DriverOpts {
 			d.SandboxEnvs = make(map[string]string)
 		}
 		maps.Copy(d.SandboxEnvs, envs)
+		return nil
+	}
+}
+
+func WithSetupTimeout(d time.Duration) DriverOpts {
+	return func(k *driver) error {
+		k.SetupTimeout = d
 		return nil
 	}
 }

@@ -59,6 +59,7 @@ type driver struct {
 	nodeDiskType      string
 	nodePoolName      string
 	timeout           time.Duration
+	setupTimeout      time.Duration
 	subscriptionID    string
 	kubernetesVersion string
 	tags              map[string]string
@@ -112,6 +113,9 @@ type Options struct {
 	// provisioning.
 	// Default: "20m".
 	Timeout string
+	// The maximum time to wait for setup to complete.
+	// Default: 20m.
+	SetupTimeout time.Duration
 	// The Azure subscription ID.
 	// Defaults to the "AZURE_SUBSCRIPTION_ID" environment value.
 	SubscriptionID string
@@ -210,6 +214,10 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 			return nil, fmt.Errorf("unable to parse timeout setting: %s %v", opts.Timeout, err)
 		}
 		k.timeout = timeout
+	}
+	k.setupTimeout = 20 * time.Minute
+	if opts.SetupTimeout != 0 {
+		k.setupTimeout = opts.SetupTimeout
 	}
 	if opts.Registries != nil {
 		k.registries = opts.Registries
@@ -328,6 +336,9 @@ func (k *driver) setupCommonClients() error {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, k.setupTimeout)
+	defer cancel()
+
 	log := clog.FromContext(ctx)
 	span := trace.SpanFromContext(ctx)
 
