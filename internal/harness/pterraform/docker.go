@@ -42,6 +42,8 @@ func (c DockerConnection) client() ([]client.Opt, error) {
 			hopts := []string{
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
+				"-o", "ServerAliveInterval=30",
+				"-o", "ServerAliveCountMax=10",
 			}
 
 			if c.PrivateKeyPath != "" {
