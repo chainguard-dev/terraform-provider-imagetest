@@ -246,21 +246,69 @@ func TestNewLayerFromPath(t *testing.T) {
 			},
 		},
 		{
-			name: "symlink escape rejected",
+			name: "symlink to external file followed",
 			setup: func(t *testing.T) string {
 				t.Helper()
 				dir := t.TempDir()
-				outside := filepath.Join(t.TempDir(), "secret.txt")
-				if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+				outside := filepath.Join(t.TempDir(), "data.txt")
+				if err := os.WriteFile(outside, []byte("external"), 0o644); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
+				if err := os.Symlink(outside, filepath.Join(dir, "link.txt")); err != nil {
 					t.Fatal(err)
 				}
 				return dir
 			},
-			target:  "/dst",
-			wantErr: "escape",
+			target: "/dst",
+			want: map[string]tarEntry{
+				"/dst/link.txt": {Content: "external"},
+			},
+		},
+		{
+			name: "symlink to external directory followed",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				outside := t.TempDir()
+				if err := os.WriteFile(filepath.Join(outside, "a.txt"), []byte("aaa"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				sub := filepath.Join(outside, "sub")
+				if err := os.MkdirAll(sub, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(sub, "b.txt"), []byte("bbb"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(dir, "ext")); err != nil {
+					t.Fatal(err)
+				}
+				return dir
+			},
+			target: "/dst",
+			want: map[string]tarEntry{
+				"/dst/ext/a.txt":     {Content: "aaa"},
+				"/dst/ext/sub/b.txt": {Content: "bbb"},
+			},
+		},
+		{
+			name: "symlink cycle skipped",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "real.txt"), []byte("ok"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				// Create a symlink back to the directory itself.
+				if err := os.Symlink(dir, filepath.Join(dir, "loop")); err != nil {
+					t.Fatal(err)
+				}
+				return dir
+			},
+			target: "/dst",
+			want: map[string]tarEntry{
+				"/dst/real.txt": {Content: "ok"},
+			},
 		},
 		{
 			name: "nonexistent path",
