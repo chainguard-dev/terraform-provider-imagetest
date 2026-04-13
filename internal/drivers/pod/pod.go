@@ -47,6 +47,10 @@ type opts struct {
 	ExtraEnvs        map[string]string
 	ExtraAnnotations map[string]string
 	ExtraLabels      map[string]string
+	// ServiceAccountAnnotations are applied to the service account used by the
+	// pod. This is needed for AKS workload identity, which requires the
+	// azure.workload.identity/client-id annotation on the SA.
+	ServiceAccountAnnotations map[string]string
 	// DockerConfig is used for plumbing any registry credentials into the
 	// pod. Despite its name, its not for docker, but for clients that can
 	// leverage creds in the known ~/.docker/config.json location.
@@ -67,7 +71,8 @@ func Run(ctx context.Context, kcfg *rest.Config, options ...RunOpts) (*drivers.R
 		ExtraLabels: map[string]string{
 			"dev.chainguard.imagetest": "true",
 		},
-		ExtraAnnotations: map[string]string{},
+		ExtraAnnotations:          map[string]string{},
+		ServiceAccountAnnotations: map[string]string{},
 		ExtraEnvs: map[string]string{
 			"IMAGETEST": "true",
 		},
@@ -163,7 +168,8 @@ func (o *opts) preflight(ctx context.Context) error {
 	}
 
 	// Create the relevant rbac
-	saa := corev1apply.ServiceAccount(o.Name, o.Namespace).WithName(o.Name)
+	saa := corev1apply.ServiceAccount(o.Name, o.Namespace).WithName(o.Name).
+		WithAnnotations(o.ServiceAccountAnnotations)
 	if _, err := o.client.CoreV1().ServiceAccounts(o.Namespace).Apply(ctx, saa, metav1.ApplyOptions{
 		FieldManager: "imagetest",
 		Force:        true,

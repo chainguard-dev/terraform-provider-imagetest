@@ -81,6 +81,10 @@ type driver struct {
 
 	podIdentityAssociations     []*PodIdentityAssociationOptions
 	clusterIdentityAssociations []*ClusterIdentityAssociationOptions
+
+	// podIdentityClientIDs maps "namespace/serviceAccountName" to the Azure
+	// client ID of the user-assigned managed identity created for it.
+	podIdentityClientIDs map[string]string
 }
 
 type Options struct {
@@ -179,20 +183,21 @@ type AttachedACR struct {
 // provision and manage an Azure AKS cluster for running tests.
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
-		name:              name,
-		stack:             harness.NewStack(),
-		resourceGroup:     opts.ResourceGroup,
-		nodeResourceGroup: opts.NodeResourceGroup,
-		location:          opts.Location,
-		nodeCount:         opts.NodeCount,
-		nodeVMSize:        opts.NodeVMSize,
-		nodePoolName:      opts.NodePoolName,
-		nodeDiskSize:      opts.NodeDiskSize,
-		nodeDiskType:      opts.NodeDiskType,
-		subscriptionID:    opts.SubscriptionID,
-		kubernetesVersion: opts.KubernetesVersion,
-		tags:              opts.Tags,
-		dnsPrefix:         opts.DNSPrefix,
+		name:                 name,
+		stack:                harness.NewStack(),
+		resourceGroup:        opts.ResourceGroup,
+		nodeResourceGroup:    opts.NodeResourceGroup,
+		location:             opts.Location,
+		nodeCount:            opts.NodeCount,
+		nodeVMSize:           opts.NodeVMSize,
+		nodePoolName:         opts.NodePoolName,
+		nodeDiskSize:         opts.NodeDiskSize,
+		nodeDiskType:         opts.NodeDiskType,
+		subscriptionID:       opts.SubscriptionID,
+		kubernetesVersion:    opts.KubernetesVersion,
+		tags:                 opts.Tags,
+		dnsPrefix:            opts.DNSPrefix,
+		podIdentityClientIDs: make(map[string]string),
 	}
 	if k.location == "" {
 		k.location = locationDefault
@@ -630,6 +635,9 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 		}
 
 		principalID := *miResp.Properties.PrincipalID
+		clientID := *miResp.Properties.ClientID
+		k.podIdentityClientIDs[v.Namespace+"/"+v.ServiceAccountName] = clientID
+
 		credentialSubject := fmt.Sprintf("system:serviceaccount:%s:%s",
 			v.Namespace, v.ServiceAccountName,
 		)
@@ -1031,11 +1039,27 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		}
 	}
 
-	return pod.Run(ctx, k.kcfg,
+	runOpts := []pod.RunOpts{
 		pod.WithImageRef(ref),
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "aks",
 		}),
 		pod.WithRegistryStaticAuth(dcfg),
-	)
+	}
+
+	// If a pod identity association was created for the imagetest SA, configure
+	// the pod and SA for AKS workload identity so the test script can
+	// authenticate to Azure via DefaultAzureCredential / az login.
+	if clientID, ok := k.podIdentityClientIDs["imagetest/imagetest"]; ok {
+		runOpts = append(runOpts,
+			pod.WithExtraLabels(map[string]string{
+				"azure.workload.identity/use": "true",
+			}),
+			pod.WithServiceAccountAnnotations(map[string]string{
+				"azure.workload.identity/client-id": clientID,
+			}),
+		)
+	}
+
+	return pod.Run(ctx, k.kcfg, runOpts...)
 }

@@ -1,6 +1,8 @@
 package pod
 
 import (
+	"maps"
+
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/google/go-containerregistry/pkg/name"
 )
@@ -18,6 +20,20 @@ func WithExtraEnvs(envs map[string]string) RunOpts {
 			envs = make(map[string]string)
 		}
 		o.ExtraEnvs = envs
+		return nil
+	}
+}
+
+func WithExtraLabels(labels map[string]string) RunOpts {
+	return func(o *opts) error {
+		maps.Copy(o.ExtraLabels, labels)
+		return nil
+	}
+}
+
+func WithServiceAccountAnnotations(annotations map[string]string) RunOpts {
+	return func(o *opts) error {
+		maps.Copy(o.ServiceAccountAnnotations, annotations)
 		return nil
 	}
 }
