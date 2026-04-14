@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -92,6 +93,7 @@ type K3sInDockerDriverResourceModel struct {
 	Registries    map[string]*K3sInDockerDriverRegistriesResourceModel `tfsdk:"registries"`
 	Snapshotter   types.String                                         `tfsdk:"snapshotter"`
 	Hooks         *K3sInDockerDriverHooksModel                         `tfsdk:"hooks"`
+	SetupTimeout  types.String                                         `tfsdk:"setup_timeout"`
 }
 
 type K3sInDockerDriverRegistriesResourceModel struct {
@@ -318,6 +320,14 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 
 		if cfg.Snapshotter.ValueString() != "" {
 			opts = append(opts, k3sindocker.WithSnapshotter(cfg.Snapshotter.ValueString()))
+		}
+
+		if cfg.SetupTimeout.ValueString() != "" {
+			d, err := time.ParseDuration(cfg.SetupTimeout.ValueString())
+			if err != nil {
+				return nil, fmt.Errorf("parsing setup_timeout: %w", err)
+			}
+			opts = append(opts, k3sindocker.WithSetupTimeout(d))
 		}
 
 		// "native" snapshotter is required for environments already running docker in docker
@@ -769,6 +779,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 								Optional:    true,
 							},
 						},
+					},
+					"setup_timeout": schema.StringAttribute{
+						Description: "The maximum time to wait for the k3s cluster to be ready per setup attempt (default \"2m\")",
+						Optional:    true,
 					},
 				},
 			},

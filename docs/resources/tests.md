@@ -203,6 +203,7 @@ Optional:
 - `metrics_server` (Boolean) Enable the metrics server
 - `network_policy` (Boolean) Enable the network policy
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--registries))
+- `setup_timeout` (String) The maximum time to wait for the k3s cluster to be ready per setup attempt (default "2m")
 - `snapshotter` (String) The snapshotter to use for the k3s_in_docker driver
 - `traefik` (Boolean) Enable the traefik ingress controller
 
