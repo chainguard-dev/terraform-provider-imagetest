@@ -19,7 +19,7 @@ require (
 	github.com/chainguard-dev/clog v1.8.0
 	github.com/charmbracelet/log v1.0.0
 	github.com/containerd/errdefs v1.0.0
-	github.com/docker/cli v29.3.1+incompatible
+	github.com/docker/cli v29.4.0+incompatible
 	github.com/docker/go-connections v0.6.0
 	github.com/google/go-containerregistry v0.21.4
 	github.com/google/uuid v1.6.0
