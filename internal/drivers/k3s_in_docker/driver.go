@@ -44,10 +44,11 @@ type driver struct {
 
 	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host
 
-	name  string
-	stack *harness.Stack
-	kcli  kubernetes.Interface
-	kcfg  *rest.Config
+	name     string
+	stack    *harness.Stack
+	kcli     kubernetes.Interface
+	kcfg     *rest.Config
+	timeouts drivers.Timeouts
 }
 
 type K3sRegistryConfig struct {
@@ -326,6 +327,8 @@ configs:
 }
 
 func (k *driver) Teardown(ctx context.Context) error {
+	ctx, cancel := k.timeouts.TeardownContext(ctx)
+	defer cancel()
 	return k.stack.Teardown(ctx)
 }
 

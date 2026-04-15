@@ -40,6 +40,7 @@ type driver struct {
 	cliCfg    *docker.DockerConfig
 	daemonCfg *daemonConfig
 	ropts     []remote.Option
+	timeouts  drivers.Timeouts
 }
 
 func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
@@ -101,6 +102,8 @@ func (d *driver) Setup(ctx context.Context) error {
 
 // Teardown implements drivers.TestDriver.
 func (d *driver) Teardown(ctx context.Context) error {
+	ctx, cancel := d.timeouts.TeardownContext(ctx)
+	defer cancel()
 	return d.stack.Teardown(ctx)
 }
 

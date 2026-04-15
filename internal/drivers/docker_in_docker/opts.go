@@ -4,6 +4,7 @@ import (
 	"maps"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -106,6 +107,13 @@ func WithRegistryMirrors(mirrors ...string) DriverOpts {
 		}
 
 		d.daemonCfg.Mirrors = append(d.daemonCfg.Mirrors, mirrors...)
+		return nil
+	}
+}
+
+func WithTimeouts(t drivers.Timeouts) DriverOpts {
+	return func(d *driver) error {
+		d.timeouts = t
 		return nil
 	}
 }

@@ -56,6 +56,7 @@ type AKSDriverResourceModel struct {
 	SubscriptionID              types.String                                  `tfsdk:"subscription_id"`
 	KubernetesVersion           types.String                                  `tfsdk:"kubernetes_version"`
 	Tags                        map[string]string                             `tfsdk:"tags"`
+	Timeouts                    *DriverTimeoutsResourceModel                  `tfsdk:"timeouts"`
 	PodIdentityAssociations     []*AKSPodIdentityAssociationResourceModel     `tfsdk:"pod_identity_associations"`
 	ClusterIdentityAssociations []*AKSClusterIdentityAssociationResourceModel `tfsdk:"cluster_identity_associations"`
 	AttachedACRs                []*AKSAttachedACR                             `tfsdk:"attached_acrs"`
@@ -92,6 +93,7 @@ type K3sInDockerDriverResourceModel struct {
 	Registries    map[string]*K3sInDockerDriverRegistriesResourceModel `tfsdk:"registries"`
 	Snapshotter   types.String                                         `tfsdk:"snapshotter"`
 	Hooks         *K3sInDockerDriverHooksModel                         `tfsdk:"hooks"`
+	Timeouts      *DriverTimeoutsResourceModel                         `tfsdk:"timeouts"`
 }
 
 type K3sInDockerDriverRegistriesResourceModel struct {
@@ -107,8 +109,9 @@ type K3sInDockerDriverHooksModel struct {
 }
 
 type DockerInDockerDriverResourceModel struct {
-	Image   types.String `tfsdk:"image"`
-	Mirrors []string     `tfsdk:"mirrors"`
+	Image    types.String                 `tfsdk:"image"`
+	Mirrors  []string                     `tfsdk:"mirrors"`
+	Timeouts *DriverTimeoutsResourceModel `tfsdk:"timeouts"`
 }
 
 type EKSWithEksctlDriverResourceModel struct {
@@ -116,10 +119,36 @@ type EKSWithEksctlDriverResourceModel struct {
 	NodeAMI                 types.String                                         `tfsdk:"node_ami"`
 	NodeType                types.String                                         `tfsdk:"node_type"`
 	NodeCount               types.Int64                                          `tfsdk:"node_count"`
+	Timeouts                *DriverTimeoutsResourceModel                         `tfsdk:"timeouts"`
 	Storage                 *EKSWithEksctlStorageResourceModel                   `tfsdk:"storage"`
 	PodIdentityAssociations []*EKSWithEksctlPodIdentityAssociationResourceModule `tfsdk:"pod_identity_associations"`
 	AWSProfile              types.String                                         `tfsdk:"aws_profile"`
 	Tags                    map[string]string                                    `tfsdk:"tags"`
+}
+
+// DriverTimeoutsResourceModel is the shared schema model for driver
+// lifecycle timeouts. All drivers that support the timeouts block
+// should embed this type.
+type DriverTimeoutsResourceModel struct {
+	Setup    types.String `tfsdk:"setup"`
+	Teardown types.String `tfsdk:"teardown"`
+}
+
+func driverTimeoutsSchema() schema.SingleNestedAttribute {
+	return schema.SingleNestedAttribute{
+		Description: "Timeout configuration for driver lifecycle phases.",
+		Optional:    true,
+		Attributes: map[string]schema.Attribute{
+			"setup": schema.StringAttribute{
+				Description: "Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.",
+				Optional:    true,
+			},
+			"teardown": schema.StringAttribute{
+				Description: "Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.",
+				Optional:    true,
+			},
+		},
+	}
 }
 
 type EKSWithEksctlStorageResourceModel struct {
@@ -152,11 +181,19 @@ type EC2DriverResourceModel struct {
 	GPUs                types.String                      `tfsdk:"gpus"`
 	MountAllGPUs        types.Bool                        `tfsdk:"mount_all_gpus"` // Deprecated: use gpus = "all" instead
 	ExistingInstance    *EC2ExistingInstanceResourceModel `tfsdk:"existing_instance"`
+	Timeouts            *DriverTimeoutsResourceModel      `tfsdk:"timeouts"`
 }
 
 type EC2ExistingInstanceResourceModel struct {
 	IP     types.String `tfsdk:"ip"`
 	SSHKey types.String `tfsdk:"ssh_key"`
+}
+
+func parseTimeoutsModel(m *DriverTimeoutsResourceModel) (drivers.Timeouts, error) {
+	if m == nil {
+		return drivers.Timeouts{}, nil
+	}
+	return drivers.ParseTimeouts(m.Setup.ValueString(), m.Teardown.ValueString())
 }
 
 // LoadDriver creates and configures a driver instance based on the specified driver type.
@@ -385,6 +422,12 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			opts = append(opts, k3sindocker.WithPostStartHook(coreDNSHook))
 		}
 
+		timeouts, err := parseTimeoutsModel(cfg.Timeouts)
+		if err != nil {
+			return nil, fmt.Errorf("k3s_in_docker: %w", err)
+		}
+		opts = append(opts, k3sindocker.WithTimeouts(timeouts))
+
 		return k3sindocker.NewDriver(id, opts...)
 
 	case DriverDockerInDocker:
@@ -422,6 +465,12 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 				),
 			)
 		}
+
+		timeouts, err := parseTimeoutsModel(cfg.Timeouts)
+		if err != nil {
+			return nil, fmt.Errorf("docker_in_docker: %w", err)
+		}
+		opts = append(opts, dockerindocker.WithTimeouts(timeouts))
 
 		return dockerindocker.NewDriver(id, opts...)
 
@@ -473,6 +522,11 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			},
 		}
 
+		timeouts, err := parseTimeoutsModel(cfg.Timeouts)
+		if err != nil {
+			return nil, fmt.Errorf("eks_with_eksctl: %w", err)
+		}
+
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
 			Region:                  cfg.Region.ValueString(),
 			NodeAMI:                 cfg.NodeAMI.ValueString(),
@@ -482,7 +536,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			Storage:                 storageOpts,
 			AWSProfile:              cfg.AWSProfile.ValueString(),
 			Tags:                    cfg.Tags,
-			Timeout:                 timeout,
+			Timeouts:                timeouts,
 			Registries:              registries,
 		})
 
@@ -558,6 +612,12 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		if driverCfg.UserData != "" {
 			driverCfg.UserData = base64.StdEncoding.EncodeToString([]byte(driverCfg.UserData))
 		}
+
+		timeouts, err := parseTimeoutsModel(driversCfg.EC2.Timeouts)
+		if err != nil {
+			return nil, fmt.Errorf("ec2: %w", err)
+		}
+		driverCfg.Timeouts = timeouts
 
 		// Init AWS config and clients
 		awsCfg, err := config.LoadDefaultConfig(ctx)
@@ -712,6 +772,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 							},
 						},
 					},
+					"timeouts": driverTimeoutsSchema(),
 				},
 			},
 			"k3s_in_docker": schema.SingleNestedAttribute{
@@ -770,6 +831,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 							},
 						},
 					},
+					"timeouts": driverTimeoutsSchema(),
 				},
 			},
 			"docker_in_docker": schema.SingleNestedAttribute{
@@ -784,6 +846,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						ElementType: types.StringType,
 						Optional:    true,
 					},
+					"timeouts": driverTimeoutsSchema(),
 				},
 			},
 			"eks_with_eksctl": schema.SingleNestedAttribute{
@@ -806,6 +869,7 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Description: "The instance type to use for the eks_with_eksctl driver (default is m5.large)",
 						Optional:    true,
 					},
+					"timeouts": driverTimeoutsSchema(),
 					"storage": schema.SingleNestedAttribute{
 						Description: "Storage configuration for the eks_with_eksctl driver",
 						Optional:    true,
@@ -947,6 +1011,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 				},
 			},
 		},
+		"timeouts": driverTimeoutsSchema(),
 	},
 }
 

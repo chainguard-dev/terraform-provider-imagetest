@@ -235,6 +235,8 @@ func (d *driver) Teardown(ctx context.Context) error {
 	}
 
 	log.Info("starting teardown")
+	ctx, cancel := d.cfg.Timeouts.TeardownContext(ctx)
+	defer cancel()
 	return d.stack.Teardown(ctx)
 }
 

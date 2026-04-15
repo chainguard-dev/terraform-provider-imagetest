@@ -518,12 +518,21 @@ func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel,
 	}
 
 	defer func() {
-		ctx, teardownSpan := tracer.Start(ctx, "imagetest.teardown",
+		// Detach teardown from the resource-level deadline. By this
+		// point the deadline may already be expired, but drivers still
+		// need a live context to clean up resources (delete clusters,
+		// remove containers/networks, etc.). Drivers that need their
+		// own deadline (EKS, AKS) set one internally.
+		teardownCtx := clog.WithLogger(
+			trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx)),
+			clog.FromContext(ctx),
+		)
+		teardownCtx, teardownSpan := tracer.Start(teardownCtx, "imagetest.teardown",
 			trace.WithAttributes(
 				attribute.String(o11y.AttrDriver, string(data.Driver)),
 			),
 		)
-		if d := t.maybeTeardown(ctx, dr, ds.HasError()); d != nil {
+		if d := t.maybeTeardown(teardownCtx, dr, ds.HasError()); d != nil {
 			teardownSpan.RecordError(fmt.Errorf("%s", d.Detail()))
 			teardownSpan.SetStatus(codes.Error, d.Detail())
 			ds = append(ds, d)

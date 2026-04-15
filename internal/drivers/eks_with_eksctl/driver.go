@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -42,7 +43,7 @@ type driver struct {
 	storage    *StorageOptions
 	awsProfile string
 	tags       map[string]string
-	timeout    string // Go duration format for eksctl --timeout flag
+	timeouts   drivers.Timeouts
 
 	region           string
 	clusterName      string
@@ -69,7 +70,7 @@ type Options struct {
 	PodIdentityAssociations []*PodIdentityAssociationOptions
 	AWSProfile              string
 	Tags                    map[string]string
-	Timeout                 string // Go duration format (e.g., "30m", "1h") for eksctl --timeout flag
+	Timeouts                drivers.Timeouts
 	Registries              map[string]*RegistryConfig
 }
 
@@ -105,8 +106,10 @@ type podIdentityAssociation struct {
 // NewDriver creates a new EKS driver instance that uses eksctl to provision and manage
 // an Amazon EKS cluster for running tests.
 //
-// When opts.Timeout is set, it overrides eksctl's default timeout of 25 minutes for all
-// long-running operations (cluster creation, node group operations, etc.).
+// When opts.SetupTimeout is set, Setup() enforces it as a context deadline and
+// passes it to eksctl --timeout for individual CloudFormation operations. If
+// unset, eksctl uses its default of 25 minutes and Setup() is bounded only by
+// the caller's context.
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
 		name:       name,
@@ -118,7 +121,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		storage:    opts.Storage,
 		awsProfile: opts.AWSProfile,
 		tags:       opts.Tags,
-		timeout:    opts.Timeout,
+		timeouts:   opts.Timeouts,
 	}
 	if k.region == "" {
 		k.region = regionDefault
@@ -162,9 +165,9 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 		"--verbose", "4", // Set maximum verbosity level
 	}...)
 
-	// Add timeout flag if configured (empty string = use eksctl default of 25m)
-	if k.timeout != "" {
-		args = append(args, "--timeout", k.timeout)
+	// Add timeout flag if configured (zero = use eksctl default of 25m)
+	if k.timeouts.Setup > 0 {
+		args = append(args, "--timeout", k.timeouts.Setup.String())
 	}
 
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
@@ -428,6 +431,19 @@ func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	if k.timeouts.Setup > 0 {
+		// Validate: the setup timeout must leave room for test execution
+		// within the caller's deadline.
+		if deadline, ok := ctx.Deadline(); ok {
+			if remaining := time.Until(deadline); k.timeouts.Setup >= remaining {
+				return fmt.Errorf("setup timeout (%s) >= remaining resource timeout (%s); the resource timeout must leave room for test execution after setup completes", k.timeouts.Setup, remaining.Truncate(time.Second))
+			}
+		}
+	}
+
+	ctx, cancel := k.timeouts.SetupContext(ctx)
+	defer cancel()
+
 	log := clog.FromContext(ctx)
 	span := trace.SpanFromContext(ctx)
 
@@ -538,6 +554,9 @@ func (k *driver) Setup(ctx context.Context) error {
 }
 
 func (k *driver) Teardown(ctx context.Context) error {
+	ctx, cancel := k.timeouts.TeardownContext(ctx)
+	defer cancel()
+
 	if v := os.Getenv("IMAGETEST_EKS_SKIP_TEARDOWN"); v == "true" {
 		clog.FromContext(ctx).Info("Skipping EKS teardown due to IMAGETEST_EKS_SKIP_TEARDOWN=true")
 		return nil

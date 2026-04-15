@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 )
 
 // Config configures the EC2 driver.
@@ -36,6 +37,7 @@ type Config struct {
 
 	// Operational
 	SkipTeardown bool
+	Timeouts     drivers.Timeouts
 
 	// Use existing instance (skips resource creation)
 	ExistingInstance *ExistingInstance
