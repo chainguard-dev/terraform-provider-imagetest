@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
@@ -143,6 +144,13 @@ func WithSandboxEnvs(envs map[string]string) DriverOpts {
 			d.SandboxEnvs = make(map[string]string)
 		}
 		maps.Copy(d.SandboxEnvs, envs)
+		return nil
+	}
+}
+
+func WithTimeouts(t drivers.Timeouts) DriverOpts {
+	return func(k *driver) error {
+		k.timeouts = t
 		return nil
 	}
 }

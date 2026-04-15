@@ -66,6 +66,7 @@ Optional:
 - `resource_group` (String) The Azure resource group for the AKS driver
 - `subscription_id` (String) The Azure subscription ID for the AKS driver, defaults to AZURE_SUBSCRIPTION_ID env var
 - `tags` (Map of String) Additional tags to apply to all AKS resources created by the driver. Auto-generated tags (imagetest, imagetest:test-name, imagetest:cluster-name) are always included.
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--aks--timeouts))
 
 <a id="nestedatt--drivers--aks--attached_acrs"></a>
 ### Nested Schema for `drivers.aks.attached_acrs`
@@ -114,6 +115,15 @@ Optional:
 
 
 
+<a id="nestedatt--drivers--aks--timeouts"></a>
+### Nested Schema for `drivers.aks.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
+
+
 
 <a id="nestedatt--drivers--docker_in_docker"></a>
 ### Nested Schema for `drivers.docker_in_docker`
@@ -122,6 +132,16 @@ Optional:
 
 - `image` (String) The image reference to use for the docker-in-docker driver
 - `mirrors` (List of String)
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--docker_in_docker--timeouts))
+
+<a id="nestedatt--drivers--docker_in_docker--timeouts"></a>
+### Nested Schema for `drivers.docker_in_docker.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
+
 
 
 <a id="nestedatt--drivers--ec2"></a>
@@ -144,6 +164,7 @@ Optional:
 - `ssh_port` (Number) SSH port for connecting to the instance (default: 22).
 - `ssh_user` (String) SSH user for connecting to the instance (default: ubuntu).
 - `subnet_cidr` (String) The CIDR block for the subnet. If not specified, an available /24 is auto-detected.
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--ec2--timeouts))
 - `user_data` (String) Cloud-init user data (will be base64 encoded).
 - `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
 - `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance.
@@ -155,6 +176,15 @@ Required:
 
 - `ip` (String) IP address of the existing instance.
 - `ssh_key` (String) Path to the SSH private key file.
+
+
+<a id="nestedatt--drivers--ec2--timeouts"></a>
+### Nested Schema for `drivers.ec2.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
 
 
 
@@ -171,6 +201,7 @@ Optional:
 - `region` (String) The AWS region to use for the eks_with_eksctl driver (default is us-west-2)
 - `storage` (Attributes) Storage configuration for the eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--storage))
 - `tags` (Map of String) Additional tags to apply to all AWS resources created by the driver. Auto-generated tags (imagetest, imagetest:test-name, imagetest:cluster-name) are always included.
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl--timeouts))
 
 <a id="nestedatt--drivers--eks_with_eksctl--pod_identity_associations"></a>
 ### Nested Schema for `drivers.eks_with_eksctl.pod_identity_associations`
@@ -191,6 +222,15 @@ Optional:
 - `type` (String) The type of storage to use (e.g., 'gp2', 'gp3')
 
 
+<a id="nestedatt--drivers--eks_with_eksctl--timeouts"></a>
+### Nested Schema for `drivers.eks_with_eksctl.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
+
+
 
 <a id="nestedatt--drivers--k3s_in_docker"></a>
 ### Nested Schema for `drivers.k3s_in_docker`
@@ -204,6 +244,7 @@ Optional:
 - `network_policy` (Boolean) Enable the network policy
 - `registries` (Attributes Map) A map of registries containing configuration for optional auth, tls, and mirror configuration. (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--registries))
 - `snapshotter` (String) The snapshotter to use for the k3s_in_docker driver
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--timeouts))
 - `traefik` (Boolean) Enable the traefik ingress controller
 
 <a id="nestedatt--drivers--k3s_in_docker--hooks"></a>
@@ -228,6 +269,15 @@ Optional:
 
 - `endpoints` (List of String)
 
+
+
+<a id="nestedatt--drivers--k3s_in_docker--timeouts"></a>
+### Nested Schema for `drivers.k3s_in_docker.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
 
 
 
