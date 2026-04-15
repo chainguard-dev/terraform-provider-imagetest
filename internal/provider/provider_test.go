@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -38,6 +39,11 @@ func testProviderWithRegistry(t *testing.T, ctx context.Context) map[string]func
 }
 
 func testRegistry(t *testing.T, ctx context.Context) string {
+	// If a registry is already provided (e.g. by CI), use it directly.
+	if reg := os.Getenv("IMAGETEST_REGISTRY"); reg != "" {
+		return reg + "/foo"
+	}
+
 	cli, err := docker.New()
 	if err != nil {
 		t.Fatal(err)

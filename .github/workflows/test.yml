@@ -255,6 +255,7 @@ jobs:
           TF_ACC: "1"
           TF_LOG: "info"
           IMAGETEST_ENTRYPOINT_REF: ${{ steps.entrypoint-build.outputs.entrypoint_ref }}
+          IMAGETEST_REGISTRY: "localhost:5005"
 
   images-test:
     name: Run imagetest against images
