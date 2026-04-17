@@ -26,9 +26,6 @@ jobs:
     permissions:
       contents: read
 
-    outputs:
-      entrypoint_ref: ${{ steps.entrypoint-build.outputs.entrypoint_ref }}
-
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
@@ -64,7 +61,6 @@ jobs:
             storage.googleapis.com:443
             sum.golang.org:443
             tomcat.apache.org:443
-            ttl.sh:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -83,15 +79,6 @@ jobs:
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
           version: latest
-
-      - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
-        env:
-          KO_DOCKER_REPO: "ttl.sh/imagetest" # Avoid using GH registry for presubmit and plumbing auth
-
-      - id: entrypoint-build
-        run: |
-          ref=$(ko build --base-import-paths ./cmd/entrypoint)
-          echo "entrypoint_ref=${ref}" >> $GITHUB_OUTPUT
 
   generate:
     runs-on: ubuntu-latest
@@ -134,7 +121,6 @@ jobs:
             storage.googleapis.com:443
             sum.golang.org:443
             tomcat.apache.org:443
-            ttl.sh:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -212,7 +198,6 @@ jobs:
             storage.googleapis.com:443
             sum.golang.org:443
             tomcat.apache.org:443
-            ttl.sh:443
 
       # In some cases, we runs out of disk space during tests, so this hack frees up approx 10G.
       # See the following issue for more info: https://github.com/actions/runner-images/issues/2840#issuecomment-1284059930
@@ -238,6 +223,19 @@ jobs:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
 
+      - uses: chainguard-dev/actions/setup-registry@d67380d0b02c09412f8e17f660ec48870bd89e6e # v1.6.9
+        with:
+          port: 5005
+          disk: true
+
+      - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
+
+      - name: Build entrypoint
+        id: entrypoint-build
+        run: |
+          ref=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
+          echo "entrypoint_ref=${ref}" >> $GITHUB_OUTPUT
+
       - name: configure docker daemon
         run: |
           # Use a larger cidr range with a smaller subnet mask to avoid ip
@@ -256,7 +254,8 @@ jobs:
         env:
           TF_ACC: "1"
           TF_LOG: "info"
-          IMAGETEST_ENTRYPOINT_REF: ${{ needs.build.outputs.entrypoint_ref }}
+          IMAGETEST_ENTRYPOINT_REF: ${{ steps.entrypoint-build.outputs.entrypoint_ref }}
+          IMAGETEST_REGISTRY: "localhost:5005"
 
   images-test:
     name: Run imagetest against images
@@ -317,7 +316,6 @@ jobs:
             storage.googleapis.com:443
             sum.golang.org:443
             tomcat.apache.org:443
-            ttl.sh:443
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -334,6 +332,19 @@ jobs:
           terraform_version: "1.14.*"
           terraform_wrapper: false
 
+      - uses: chainguard-dev/actions/setup-registry@d67380d0b02c09412f8e17f660ec48870bd89e6e # v1.6.9
+        with:
+          port: 5005
+          disk: true
+
+      - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
+
+      - name: Build entrypoint
+        id: entrypoint-build
+        run: |
+          ref=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
+          echo "entrypoint_ref=${ref}" >> $GITHUB_OUTPUT
+
       - name: Build the provider
         run: |
           go install .
@@ -348,8 +359,8 @@ jobs:
       - name: Build images
         working-directory: images
         env:
-          TF_VAR_target_repository: "ttl.sh/imagetest"
-          IMAGETEST_ENTRYPOINT_REF: ${{ needs.build.outputs.entrypoint_ref }}
+          TF_VAR_target_repository: "localhost:5005/imagetest"
+          IMAGETEST_ENTRYPOINT_REF: ${{ steps.entrypoint-build.outputs.entrypoint_ref }}
         run: |
           make init-upgrade
 
