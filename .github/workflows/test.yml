@@ -274,8 +274,6 @@ jobs:
         # these in shards because we're using undersized runners compared to
         # upstream and will easily hit disk pressure.
         images:
-          - calico
-          - cilium
           - jre
           - maven
           - tomcat
@@ -353,6 +351,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: chainguard-images/images
+          # Pin to the last commit before chainguard-images/images#3089 removed
+          # generated.tf (and subsequent PRs refactored the root main.tf to the
+          # lock-release-only builder). The new layout no longer exposes
+          # module.<name> targets or declares the imagetest provider at the
+          # root, so until we move this job's fixtures in-tree we depend on
+          # this snapshot of the old layout.
+          ref: 6f9b775fc9e762784b43c679c9f713b716661271
           path: images
           persist-credentials: false
 
