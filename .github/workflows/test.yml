@@ -234,7 +234,7 @@ jobs:
         id: entrypoint-build
         run: |
           ref=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
-          echo "entrypoint_ref=${ref}" >> $GITHUB_OUTPUT
+          echo "entrypoint_ref=${ref}" >> "$GITHUB_OUTPUT"
 
       - name: configure docker daemon
         run: |
@@ -275,9 +275,15 @@ jobs:
         # upstream and will easily hit disk pressure.
         images:
           - jre
-          - maven
-          - tomcat
+          - nginx
+          - wolfi-base
           - busybox
+          - go
+          - maven
+          - python
+          - ruby
+          - curl
+          - redis
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -337,50 +343,5 @@ jobs:
 
       - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
 
-      - name: Build entrypoint
-        id: entrypoint-build
-        run: |
-          ref=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
-          echo "entrypoint_ref=${ref}" >> $GITHUB_OUTPUT
-
-      - name: Build the provider
-        run: |
-          go install .
-
-      - name: Clone the public images repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: chainguard-images/images
-          # Pin to the last commit before chainguard-images/images#3089 removed
-          # generated.tf (and subsequent PRs refactored the root main.tf to the
-          # lock-release-only builder). The new layout no longer exposes
-          # module.<name> targets or declares the imagetest provider at the
-          # root, so until we move this job's fixtures in-tree we depend on
-          # this snapshot of the old layout.
-          ref: 6f9b775fc9e762784b43c679c9f713b716661271
-          path: images
-          persist-credentials: false
-
-      - name: Build images
-        working-directory: images
-        env:
-          TF_VAR_target_repository: "localhost:5005/imagetest"
-          IMAGETEST_ENTRYPOINT_REF: ${{ steps.entrypoint-build.outputs.entrypoint_ref }}
-        run: |
-          make init-upgrade
-
-          # Use the local provider
-          cat <<EOF > $HOME/.terraformrc
-          provider_installation {
-            dev_overrides {
-              "registry.terraform.io/chainguard-dev/imagetest" = "$HOME/go/bin/"
-            }
-          }
-          direct {}
-          EOF
-
-          cat <<EOF > main_override.tf
-          provider "imagetest" { repo = var.target_repository }
-          EOF
-
-          terraform apply -target='module.${{ matrix.images }}' -auto-approve --parallelism=$(nproc)
+      - name: Run imagetest fixture
+        run: make images-test/${{ matrix.images }}
