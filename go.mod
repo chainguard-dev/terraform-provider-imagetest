@@ -3,7 +3,7 @@ module github.com/chainguard-dev/terraform-provider-imagetest
 go 1.25.7
 
 require (
-	chainguard.dev/apko v1.2.7
+	chainguard.dev/apko v1.2.9
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2 v2.2.0
@@ -51,8 +51,8 @@ require (
 )
 
 require (
-	chainguard.dev/go-grpc-kit v0.17.16 // indirect
-	chainguard.dev/sdk v0.1.52 // indirect
+	chainguard.dev/go-grpc-kit v0.17.17 // indirect
+	chainguard.dev/sdk v0.1.54 // indirect
 	cloud.google.com/go/auth v0.20.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
