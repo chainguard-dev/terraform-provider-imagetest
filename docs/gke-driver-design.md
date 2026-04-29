@@ -101,7 +101,7 @@ type driver struct {
 }
 
 type Options struct {
-    ProjectID         string
+    Project           string
     Region            string  // Regional cluster (e.g., "us-central1")
     Zone              string  // Zonal cluster (e.g., "us-central1-a")
     ClusterName       string  // Optional, auto-generated if empty
@@ -475,7 +475,7 @@ type TestsDriversResourceModel struct {
 }
 
 type GKEDriverResourceModel struct {
-    ProjectID         types.String  `tfsdk:"project_id"`
+    Project           types.String  `tfsdk:"project"`
     Region            types.String  `tfsdk:"region"`
     Zone              types.String  `tfsdk:"zone"`
     ClusterName       types.String  `tfsdk:"cluster_name"`
@@ -562,7 +562,7 @@ case DriverGKE:
     }
 
     return gke.NewDriver(id, gke.Options{
-        ProjectID:                    cfg.ProjectID.ValueString(),
+        Project:                      cfg.Project.ValueString(),
         Region:                       cfg.Region.ValueString(),
         Zone:                         cfg.Zone.ValueString(),
         ClusterName:                  cfg.ClusterName.ValueString(),
@@ -586,8 +586,8 @@ case DriverGKE:
     Description: "The GKE driver",
     Optional:    true,
     Attributes: map[string]schema.Attribute{
-        "project_id": schema.StringAttribute{
-            Description: "The GCP project ID. Defaults to GOOGLE_PROJECT_ID environment variable.",
+        "project": schema.StringAttribute{
+            Description: "The GCP project ID. Falls back to the GOOGLE_CLOUD_PROJECT environment variable, then the deprecated GOOGLE_PROJECT_ID env var.",
             Optional:    true,
         },
         "region": schema.StringAttribute{
@@ -733,7 +733,7 @@ func TestNewDriver(t *testing.T) {
         {
             name: "valid minimal config",
             opts: Options{
-                ProjectID: "test-project",
+                Project: "test-project",
                 Region:    "us-central1",
             },
             wantErr: false,
@@ -748,7 +748,7 @@ func TestNewDriver(t *testing.T) {
         {
             name: "both region and zone specified",
             opts: Options{
-                ProjectID: "test-project",
+                Project: "test-project",
                 Region:    "us-central1",
                 Zone:      "us-central1-a",
             },
@@ -757,7 +757,7 @@ func TestNewDriver(t *testing.T) {
         {
             name: "neither region nor zone specified",
             opts: Options{
-                ProjectID: "test-project",
+                Project: "test-project",
             },
             wantErr: true,
         },
@@ -794,7 +794,7 @@ import (
 )
 
 func TestAccTestsResource_GKE(t *testing.T) {
-    projectID := os.Getenv("IMAGETEST_GKE_PROJECT_ID")
+    projectID := os.Getenv("IMAGETEST_GKE_PROJECT")
     region := os.Getenv("IMAGETEST_GKE_REGION")
     if region == "" {
         region = "us-central1"
@@ -810,7 +810,7 @@ resource "imagetest_tests" "foo" {
 
   drivers = {
     gke = {
-      project_id = %q
+      project = %q
       region     = %q
     }
   }
@@ -839,7 +839,7 @@ resource "imagetest_tests" "foo_custom" {
 
   drivers = {
     gke = {
-      project_id   = %q
+      project      = %q
       region       = %q
       node_count   = 2
       machine_type = "n1-standard-4"
@@ -877,7 +877,7 @@ resource "imagetest_tests" "foo_wi" {
 
   drivers = {
     gke = {
-      project_id = %q
+      project = %q
       region     = %q
       
       workload_identity_associations = [
@@ -913,7 +913,7 @@ resource "imagetest_tests" "foo_wi" {
         PreCheck: func() {
             testAccPreCheck(t)
             if projectID == "" {
-                t.Fatal("IMAGETEST_GKE_PROJECT_ID must be set for acceptance tests")
+                t.Fatal("IMAGETEST_GKE_PROJECT must be set for acceptance tests")
             }
         },
         ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
@@ -937,7 +937,7 @@ resource "imagetest_tests" "foo_wi" {
 go test ./internal/drivers/gke/... -v
 
 # Acceptance tests (requires GCP credentials)
-export IMAGETEST_GKE_PROJECT_ID="my-test-project"
+export IMAGETEST_GKE_PROJECT="my-test-project"
 export IMAGETEST_GKE_REGION="us-central1"
 export TF_ACC=1
 go test ./internal/provider/... -v -tags=gke -timeout=60m
@@ -953,7 +953,8 @@ make testacc TESTARGS="-tags=gke -run=TestAccTestsResource_GKE"
 | `IMAGETEST_GKE_CLUSTER` | Use existing cluster (skip creation) | `my-test-cluster` |
 | `IMAGETEST_GKE_SKIP_TEARDOWN` | Keep GKE resources after test | `true` |
 | `IMAGETEST_SKIP_TEARDOWN` | Global skip teardown (all drivers) | `true` |
-| `GOOGLE_PROJECT_ID` | Default GCP project ID | `my-project-123` |
+| `GOOGLE_CLOUD_PROJECT` | Default GCP project ID (canonical; checked by the official Go client libraries) | `my-project-123` |
+| `GOOGLE_PROJECT_ID` | Default GCP project ID (**deprecated** — use `GOOGLE_CLOUD_PROJECT`) | `my-project-123` |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account key | `/path/to/sa.json` |
 
 **Authentication priority**:
@@ -972,7 +973,7 @@ resource "imagetest_tests" "basic" {
 
   drivers = {
     gke = {
-      project_id = "my-project"
+      project = "my-project"
       region     = "us-central1"
     }
   }
@@ -998,7 +999,7 @@ resource "imagetest_tests" "advanced" {
 
   drivers = {
     gke = {
-      project_id         = "my-project"
+      project            = "my-project"
       region             = "us-central1"
       node_count         = 3
       machine_type       = "n2-standard-8"

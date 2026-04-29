@@ -108,7 +108,7 @@ Edit `main.tf`:
 ```hcl
 drivers = {
   gke = {
-    project_id = "your-project"
+    project = "your-project"
     zone       = "us-central1-a"  # Instead of region
   }
 }
@@ -240,7 +240,7 @@ Once this works, you can:
 
 3. **Run acceptance tests**:
    ```bash
-   export IMAGETEST_GKE_PROJECT_ID="your-project"
+   export IMAGETEST_GKE_PROJECT="your-project"
    export TF_ACC=1
    go test -v -tags=gke ./internal/provider/tests_resource_gke_test.go -timeout=120m
    ```

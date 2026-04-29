@@ -65,8 +65,10 @@ type driver struct {
 }
 
 type Options struct {
-	// REQUIRED. GCP project ID.
-	ProjectID string
+	// GCP project ID. If empty, falls back to the GOOGLE_CLOUD_PROJECT
+	// environment variable, then the deprecated GOOGLE_PROJECT_ID env var.
+	// Required after the fallback chain.
+	Project string
 	// Regional cluster location (e.g., "us-central1"). Mutually exclusive with Zone.
 	Region string
 	// Zonal cluster location (e.g., "us-central1-a"). Mutually exclusive with Region.
@@ -109,7 +111,6 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
 		name:              name,
 		stack:             harness.NewStack(),
-		projectID:         opts.ProjectID,
 		region:            opts.Region,
 		zone:              opts.Zone,
 		clusterName:       opts.ClusterName,
@@ -121,13 +122,10 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		tags:              opts.Tags,
 	}
 
-	// Validate project ID
+	// Resolve project ID: explicit Terraform value first, then env-var fallbacks.
+	k.projectID = resolveProjectID(context.Background(), opts.Project)
 	if k.projectID == "" {
-		if v, ok := os.LookupEnv("GOOGLE_PROJECT_ID"); ok {
-			k.projectID = v
-		} else {
-			return nil, fmt.Errorf("no GCP project ID specified (set project_id or GOOGLE_PROJECT_ID)")
-		}
+		return nil, fmt.Errorf("no GCP project ID specified: set the `project` field in Terraform, or GOOGLE_CLOUD_PROJECT in the environment")
 	}
 
 	// Validate location (must specify either region or zone, not both)
@@ -561,6 +559,36 @@ func (k *driver) buildLabels() map[string]string {
 		labels[sanitizeGCPLabel(tagK)] = sanitizeGCPLabel(tagV)
 	}
 	return labels
+}
+
+// resolveProjectID returns the GCP project ID, preferring the explicit value
+// from the Terraform configuration, then falling back through the canonical
+// GCP environment variables. Returns the empty string if no source is set;
+// callers should surface a clear error when the result is empty.
+//
+// Resolution order:
+//  1. explicit (the Terraform schema's `project` attribute, if set)
+//  2. GOOGLE_CLOUD_PROJECT — the canonical project-ID env var used by the
+//     official Go client libraries
+//     (cloud.google.com/go/auth/internal/internal.go: projectEnvVar)
+//  3. GOOGLE_PROJECT_ID — historical, non-standard, kept as a deprecated
+//     fallback to avoid breaking existing smoke-test setups; emits a warning
+//     when used
+//
+// Whitespace is trimmed at every source so that values like
+// "$(cat /tmp/proj)" with trailing newlines work correctly.
+func resolveProjectID(ctx context.Context, explicit string) string {
+	if v := strings.TrimSpace(explicit); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_CLOUD_PROJECT")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_PROJECT_ID")); v != "" {
+		clog.FromContext(ctx).Warn("GOOGLE_PROJECT_ID is deprecated; use GOOGLE_CLOUD_PROJECT instead")
+		return v
+	}
+	return ""
 }
 
 // sanitizeGCPLabel sanitizes a string to be a valid GCP resource label key or

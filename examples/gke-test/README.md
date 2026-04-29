@@ -71,7 +71,7 @@ Replace `YOUR_ORG` with your Chainguard organization name (e.g., `chainguard-pri
 gcloud config set project YOUR_PROJECT_ID
 
 # Or export for this session
-export GOOGLE_PROJECT_ID="YOUR_PROJECT_ID"
+export GOOGLE_CLOUD_PROJECT="YOUR_PROJECT_ID"
 ```
 
 ## Setup
@@ -156,7 +156,7 @@ Modify `main.tf` to use a zonal cluster with 1 node:
 ```hcl
 drivers = {
   gke = {
-    project_id = "your-project"
+    project = "your-project"
     zone       = "us-central1-a"  # Zonal is faster
     node_count = 1
     machine_type = "e2-standard-2"  # Smaller machine

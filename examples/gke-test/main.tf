@@ -19,7 +19,7 @@ resource "imagetest_tests" "gke_basic" {
 
   drivers = {
     gke = {
-      project_id = "<YOUR_GCP_PROJECT_ID>"
+      project    = "<YOUR_GCP_PROJECT_ID>"
       region     = "us-central1"
       
       # Use a unique cluster name to avoid conflicts

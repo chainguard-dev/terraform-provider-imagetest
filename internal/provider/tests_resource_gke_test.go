@@ -13,7 +13,7 @@ import (
 )
 
 func TestAccTestsResource_GKE(t *testing.T) {
-	projectID := os.Getenv("IMAGETEST_GKE_PROJECT_ID")
+	projectID := os.Getenv("IMAGETEST_GKE_PROJECT")
 	region := os.Getenv("IMAGETEST_GKE_REGION")
 	if region == "" {
 		region = "us-central1"
@@ -29,7 +29,7 @@ resource "imagetest_tests" "foo" {
 
   drivers = {
     gke = {
-      project_id = %q
+      project    = %q
       region     = %q
     }
   }
@@ -58,7 +58,7 @@ resource "imagetest_tests" "foo_custom" {
 
   drivers = {
     gke = {
-      project_id   = %q
+      project      = %q
       region       = %q
       node_count   = 2
       machine_type = "n1-standard-4"
@@ -96,7 +96,7 @@ resource "imagetest_tests" "foo_zonal" {
 
   drivers = {
     gke = {
-      project_id = %q
+      project    = %q
       zone       = %q
     }
   }
@@ -121,7 +121,7 @@ resource "imagetest_tests" "foo_zonal" {
 		PreCheck: func() {
 			testAccPreCheck(t)
 			if projectID == "" {
-				t.Fatal("IMAGETEST_GKE_PROJECT_ID must be set for acceptance tests")
+				t.Fatal("IMAGETEST_GKE_PROJECT must be set for acceptance tests")
 			}
 		},
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){

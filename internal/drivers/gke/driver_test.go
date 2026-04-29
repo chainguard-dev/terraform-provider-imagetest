@@ -1,9 +1,14 @@
 package gke
 
 import (
+	"bytes"
+	"context"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/chainguard-dev/clog"
 )
 
 func TestSanitizeGCPLabel(t *testing.T) {
@@ -181,6 +186,89 @@ func TestBuildLabels(t *testing.T) {
 			got := k.buildLabels()
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("buildLabels() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestResolveProjectID exercises resolveProjectID — the project-ID resolver
+// for the GKE driver. Locks in the precedence between the explicit Terraform
+// value and the canonical GCP env vars, the deprecation warning for
+// GOOGLE_PROJECT_ID, and whitespace trimming. Uses t.Setenv for hermetic
+// env-var manipulation and a clog-bound bytes.Buffer to assert on the warning.
+func TestResolveProjectID(t *testing.T) {
+	const deprecationFragment = "GOOGLE_PROJECT_ID is deprecated"
+
+	tests := []struct {
+		name        string
+		explicit    string
+		envVars     map[string]string
+		want        string
+		wantWarning bool
+	}{
+		{
+			name:     "explicit Terraform value wins over all env vars",
+			explicit: "explicit",
+			envVars: map[string]string{
+				"GOOGLE_CLOUD_PROJECT": "primary",
+				"GOOGLE_PROJECT_ID":    "deprecated",
+			},
+			want: "explicit",
+		},
+		{
+			name:    "primary env var used",
+			envVars: map[string]string{"GOOGLE_CLOUD_PROJECT": "primary"},
+			want:    "primary",
+		},
+		{
+			name:        "deprecated env var fallback fires warning",
+			envVars:     map[string]string{"GOOGLE_PROJECT_ID": "deprecated"},
+			want:        "deprecated",
+			wantWarning: true,
+		},
+		{
+			name: "primary wins when both env vars set, no warning",
+			envVars: map[string]string{
+				"GOOGLE_CLOUD_PROJECT": "primary",
+				"GOOGLE_PROJECT_ID":    "deprecated",
+			},
+			want: "primary",
+		},
+		{
+			name: "all sources unset returns empty",
+			want: "",
+		},
+		{
+			name:     "whitespace trimmed from explicit value",
+			explicit: "  ws-proj  ",
+			want:     "ws-proj",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear all three env vars first so leakage from the host environment
+			// or earlier subtests can't influence the result. t.Setenv restores
+			// the original values after the test.
+			for _, k := range []string{"GOOGLE_CLOUD_PROJECT", "GOOGLE_PROJECT_ID"} {
+				t.Setenv(k, "")
+			}
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			// Bind a buffered logger to the context so we can assert on warnings.
+			buf := &bytes.Buffer{}
+			ctx := clog.WithLogger(context.Background(), clog.New(slog.NewTextHandler(buf, nil)))
+
+			got := resolveProjectID(ctx, tt.explicit)
+			if got != tt.want {
+				t.Errorf("resolveProjectID(_, %q) = %q, want %q", tt.explicit, got, tt.want)
+			}
+
+			gotWarning := strings.Contains(buf.String(), deprecationFragment)
+			if gotWarning != tt.wantWarning {
+				t.Errorf("warning fired = %v, want %v\nlog output: %q", gotWarning, tt.wantWarning, buf.String())
 			}
 		})
 	}

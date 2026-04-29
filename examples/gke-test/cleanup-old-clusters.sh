@@ -3,7 +3,7 @@
 
 set -e
 
-PROJECT_ID="${GOOGLE_PROJECT_ID:?GOOGLE_PROJECT_ID must be set}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:?GOOGLE_CLOUD_PROJECT must be set}"
 REGION="${GKE_REGION:-us-central1}"
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-2}"  # Delete clusters older than 2 hours
 

@@ -88,7 +88,7 @@ type AKSAttachedACR struct {
 }
 
 type GKEDriverResourceModel struct {
-	ProjectID         types.String      `tfsdk:"project_id"`
+	Project           types.String      `tfsdk:"project"`
 	Region            types.String      `tfsdk:"region"`
 	Zone              types.String      `tfsdk:"zone"`
 	ClusterName       types.String      `tfsdk:"cluster_name"`
@@ -358,7 +358,7 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 		}
 
 		return gke.NewDriver(id, gke.Options{
-			ProjectID:         cfg.ProjectID.ValueString(),
+			Project:           cfg.Project.ValueString(),
 			Region:            cfg.Region.ValueString(),
 			Zone:              cfg.Zone.ValueString(),
 			ClusterName:       cfg.ClusterName.ValueString(),
@@ -838,8 +838,8 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 				Description: "The GKE driver",
 				Optional:    true,
 				Attributes: map[string]schema.Attribute{
-					"project_id": schema.StringAttribute{
-						Description: "The GCP project ID. Defaults to GOOGLE_PROJECT_ID environment variable.",
+					"project": schema.StringAttribute{
+						Description: "The GCP project ID. Falls back to the GOOGLE_CLOUD_PROJECT environment variable, then the deprecated GOOGLE_PROJECT_ID env var.",
 						Optional:    true,
 					},
 					"region": schema.StringAttribute{
