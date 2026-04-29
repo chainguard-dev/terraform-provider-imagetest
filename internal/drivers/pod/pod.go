@@ -627,11 +627,18 @@ func (o *opts) pod() *corev1.Pod {
 
 	// If DockerConfig is provided, create a secret volume and mount it to ~/.docker/config.json
 	if o.DockerConfig != nil {
+		secretName := fmt.Sprintf("%s-docker-config", o.Name)
+
+		// Add imagePullSecret so Kubernetes can pull the pod images
+		pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: secretName,
+		})
+
 		dockerConfigVolume := corev1.Volume{
 			Name: "docker-config",
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: fmt.Sprintf("%s-docker-config", o.Name),
+					SecretName: secretName,
 					Items: []corev1.KeyToPath{
 						{
 							Key:  ".dockerconfigjson",
