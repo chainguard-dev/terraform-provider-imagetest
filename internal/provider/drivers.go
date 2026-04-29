@@ -18,6 +18,7 @@ import (
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/gke"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -29,6 +30,7 @@ type DriverResourceModel string
 
 const (
 	DriverAKS            DriverResourceModel = "aks"
+	DriverGKE            DriverResourceModel = "gke"
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
@@ -37,6 +39,7 @@ const (
 
 type TestsDriversResourceModel struct {
 	AKS            *AKSDriverResourceModel            `tfsdk:"aks"`
+	GKE            *GKEDriverResourceModel            `tfsdk:"gke"`
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
@@ -82,6 +85,19 @@ type AKSAttachedACR struct {
 	ResourceGroup   types.String `tfsdk:"resource_group"`
 	Name            types.String `tfsdk:"name"`
 	CreateIfMissing types.Bool   `tfsdk:"create_if_missing"`
+}
+
+type GKEDriverResourceModel struct {
+	Project           types.String      `tfsdk:"project"`
+	Region            types.String      `tfsdk:"region"`
+	Zone              types.String      `tfsdk:"zone"`
+	ClusterName       types.String      `tfsdk:"cluster_name"`
+	NodeCount         types.Int32       `tfsdk:"node_count"`
+	MachineType       types.String      `tfsdk:"machine_type"`
+	DiskSizeGB        types.Int32       `tfsdk:"disk_size_gb"`
+	DiskType          types.String      `tfsdk:"disk_type"`
+	KubernetesVersion types.String      `tfsdk:"kubernetes_version"`
+	Tags              map[string]string `tfsdk:"tags"`
 }
 
 type K3sInDockerDriverResourceModel struct {
@@ -311,6 +327,49 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 			PodIdentityAssociations:     podIdentityAssociations,
 			ClusterIdentityAssociations: clusterIdentityAssociations,
 			AttachedACRs:                attachedACRs,
+		})
+
+	case DriverGKE:
+		cfg := driversCfg.GKE
+		if cfg == nil {
+			cfg = &GKEDriverResourceModel{}
+		}
+
+		// Build registry auth config from the resolved repo
+		registries := make(map[string]*gke.RegistryConfig)
+		r, err := name.NewRegistry(repo.RegistryStr())
+		if err != nil {
+			return nil, fmt.Errorf("invalid registry name %s: %w", repo.RegistryStr(), err)
+		}
+		a, err := authn.DefaultKeychain.Resolve(r)
+		if err != nil {
+			return nil, fmt.Errorf("resolving keychain for registry %s: %w", r.String(), err)
+		}
+		acfg, err := a.Authorization()
+		if err != nil {
+			return nil, fmt.Errorf("getting authorization for registry %s: %w", r.String(), err)
+		}
+		registries[repo.RegistryStr()] = &gke.RegistryConfig{
+			Auth: &gke.RegistryAuthConfig{
+				Username: acfg.Username,
+				Password: acfg.Password,
+				Auth:     acfg.Auth,
+			},
+		}
+
+		return gke.NewDriver(id, gke.Options{
+			Project:           cfg.Project.ValueString(),
+			Region:            cfg.Region.ValueString(),
+			Zone:              cfg.Zone.ValueString(),
+			ClusterName:       cfg.ClusterName.ValueString(),
+			NodeCount:         cfg.NodeCount.ValueInt32(),
+			MachineType:       cfg.MachineType.ValueString(),
+			DiskSizeGB:        cfg.DiskSizeGB.ValueInt32(),
+			DiskType:          cfg.DiskType.ValueString(),
+			KubernetesVersion: cfg.KubernetesVersion.ValueString(),
+			Timeout:           timeout,
+			Tags:              cfg.Tags,
+			Registries:        registries,
 		})
 
 	case DriverK3sInDocker:
@@ -773,6 +832,53 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						},
 					},
 					"timeouts": driverTimeoutsSchema(),
+				},
+			},
+			"gke": schema.SingleNestedAttribute{
+				Description: "The GKE driver",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"project": schema.StringAttribute{
+						Description: "The GCP project ID. Falls back to the GOOGLE_CLOUD_PROJECT environment variable, then the deprecated GOOGLE_PROJECT_ID env var.",
+						Optional:    true,
+					},
+					"region": schema.StringAttribute{
+						Description: "The GCP region for a regional cluster (e.g., 'us-central1'). Mutually exclusive with zone. Defaults to 'us-central1'.",
+						Optional:    true,
+					},
+					"zone": schema.StringAttribute{
+						Description: "The GCP zone for a zonal cluster (e.g., 'us-central1-a'). Mutually exclusive with region.",
+						Optional:    true,
+					},
+					"cluster_name": schema.StringAttribute{
+						Description: "The GKE cluster name. Auto-generated if not specified.",
+						Optional:    true,
+					},
+					"node_count": schema.Int32Attribute{
+						Description: "The number of nodes (default: 1)",
+						Optional:    true,
+					},
+					"machine_type": schema.StringAttribute{
+						Description: "The GCE machine type (default: 'e2-standard-4')",
+						Optional:    true,
+					},
+					"disk_size_gb": schema.Int32Attribute{
+						Description: "Boot disk size in GB (default: 100)",
+						Optional:    true,
+					},
+					"disk_type": schema.StringAttribute{
+						Description: "Boot disk type: 'pd-standard', 'pd-ssd', or 'pd-balanced' (default: 'pd-standard')",
+						Optional:    true,
+					},
+					"kubernetes_version": schema.StringAttribute{
+						Description: "Kubernetes version. Uses GKE default if unspecified.",
+						Optional:    true,
+					},
+					"tags": schema.MapAttribute{
+						Description: "Resource labels to apply to the cluster. Auto-generated labels (imagetest, imagetest-test-name, imagetest-cluster-name) are always included.",
+						ElementType: types.StringType,
+						Optional:    true,
+					},
 				},
 			},
 			"k3s_in_docker": schema.SingleNestedAttribute{
