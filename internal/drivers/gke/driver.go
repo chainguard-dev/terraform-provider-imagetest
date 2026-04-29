@@ -32,7 +32,7 @@ const (
 	diskSizeGBDefault = 100
 	diskTypeDefault   = "pd-standard"
 	timeoutDefault    = 30 * time.Minute
-	pollFrequency     = 10 * time.Second
+	pollFrequency     = 30 * time.Second
 )
 
 type driver struct {
@@ -305,19 +305,32 @@ func (k *driver) createCluster(ctx context.Context) error {
 		opName = fmt.Sprintf("%s/operations/%s", parent, opName)
 	}
 
-	deadline := time.Now().Add(k.timeout)
-	for time.Now().Before(deadline) {
+	// Bound the polling loop by k.timeout. The select on ctx.Done() lets
+	// callers cancel the wait immediately rather than waiting up to a full
+	// pollFrequency tick.
+	ctx, cancel := context.WithTimeout(ctx, k.timeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				return fmt.Errorf("cluster creation timed out after %v", k.timeout)
+			}
+			return fmt.Errorf("cluster creation: %w", ctx.Err())
+		case <-time.After(pollFrequency):
+		}
+
 		opReq := &containerpb.GetOperationRequest{
 			Name: opName,
 		}
 		opResp, err := k.clusterClient.GetOperation(ctx, opReq)
 		if err != nil {
 			// If operation not found, check if cluster was created successfully
-			// (operation might have completed and been cleaned up)
+			// (operation might have completed and been cleaned up).
 			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "NotFound") {
 				log.Info("Operation not found, checking if cluster was created successfully...")
-				
-				// Try to get the cluster
+
 				clusterReq := &containerpb.GetClusterRequest{
 					Name: fmt.Sprintf("%s/clusters/%s", parent, k.clusterName),
 				}
@@ -326,26 +339,27 @@ func (k *driver) createCluster(ctx context.Context) error {
 					log.Infof("Created GKE cluster: %s (operation completed)", k.clusterName)
 					return nil
 				}
-				
-				// If cluster doesn't exist either, return the original error
+
 				return fmt.Errorf("failed to check operation status: %w", err)
 			}
 			return fmt.Errorf("failed to check operation status: %w", err)
 		}
 
-		if opResp.Status == containerpb.Operation_DONE {
+		switch opResp.Status {
+		case containerpb.Operation_DONE:
 			if opResp.StatusMessage != "" && opResp.StatusMessage != "Done" {
 				return fmt.Errorf("cluster creation failed: %s", opResp.StatusMessage)
 			}
 			log.Infof("Created GKE cluster: %s", k.clusterName)
 			return nil
+		case containerpb.Operation_ABORTING:
+			return fmt.Errorf("cluster creation aborting: %s", opResp.StatusMessage)
+		case containerpb.Operation_PENDING, containerpb.Operation_RUNNING:
+			log.Debugf("Cluster creation in progress, status: %s", opResp.Status)
+		default:
+			return fmt.Errorf("unexpected operation status: %v", opResp.Status)
 		}
-
-		log.Debugf("Cluster creation in progress, status: %s", opResp.Status)
-		time.Sleep(pollFrequency)
 	}
-
-	return fmt.Errorf("cluster creation timed out after %v", k.timeout)
 }
 
 func (k *driver) deleteCluster(ctx context.Context) error {
@@ -376,18 +390,31 @@ func (k *driver) deleteCluster(ctx context.Context) error {
 		opName = fmt.Sprintf("%s/operations/%s", parent, opName)
 	}
 
-	deadline := time.Now().Add(k.timeout)
-	for time.Now().Before(deadline) {
+	// Bound the polling loop by k.timeout. The select on ctx.Done() lets
+	// callers cancel the wait immediately rather than waiting up to a full
+	// pollFrequency tick.
+	ctx, cancel := context.WithTimeout(ctx, k.timeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				return fmt.Errorf("cluster deletion timed out after %v", k.timeout)
+			}
+			return fmt.Errorf("cluster deletion: %w", ctx.Err())
+		case <-time.After(pollFrequency):
+		}
+
 		opReq := &containerpb.GetOperationRequest{
 			Name: opName,
 		}
 		opResp, err := k.clusterClient.GetOperation(ctx, opReq)
 		if err != nil {
-			// If operation not found, check if cluster is really deleted
+			// If operation not found, verify cluster is really deleted.
 			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "NotFound") {
 				log.Info("Operation not found, verifying cluster deletion...")
-				
-				// Try to get the cluster - if it doesn't exist, deletion succeeded
+
 				clusterReq := &containerpb.GetClusterRequest{
 					Name: fmt.Sprintf("%s/clusters/%s", parent, k.clusterName),
 				}
@@ -396,21 +423,26 @@ func (k *driver) deleteCluster(ctx context.Context) error {
 					log.Info("Cluster deleted successfully (verified)")
 					return nil
 				}
-				
-				// If we can still see the cluster, keep waiting
+
+				// Cluster still exists; loop back and poll again.
 				log.Debug("Cluster still exists, continuing to wait...")
-			} else {
-				return fmt.Errorf("failed to check deletion status: %w", err)
+				continue
 			}
-		} else if opResp.Status == containerpb.Operation_DONE {
-			log.Info("Cluster deleted successfully")
-			return nil
+			return fmt.Errorf("failed to check deletion status: %w", err)
 		}
 
-		time.Sleep(pollFrequency)
+		switch opResp.Status {
+		case containerpb.Operation_DONE:
+			log.Info("Cluster deleted successfully")
+			return nil
+		case containerpb.Operation_ABORTING:
+			return fmt.Errorf("cluster deletion aborting: %s", opResp.StatusMessage)
+		case containerpb.Operation_PENDING, containerpb.Operation_RUNNING:
+			log.Debugf("Cluster deletion in progress, status: %s", opResp.Status)
+		default:
+			return fmt.Errorf("unexpected operation status: %v", opResp.Status)
+		}
 	}
-
-	return fmt.Errorf("cluster deletion timed out after %v", k.timeout)
 }
 
 func (k *driver) getKubeConfig(ctx context.Context) error {
