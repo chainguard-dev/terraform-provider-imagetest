@@ -554,11 +554,40 @@ func (k *driver) getParent() string {
 func (k *driver) buildLabels() map[string]string {
 	labels := map[string]string{
 		"imagetest":              "true",
-		"imagetest-test-name":    k.name,
-		"imagetest-cluster-name": k.clusterName,
+		"imagetest-test-name":    sanitizeGCPLabel(k.name),
+		"imagetest-cluster-name": sanitizeGCPLabel(k.clusterName),
 	}
-	for k, v := range k.tags {
-		labels[k] = v
+	for tagK, tagV := range k.tags {
+		labels[sanitizeGCPLabel(tagK)] = sanitizeGCPLabel(tagV)
 	}
 	return labels
+}
+
+// sanitizeGCPLabel sanitizes a string to be a valid GCP resource label key or
+// value. GCP labels allow lowercase letters, digits, underscores, and dashes;
+// max length is 63 characters. Invalid characters are replaced with a dash so
+// that semantically distinct inputs (e.g. "image:test/foo") don't collapse to
+// the same sanitized output. GCP additionally requires keys to begin with a
+// lowercase letter — that constraint is intentionally not enforced here, since
+// rewriting a user-provided key (e.g. by prefixing a letter) could cause
+// collisions; callers are expected to provide keys that already start with a
+// letter, and GCP will reject keys that don't.
+//
+// Reference: https://cloud.google.com/compute/docs/labeling-resources
+func sanitizeGCPLabel(s string) string {
+	s = strings.ToLower(s)
+	s = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		switch r {
+		case '_', '-':
+			return r
+		}
+		return '-'
+	}, s)
+	if len(s) > 63 {
+		s = s[:63]
+	}
+	return s
 }
