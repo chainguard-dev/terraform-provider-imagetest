@@ -287,10 +287,10 @@ func (k *driver) createCluster(ctx context.Context) error {
 		return fmt.Errorf("failed to initiate GKE cluster creation: %w", err)
 	}
 
-	// Register cleanup IMMEDIATELY
-	if err := k.stack.Add(func(ctx context.Context) error {
-		return k.deleteCluster(ctx)
-	}); err != nil {
+	// Register cleanup IMMEDIATELY. teardownCluster honors skip-teardown env
+	// vars internally, so non-cluster stack items aren't short-circuited
+	// when cluster teardown is skipped.
+	if err := k.stack.Add(k.teardownCluster); err != nil {
 		return err
 	}
 
@@ -516,29 +516,37 @@ func (k *driver) getKubeConfig(ctx context.Context) error {
 }
 
 func (k *driver) Teardown(ctx context.Context) error {
-	log := clog.FromContext(ctx)
+	clog.FromContext(ctx).Info("Initiating resource teardown")
 
-	// Check skip teardown flags
-	if os.Getenv("IMAGETEST_GKE_SKIP_TEARDOWN") == "true" ||
-		os.Getenv("IMAGETEST_SKIP_TEARDOWN") == "true" {
-		log.Info("Skipping GKE teardown")
-		return nil
-	}
-
-	// Skip if using existing cluster
-	if _, ok := os.LookupEnv("IMAGETEST_GKE_CLUSTER"); ok {
-		log.Info("Skipping teardown for existing cluster")
-		return nil
-	}
-
-	log.Info("Initiating resource teardown")
-
-	// Create fresh context with timeout (original may be cancelled)
+	// Create fresh context with timeout (the original may already be cancelled
+	// by the time the test framework calls Teardown).
 	teardownCtx, cancel := context.WithTimeout(context.Background(), k.timeout)
 	defer cancel()
 
-	// Use stack for LIFO cleanup
+	// Use stack for LIFO cleanup. Each registered teardown function honors its
+	// own skip-teardown logic — see teardownCluster.
 	return k.stack.Teardown(teardownCtx)
+}
+
+// teardownCluster is the stack callback that deletes the GKE cluster. Honors
+// the per-driver and global skip-teardown env vars (and the use-existing-
+// cluster mode) so that non-cluster stack items can still run independently
+// when the user wants to keep the cluster around for debugging.
+func (k *driver) teardownCluster(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	if os.Getenv("IMAGETEST_GKE_SKIP_TEARDOWN") == "true" ||
+		os.Getenv("IMAGETEST_SKIP_TEARDOWN") == "true" {
+		log.Info("Skipping GKE cluster teardown")
+		return nil
+	}
+
+	if _, ok := os.LookupEnv("IMAGETEST_GKE_CLUSTER"); ok {
+		log.Info("Skipping cluster teardown for existing cluster")
+		return nil
+	}
+
+	return k.deleteCluster(ctx)
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
