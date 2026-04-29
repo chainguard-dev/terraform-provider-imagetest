@@ -4,6 +4,7 @@ go 1.25.7
 
 require (
 	chainguard.dev/apko v1.2.9
+	cloud.google.com/go/container v1.49.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2 v2.2.0
