@@ -44,6 +44,7 @@ Optional:
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
 - `ec2` (Attributes) The AWS EC2 driver. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
+- `gke` (Attributes) The GKE driver (see [below for nested schema](#nestedatt--drivers--gke))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
 
 <a id="nestedatt--drivers--aks"></a>
@@ -230,6 +231,23 @@ Optional:
 - `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
 - `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
 
+
+
+<a id="nestedatt--drivers--gke"></a>
+### Nested Schema for `drivers.gke`
+
+Optional:
+
+- `cluster_name` (String) The GKE cluster name. Auto-generated if not specified.
+- `disk_size_gb` (Number) Boot disk size in GB (default: 100)
+- `disk_type` (String) Boot disk type: 'pd-standard', 'pd-ssd', or 'pd-balanced' (default: 'pd-standard')
+- `kubernetes_version` (String) Kubernetes version. Uses GKE default if unspecified.
+- `machine_type` (String) The GCE machine type (default: 'e2-standard-4')
+- `node_count` (Number) The number of nodes (default: 1)
+- `project` (String) The GCP project ID. Falls back to the GOOGLE_CLOUD_PROJECT environment variable, then the deprecated GOOGLE_PROJECT_ID env var.
+- `region` (String) The GCP region for a regional cluster (e.g., 'us-central1'). Mutually exclusive with zone. Defaults to 'us-central1'.
+- `tags` (Map of String) Resource labels to apply to the cluster. Auto-generated labels (imagetest, imagetest-test-name, imagetest-cluster-name) are always included.
+- `zone` (String) The GCP zone for a zonal cluster (e.g., 'us-central1-a'). Mutually exclusive with region.
 
 
 <a id="nestedatt--drivers--k3s_in_docker"></a>

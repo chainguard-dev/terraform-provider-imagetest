@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -116,12 +117,12 @@ func (r *Stack) Teardown(ctx context.Context) error {
 	}
 
 	var errs []error
-	for i := len(r.stack) - 1; i >= 0; i-- {
+	for _, fn := range slices.Backward(r.stack) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			if err := r.stack[i](ctx); err != nil {
+			if err := fn(ctx); err != nil {
 				errs = append(errs, err)
 			}
 		}
