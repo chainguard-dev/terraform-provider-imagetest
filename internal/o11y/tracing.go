@@ -20,17 +20,15 @@ const (
 	AttrTest   = "test"
 )
 
-// loggerProvider holds the global LoggerProvider for use by the OTel slog
-// handler. Nil when OTLP is not configured.
-var loggerProvider *sdklog.LoggerProvider
-
 // LoggerProvider returns the configured LoggerProvider, or nil.
+// This is the SDK's global, set by Setup.
 func LoggerProvider() *sdklog.LoggerProvider { return loggerProvider }
+
+var loggerProvider *sdklog.LoggerProvider
 
 // Setup configures the global OTel TracerProvider and LoggerProvider. This is
 // a no-op when no OTLP endpoint is configured.
 func Setup(ctx context.Context) error {
-	// Check both the generic and trace-specific env vars.
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" &&
 		os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
 		return nil
