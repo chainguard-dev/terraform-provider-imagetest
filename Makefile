@@ -29,3 +29,11 @@ goimports:
 .PHONY: lint
 lint:
 	golangci-lint run
+
+# Imagetest fixture tests against live cgr.dev/chainguard/* images.
+# Delegates to tests/fixtures/Makefile; see `make -C tests/fixtures help`.
+.PHONY: images-test images-test/%
+images-test:
+	$(MAKE) -C tests/fixtures test
+images-test/%:
+	$(MAKE) -C tests/fixtures test/$*
