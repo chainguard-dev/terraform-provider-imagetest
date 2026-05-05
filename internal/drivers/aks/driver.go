@@ -523,8 +523,8 @@ func (k *driver) createRoleAssignment(ctx context.Context, scope, principalID, r
 		assignmentName,
 		armauthorization.RoleAssignmentCreateParameters{
 			Properties: &armauthorization.RoleAssignmentProperties{
-				PrincipalID:      to.Ptr(principalID),
-				RoleDefinitionID: to.Ptr(roleDefinitionID),
+				PrincipalID:      new(principalID),
+				RoleDefinitionID: new(roleDefinitionID),
 				PrincipalType:    principalType,
 			},
 		},
@@ -654,7 +654,7 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 					Issuer:  &oidcIssuerURL,
 					Subject: &credentialSubject,
 					Audiences: []*string{
-						to.Ptr("api://AzureADTokenExchange"),
+						new("api://AzureADTokenExchange"),
 					},
 				},
 			},
@@ -735,11 +735,11 @@ func (k *driver) enableWorkloadIdenity(ctx context.Context) error {
 		cluster.Properties = &armcontainerservice.ManagedClusterProperties{}
 	}
 	cluster.Properties.OidcIssuerProfile = &armcontainerservice.ManagedClusterOIDCIssuerProfile{
-		Enabled: to.Ptr(true),
+		Enabled: new(true),
 	}
 	cluster.Properties.SecurityProfile = &armcontainerservice.ManagedClusterSecurityProfile{
 		WorkloadIdentity: &armcontainerservice.ManagedClusterSecurityProfileWorkloadIdentity{
-			Enabled: to.Ptr(true),
+			Enabled: new(true),
 		},
 	}
 
@@ -827,12 +827,12 @@ func (k *driver) createACR(ctx context.Context, acr *AttachedACR) (*armcontainer
 		acr.ResourceGroup,
 		acr.Name,
 		armcontainerregistry.Registry{
-			Location: to.Ptr(k.location),
+			Location: new(k.location),
 			SKU: &armcontainerregistry.SKU{
 				Name: to.Ptr(armcontainerregistry.SKUNameBasic),
 			},
 			Properties: &armcontainerregistry.RegistryProperties{
-				AdminUserEnabled: to.Ptr(false),
+				AdminUserEnabled: new(false),
 			},
 		},
 		nil,
@@ -970,7 +970,7 @@ func (k *driver) writeKubeConfig(ctx context.Context) error {
 
 func (k *driver) buildTags() map[string]*string {
 	tags := map[string]*string{
-		"imagetest":              to.Ptr("true"),
+		"imagetest":              new("true"),
 		"imagetest:test-name":    &k.name,
 		"imagetest:cluster-name": &k.clusterName,
 	}

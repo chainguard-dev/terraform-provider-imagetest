@@ -1,6 +1,6 @@
 module github.com/chainguard-dev/terraform-provider-imagetest
 
-go 1.25.8
+go 1.26.2
 
 require (
 	chainguard.dev/apko v1.2.9

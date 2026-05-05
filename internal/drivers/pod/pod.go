@@ -182,13 +182,13 @@ func (o *opts) preflight(ctx context.Context) error {
 		WithName(o.Name).
 		WithSubjects(&rbacv1apply.SubjectApplyConfiguration{
 			Kind:      ptr.To(rbacv1.ServiceAccountKind),
-			Name:      ptr.To(o.Name),
-			Namespace: ptr.To(o.Namespace),
+			Name:      new(o.Name),
+			Namespace: new(o.Namespace),
 		}).
 		WithRoleRef(&rbacv1apply.RoleRefApplyConfiguration{
 			APIGroup: ptr.To(rbacv1.GroupName),
-			Kind:     ptr.To("ClusterRole"),
-			Name:     ptr.To("cluster-admin"),
+			Kind:     new("ClusterRole"),
+			Name:     new("cluster-admin"),
 		})
 	if _, err := o.client.RbacV1().ClusterRoleBindings().Apply(ctx, crba, metav1.ApplyOptions{
 		FieldManager: "imagetest",
@@ -437,7 +437,7 @@ func maybeLog(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) st
 	req := cli.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
 		Container: SandboxContainerName,
 		// limit to 1mb of logs
-		LimitBytes: ptr.To(int64(1024 * 1024)),
+		LimitBytes: new(int64(1024 * 1024)),
 	})
 
 	rc, err := req.Stream(ctx)
@@ -477,7 +477,7 @@ func (o *opts) pod() *corev1.Pod {
 		},
 		Spec: corev1.PodSpec{
 			ServiceAccountName:           o.Name,
-			AutomountServiceAccountToken: ptr.To(false),
+			AutomountServiceAccountToken: new(false),
 			SecurityContext:              &corev1.PodSecurityContext{},
 			RestartPolicy:                corev1.RestartPolicyNever,
 			Volumes: []corev1.Volume{

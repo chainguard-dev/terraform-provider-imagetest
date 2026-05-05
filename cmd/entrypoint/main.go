@@ -692,28 +692,28 @@ func (p *proxyServer) Start() error {
 
 	logger := slog.New(slog.NewJSONHandler(lf, nil))
 
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+	target := &url.URL{
 		Scheme: "http",
 		Host:   fmt.Sprintf("host.docker.internal:%d", p.port),
-	})
-
-	// Wrap the director with a simple logger
-	odirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		odirector(req)
-		logger.Info("request",
-			"method", req.Method,
-			"url", req.URL.String(),
-			"host", req.Host,
-			"remote", req.RemoteAddr)
 	}
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		logger.Info("response",
-			"method", resp.Request.Method,
-			"url", resp.Request.URL.String(),
-			"status", resp.StatusCode,
-			"size", resp.ContentLength)
-		return nil
+
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			logger.Info("request",
+				"method", r.Out.Method,
+				"url", r.Out.URL.String(),
+				"host", r.Out.Host,
+				"remote", r.In.RemoteAddr)
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			logger.Info("response",
+				"method", resp.Request.Method,
+				"url", resp.Request.URL.String(),
+				"status", resp.StatusCode,
+				"size", resp.ContentLength)
+			return nil
+		},
 	}
 
 	server := &http.Server{
