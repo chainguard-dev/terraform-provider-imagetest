@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -290,7 +291,16 @@ configs:
 	}
 
 	if err := k.waitReady(ctx); err != nil {
-		return fmt.Errorf("waiting for k3s to be ready: %w", err)
+		logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		logs, logErr := resp.Logs(logCtx)
+		if logErr != nil {
+			logs = fmt.Sprintf("(unavailable: %v)", logErr)
+		}
+		if !strings.HasSuffix(logs, "\n") {
+			logs += "\n"
+		}
+		return fmt.Errorf("waiting for k3s to be ready: %w\n--- k3s container logs ---\n%s--- end k3s container logs ---", err, logs)
 	}
 	trace.SpanFromContext(ctx).AddEvent("k3s.cluster.ready")
 
@@ -364,13 +374,23 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 // bare requirements for scheduling a workload are. We don't want to wait for
 // "kube-system" to be ready, because that typically takes too long, and isn't
 // actually required to start scheduling pods.
+//
+// On timeout, the returned error wraps the most recent error from the API
+// server poll, since "context deadline exceeded" alone says nothing about why
+// the cluster never became ready.
 func (k *driver) waitReady(ctx context.Context) error {
-	return wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+	var lastErr error
+	pollErr := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
 		_, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{})
 		if err != nil {
+			lastErr = err
 			clog.DebugContext(ctx, "waiting for default service account", "error", err)
 			return false, nil
 		}
 		return true, nil
 	})
+	if pollErr != nil && lastErr != nil {
+		return fmt.Errorf("%w (last poll error: %v)", pollErr, lastErr)
+	}
+	return pollErr
 }

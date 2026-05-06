@@ -694,6 +694,26 @@ func (r *Response) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	return data, nil
 }
 
+// Logs returns the combined stdout and stderr captured from the container
+// since it started.
+func (r *Response) Logs(ctx context.Context) (string, error) {
+	rdr, err := r.cli.inner.ContainerLogs(ctx, r.ID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       "all",
+	})
+	if err != nil {
+		return "", fmt.Errorf("getting container logs: %w", err)
+	}
+	defer rdr.Close()
+
+	var buf bytes.Buffer
+	if _, err := stdcopy.StdCopy(&buf, &buf, rdr); err != nil {
+		return "", fmt.Errorf("reading container logs: %w", err)
+	}
+	return buf.String(), nil
+}
+
 func (d *Client) withDefaultLabels(labels map[string]string) map[string]string {
 	l := map[string]string{
 		"dev.chainguard.imagetest": "true",
