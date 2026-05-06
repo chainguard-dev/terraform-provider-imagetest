@@ -584,16 +584,16 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 		return fmt.Errorf("starting exec: %w", err)
 	}
 
-	var stdout, stderr, stdall bytes.Buffer
-	var stdoutw, stderrw, stdallw io.Writer
-	stdoutw, stderrw, stdallw = &stdout, &stderr, &stdall
+	var stdall bytes.Buffer
+	stdoutw := io.Writer(&stdall)
+	stderrw := io.Writer(&stdall)
 
 	if cmd.Stdout != nil {
-		stdoutw = io.MultiWriter(stdoutw, stdallw, cmd.Stdout)
+		stdoutw = io.MultiWriter(stdoutw, cmd.Stdout)
 	}
 
 	if cmd.Stderr != nil {
-		stderrw = io.MultiWriter(stderrw, stdallw, cmd.Stderr)
+		stderrw = io.MultiWriter(stderrw, cmd.Stderr)
 	}
 
 	done := make(chan error, 1)
