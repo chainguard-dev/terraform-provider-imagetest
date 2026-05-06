@@ -580,10 +580,6 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 	}
 	defer attach.Close()
 
-	if err := r.cli.inner.ContainerExecStart(ctx, resp.ID, container.ExecStartOptions{}); err != nil {
-		return fmt.Errorf("starting exec: %w", err)
-	}
-
 	var stdall bytes.Buffer
 	stdoutw := io.Writer(&stdall)
 	stderrw := io.Writer(&stdall)
