@@ -411,11 +411,12 @@ data:
     }
 EOF
 
-# Restart CoreDNS pods to immediately load the new configuration # NOTE:
-CoreDNS has no _good_ way to validate the configuration has reloaded. This
-looks ugly, but in practice its the cheapest reliable way to ensure the new
-configuration is loaded, and only takes a few seconds since the image is
-already pulled.
+# CoreDNS is applied asynchronously by the k3s addon manager, so it may not
+# exist yet when this hook runs. Wait for it before triggering a rollout to
+# load the configmap above. Restarting (rather than relying on CoreDNS's
+# reload plugin) is intentional: it gives a deterministic point at which the
+# new config is live before tests start.
+kubectl wait --for=create deployment/coredns -n kube-system --timeout=3m
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 `
