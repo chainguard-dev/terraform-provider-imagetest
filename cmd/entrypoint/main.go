@@ -114,8 +114,6 @@ func main() {
 			os.Exit(entrypoint.ProcessPausedWithErrorCode)
 		case healthPaused:
 			os.Exit(entrypoint.ProcessPausedCode)
-		case healthFailed:
-			os.Exit(entrypoint.InternalErrorCode)
 		}
 
 		os.Exit(0)
@@ -199,7 +197,6 @@ func (o *opts) Run(ctx context.Context) int {
 	code, err := o.executeProcess(ctx)
 	if err != nil {
 		clog.ErrorContextf(ctx, "wrapped process exited with exit code %d", code)
-		o.healthStatus.update(healthFailed, err.Error(), int64(code))
 	}
 
 	return o.finalize(ctx, code, err)
@@ -601,7 +598,6 @@ const (
 	healthRunning         healthState = "running"
 	healthPaused          healthState = "paused"
 	healthPausedWithError healthState = "paused_with_error"
-	healthFailed          healthState = "failed"
 )
 
 type healthStatus struct {
