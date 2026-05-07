@@ -51,6 +51,12 @@ resource "imagetest_tests" "foo" {
   name   = "%[1]s"
   driver = "docker_in_docker"
 
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
+
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
@@ -219,6 +225,12 @@ resource "imagetest_tests" "foo" {
   name   = "%[1]s"
   driver = "docker_in_docker"
 
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
+
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
@@ -276,6 +288,12 @@ resource "imagetest_tests" "foo" {
   name   = "%[1]s"
   driver = "docker_in_docker"
 
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
+
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
@@ -304,6 +322,12 @@ resource "imagetest_tests" "foo" {
   name   = "dind-per-test-retry-passes"
   driver = "docker_in_docker"
 
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
+
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
@@ -330,6 +354,12 @@ resource "imagetest_tests" "foo" {
 resource "imagetest_tests" "foo" {
   name   = "dind-per-test-retry-exhausted"
   driver = "docker_in_docker"
+
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
 
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
@@ -359,6 +389,12 @@ resource "imagetest_tests" "foo" {
   name   = "dind-resource-retry-passes"
   driver = "docker_in_docker"
 
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
+
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
@@ -386,6 +422,12 @@ resource "imagetest_tests" "foo" {
   name   = "dind-nested-content"
   driver = "docker_in_docker"
 
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
+
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
   }
@@ -410,6 +452,12 @@ resource "imagetest_tests" "foo" {
 resource "imagetest_tests" "foo" {
   name   = "dind-resource-retry-exhausted"
   driver = "docker_in_docker"
+
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
 
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
@@ -558,6 +606,12 @@ provider "imagetest" {
 resource "imagetest_tests" "foo" {
   name   = "foo"
   driver = "docker_in_docker"
+
+  drivers = {
+    docker_in_docker = {
+      mirrors = ["https://mirror.gcr.io"]
+    }
+  }
 
   images = {
     foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
