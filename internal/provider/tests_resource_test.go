@@ -281,6 +281,97 @@ resource "imagetest_tests" "foo" {
 					`, "on-failure.sh"),
 			},
 		},
+		"dockeronhost-basic": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "docker_on_host"
+
+  drivers = {
+    docker_on_host = {}
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  timeout = "5m"
+}
+					`, "docker-on-host-basic.sh"),
+			},
+		},
+		"dockeronhost-on-failure": {
+			{
+				// Verifies both that on_failure hooks fire and that
+				// IMAGETEST_TEST_LABEL is exported into the hook's env.
+				ExpectError: regexp.MustCompile(`on-failure-sentinel-doh-zzz999\s+label=imagetest\.test=`),
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "docker_on_host"
+
+  drivers = {
+    docker_on_host = {}
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name       = "sample"
+      image      = "cgr.dev/chainguard/busybox:latest"
+      content    = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd        = "./%[1]s"
+      on_failure = ["echo on-failure-sentinel-doh-zzz999 label=$IMAGETEST_TEST_LABEL"]
+    }
+  ]
+
+  timeout = "5m"
+}
+					`, "on-failure.sh"),
+			},
+		},
+		"dockeronhost-host-cgroups": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "docker_on_host"
+
+  drivers = {
+    docker_on_host = {}
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/busybox:latest"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  timeout = "5m"
+}
+					`, "docker-on-host-host-cgroups.sh"),
+			},
+		},
 		"dockerindocker-artifacts": {
 			{
 				Config: fmt.Sprintf(`

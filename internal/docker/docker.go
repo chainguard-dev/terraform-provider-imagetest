@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -26,10 +27,12 @@ import (
 	sshhelper "github.com/docker/cli/cli/connhelper/ssh"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	dockerfilters "github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/registry"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
@@ -516,6 +519,51 @@ func (d *Client) Remove(ctx context.Context, resp *Response) error {
 	return d.inner.ContainerRemove(ctx, resp.ID, container.RemoveOptions{
 		RemoveVolumes: true,
 	})
+}
+
+// RemoveByLabel force-removes every container, network, and volume on the
+// daemon that matches the given label key=value. Used by drivers that share a
+// host daemon with the test (e.g. docker_on_host) to clean up resources the
+// test launched. Containers are removed first so volume/network refs are
+// released before those resources are deleted.
+func (d *Client) RemoveByLabel(ctx context.Context, key, value string) error {
+	f := dockerfilters.NewArgs(dockerfilters.Arg("label", fmt.Sprintf("%s=%s", key, value)))
+	var errs []error
+
+	cs, err := d.inner.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("listing containers by label %s=%s: %w", key, value, err))
+	}
+	for _, c := range cs {
+		if err := d.inner.ContainerRemove(ctx, c.ID, container.RemoveOptions{
+			Force:         true,
+			RemoveVolumes: true,
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("removing container %s: %w", c.ID, err))
+		}
+	}
+
+	nws, err := d.inner.NetworkList(ctx, network.ListOptions{Filters: f})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("listing networks by label %s=%s: %w", key, value, err))
+	}
+	for _, nw := range nws {
+		if err := d.inner.NetworkRemove(ctx, nw.ID); err != nil {
+			errs = append(errs, fmt.Errorf("removing network %s: %w", nw.ID, err))
+		}
+	}
+
+	vols, err := d.inner.VolumeList(ctx, volume.ListOptions{Filters: f})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("listing volumes by label %s=%s: %w", key, value, err))
+	}
+	for _, v := range vols.Volumes {
+		if err := d.inner.VolumeRemove(ctx, v.Name, true); err != nil {
+			errs = append(errs, fmt.Errorf("removing volume %s: %w", v.Name, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // Response is returned from a Start() request.

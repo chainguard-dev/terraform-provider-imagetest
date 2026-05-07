@@ -17,7 +17,7 @@ error() {
 usage() {
   error "Usage: $0 <test-script-path>"
   error "Environment variables:"
-  error "  IMAGETEST_DRIVER: Type of test environment (docker_in_docker, k3s_in_docker, eks_with_eksctl, ec2)"
+  error "  IMAGETEST_DRIVER: Type of test environment (docker_in_docker, docker_on_host, k3s_in_docker, eks_with_eksctl, ec2)"
   exit 1
 }
 
@@ -173,6 +173,11 @@ aks)
   ;;
 docker_in_docker)
   init_docker_in_docker "$cmd"
+  ;;
+docker_on_host)
+  # Sandbox shares the host docker daemon via a bind-mounted socket; nothing
+  # to bring up before the test runs.
+  exec "$cmd"
   ;;
 k3s_in_docker)
   init_k3s_in_docker "$cmd"

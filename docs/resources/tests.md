@@ -42,6 +42,7 @@ Optional:
 
 - `aks` (Attributes) The AKS driver (see [below for nested schema](#nestedatt--drivers--aks))
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
+- `docker_on_host` (Attributes) The docker_on_host driver. Runs each test in a sandbox container that shares the host's docker daemon (DooD). Sibling containers the test launches with `docker run` are placed on the host daemon directly, so flags like --cgroupns=host or --privileged take effect against the real host — unlike docker_in_docker, where the inner daemon's nested cgroup namespace breaks workloads such as RKE2. (see [below for nested schema](#nestedatt--drivers--docker_on_host))
 - `ec2` (Attributes) The AWS EC2 driver. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
@@ -136,6 +137,40 @@ Optional:
 
 <a id="nestedatt--drivers--docker_in_docker--timeouts"></a>
 ### Nested Schema for `drivers.docker_in_docker.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
+
+
+
+<a id="nestedatt--drivers--docker_on_host"></a>
+### Nested Schema for `drivers.docker_on_host`
+
+Optional:
+
+- `extra_envs` (Map of String) Additional environment variables to set in the sandbox.
+- `extra_hosts` (List of String) Additional --add-host entries for the sandbox.
+- `extra_mounts` (Attributes List) Additional host bind mounts beyond the default (/var/run/docker.sock). (see [below for nested schema](#nestedatt--drivers--docker_on_host--extra_mounts))
+- `image` (String) The sandbox image reference. Defaults to cgr.dev/chainguard/docker-dind:latest (the bundled dockerd is unused; the test image's entrypoint overrides it).
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--docker_on_host--timeouts))
+
+<a id="nestedatt--drivers--docker_on_host--extra_mounts"></a>
+### Nested Schema for `drivers.docker_on_host.extra_mounts`
+
+Required:
+
+- `source` (String) Host path to bind mount.
+- `target` (String) Path inside the sandbox container.
+
+Optional:
+
+- `read_only` (Boolean) Mount read-only (default: false).
+
+
+<a id="nestedatt--drivers--docker_on_host--timeouts"></a>
+### Nested Schema for `drivers.docker_on_host.timeouts`
 
 Optional:
 

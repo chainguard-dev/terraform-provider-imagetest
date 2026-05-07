@@ -1,0 +1,105 @@
+package dockeronhost
+
+import (
+	"maps"
+
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+)
+
+type DriverOpts func(*driver) error
+
+func WithImageRef(rawRef string) DriverOpts {
+	return func(d *driver) error {
+		ref, err := name.ParseReference(rawRef)
+		if err != nil {
+			return err
+		}
+		d.ImageRef = ref
+		return nil
+	}
+}
+
+func WithRemoteOptions(opts ...remote.Option) DriverOpts {
+	return func(d *driver) error {
+		if d.ropts == nil {
+			d.ropts = make([]remote.Option, 0)
+		}
+		d.ropts = append(d.ropts, opts...)
+		return nil
+	}
+}
+
+// WithRegistryAuth invokes the docker-credential-helper to exchange static
+// creds that are mounted in the container. This current implementation will
+// fail if the tests take longer than the tokens ttl.
+func WithRegistryAuth(registry string) DriverOpts {
+	return func(d *driver) error {
+		if d.cliCfg == nil {
+			d.cliCfg = &docker.DockerConfig{
+				Auths: make(map[string]docker.DockerAuthConfig),
+			}
+		}
+
+		if d.cliCfg.Auths == nil {
+			d.cliCfg.Auths = make(map[string]docker.DockerAuthConfig)
+		}
+
+		r, err := name.NewRegistry(registry)
+		if err != nil {
+			return err
+		}
+
+		a, err := authn.DefaultKeychain.Resolve(r)
+		if err != nil {
+			return err
+		}
+
+		acfg, err := a.Authorization()
+		if err != nil {
+			return err
+		}
+
+		d.cliCfg.Auths[registry] = docker.DockerAuthConfig{
+			Username: acfg.Username,
+			Password: acfg.Password,
+			Auth:     acfg.Auth,
+		}
+
+		return nil
+	}
+}
+
+func WithExtraHosts(hosts ...string) DriverOpts {
+	return func(d *driver) error {
+		d.ExtraHosts = append(d.ExtraHosts, hosts...)
+		return nil
+	}
+}
+
+func WithExtraEnvs(envs map[string]string) DriverOpts {
+	return func(d *driver) error {
+		if d.Envs == nil {
+			d.Envs = make(map[string]string)
+		}
+		maps.Copy(d.Envs, envs)
+		return nil
+	}
+}
+
+func WithExtraMounts(mounts ...ExtraMount) DriverOpts {
+	return func(d *driver) error {
+		d.ExtraMounts = append(d.ExtraMounts, mounts...)
+		return nil
+	}
+}
+
+func WithTimeouts(t drivers.Timeouts) DriverOpts {
+	return func(d *driver) error {
+		d.timeouts = t
+		return nil
+	}
+}

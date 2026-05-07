@@ -17,6 +17,7 @@ type Content struct {
 
 	reader io.Reader
 	size   int64
+	mode   int64
 
 	pw *io.PipeWriter
 	pr *io.PipeReader
@@ -42,6 +43,16 @@ func NewContentFromFile(f *os.File, target string) (*Content, error) {
 }
 
 func NewContent(r io.Reader, target string, size int64) *Content {
+	return newContent(r, target, size, 0o644)
+}
+
+// NewExecutableContentFromString returns a Content whose target file is
+// written with mode 0755, suitable for shipping shim scripts onto $PATH.
+func NewExecutableContentFromString(s, target string) *Content {
+	return newContent(strings.NewReader(s), target, int64(len(s)), 0o755)
+}
+
+func newContent(r io.Reader, target string, size, mode int64) *Content {
 	pr, pw := io.Pipe()
 
 	// Normalize the target path
@@ -52,6 +63,7 @@ func NewContent(r io.Reader, target string, size int64) *Content {
 		Dir:    path.Dir(cleanTarget),
 		reader: r,
 		size:   size,
+		mode:   mode,
 		pw:     pw,
 		pr:     pr,
 	}
@@ -89,7 +101,7 @@ func (c *Content) stream() {
 
 	hdr := &tar.Header{
 		Name:     c.Target,
-		Mode:     0o644,
+		Mode:     c.mode,
 		Size:     c.size,
 		Typeflag: tar.TypeReg,
 	}

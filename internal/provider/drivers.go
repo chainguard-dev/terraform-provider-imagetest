@@ -16,6 +16,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	aks "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/aks"
 	dockerindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_in_docker"
+	dockeronhost "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/docker_on_host"
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
@@ -31,6 +32,7 @@ const (
 	DriverAKS            DriverResourceModel = "aks"
 	DriverK3sInDocker    DriverResourceModel = "k3s_in_docker"
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
+	DriverDockerOnHost   DriverResourceModel = "docker_on_host"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
 	DriverEC2            DriverResourceModel = "ec2"
 )
@@ -39,6 +41,7 @@ type TestsDriversResourceModel struct {
 	AKS            *AKSDriverResourceModel            `tfsdk:"aks"`
 	K3sInDocker    *K3sInDockerDriverResourceModel    `tfsdk:"k3s_in_docker"`
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
+	DockerOnHost   *DockerOnHostDriverResourceModel   `tfsdk:"docker_on_host"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
 	EC2            *EC2DriverResourceModel            `tfsdk:"ec2"`
 }
@@ -112,6 +115,20 @@ type DockerInDockerDriverResourceModel struct {
 	Image    types.String                 `tfsdk:"image"`
 	Mirrors  []string                     `tfsdk:"mirrors"`
 	Timeouts *DriverTimeoutsResourceModel `tfsdk:"timeouts"`
+}
+
+type DockerOnHostDriverResourceModel struct {
+	Image       types.String                           `tfsdk:"image"`
+	ExtraMounts []*DockerOnHostExtraMountResourceModel `tfsdk:"extra_mounts"`
+	ExtraEnvs   map[string]string                      `tfsdk:"extra_envs"`
+	ExtraHosts  []string                               `tfsdk:"extra_hosts"`
+	Timeouts    *DriverTimeoutsResourceModel           `tfsdk:"timeouts"`
+}
+
+type DockerOnHostExtraMountResourceModel struct {
+	Source   types.String `tfsdk:"source"`
+	Target   types.String `tfsdk:"target"`
+	ReadOnly types.Bool   `tfsdk:"read_only"`
 }
 
 type EKSWithEksctlDriverResourceModel struct {
@@ -474,6 +491,66 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		opts = append(opts, dockerindocker.WithTimeouts(timeouts))
 
 		return dockerindocker.NewDriver(id, opts...)
+
+	case DriverDockerOnHost:
+		cfg := driversCfg.DockerOnHost
+		if cfg == nil {
+			cfg = &DockerOnHostDriverResourceModel{}
+		}
+
+		opts := []dockeronhost.DriverOpts{
+			dockeronhost.WithRemoteOptions(t.ropts...),
+			dockeronhost.WithRegistryAuth(repo.RegistryStr()),
+		}
+
+		for _, extraRepo := range t.extraRepos {
+			opts = append(opts, dockeronhost.WithRegistryAuth(extraRepo.RegistryStr()))
+		}
+
+		if cfg.Image.ValueString() != "" {
+			opts = append(opts, dockeronhost.WithImageRef(cfg.Image.ValueString()))
+		}
+
+		if len(cfg.ExtraEnvs) > 0 {
+			opts = append(opts, dockeronhost.WithExtraEnvs(cfg.ExtraEnvs))
+		}
+
+		if len(cfg.ExtraHosts) > 0 {
+			opts = append(opts, dockeronhost.WithExtraHosts(cfg.ExtraHosts...))
+		}
+
+		if len(cfg.ExtraMounts) > 0 {
+			mounts := make([]dockeronhost.ExtraMount, 0, len(cfg.ExtraMounts))
+			for _, m := range cfg.ExtraMounts {
+				mounts = append(mounts, dockeronhost.ExtraMount{
+					Source:   m.Source.ValueString(),
+					Target:   m.Target.ValueString(),
+					ReadOnly: m.ReadOnly.ValueBool(),
+				})
+			}
+			opts = append(opts, dockeronhost.WithExtraMounts(mounts...))
+		}
+
+		if isLocalRegistry(repo.Registry) {
+			u, err := url.Parse("http://" + repo.RegistryStr())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse registry url: %w", err)
+			}
+
+			opts = append(opts,
+				dockeronhost.WithExtraHosts(
+					fmt.Sprintf("%s:%s", u.Hostname(), "127.0.0.1"),
+				),
+			)
+		}
+
+		timeouts, err := parseTimeoutsModel(cfg.Timeouts)
+		if err != nil {
+			return nil, fmt.Errorf("docker_on_host: %w", err)
+		}
+		opts = append(opts, dockeronhost.WithTimeouts(timeouts))
+
+		return dockeronhost.NewDriver(id, opts...)
 
 	case DriverEKSWithEksctl:
 		cfg := driversCfg.EKSWithEksctl
@@ -844,6 +921,47 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 						Optional:    true,
 					},
 					"mirrors": schema.ListAttribute{
+						ElementType: types.StringType,
+						Optional:    true,
+					},
+					"timeouts": driverTimeoutsSchema(),
+				},
+			},
+			"docker_on_host": schema.SingleNestedAttribute{
+				Description: "The docker_on_host driver. Runs each test in a sandbox container that shares the host's docker daemon (DooD). Sibling containers the test launches with `docker run` are placed on the host daemon directly, so flags like --cgroupns=host or --privileged take effect against the real host — unlike docker_in_docker, where the inner daemon's nested cgroup namespace breaks workloads such as RKE2.",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"image": schema.StringAttribute{
+						Description: "The sandbox image reference. Defaults to cgr.dev/chainguard/docker-dind:latest (the bundled dockerd is unused; the test image's entrypoint overrides it).",
+						Optional:    true,
+					},
+					"extra_mounts": schema.ListNestedAttribute{
+						Description: "Additional host bind mounts beyond the default (/var/run/docker.sock).",
+						Optional:    true,
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"source": schema.StringAttribute{
+									Description: "Host path to bind mount.",
+									Required:    true,
+								},
+								"target": schema.StringAttribute{
+									Description: "Path inside the sandbox container.",
+									Required:    true,
+								},
+								"read_only": schema.BoolAttribute{
+									Description: "Mount read-only (default: false).",
+									Optional:    true,
+								},
+							},
+						},
+					},
+					"extra_envs": schema.MapAttribute{
+						Description: "Additional environment variables to set in the sandbox.",
+						ElementType: types.StringType,
+						Optional:    true,
+					},
+					"extra_hosts": schema.ListAttribute{
+						Description: "Additional --add-host entries for the sandbox.",
 						ElementType: types.StringType,
 						Optional:    true,
 					},
