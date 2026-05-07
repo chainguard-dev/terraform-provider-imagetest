@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/chainguard-dev/clog"
 	log2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
@@ -48,9 +54,32 @@ func main() {
 	ctx = setupLog(ctx)
 
 	err := providerserver.Serve(ctx, provider.New(version), opts)
+
+	if shutdownErr := shutdownOTel(); shutdownErr != nil {
+		log.Printf("otel shutdown: %v", shutdownErr)
+	}
+
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+}
+
+func shutdownOTel() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var errs []error
+	if tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok {
+		if err := tp.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("tracer provider: %w", err))
+		}
+	}
+	if lp := o11y.LoggerProvider(); lp != nil {
+		if err := lp.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("logger provider: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // setupLog sets up the default logging configuration.

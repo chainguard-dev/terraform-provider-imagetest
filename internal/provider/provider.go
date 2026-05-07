@@ -386,7 +386,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		store.logsDirectory = v
 	}
 
-	// this is a no-op if no otlp endpoint is configured
 	if err := o11y.Setup(ctx); err != nil {
 		resp.Diagnostics.AddError("failed to setup observability", err.Error())
 		return
