@@ -526,6 +526,11 @@ type Response struct {
 	cli  *Client
 }
 
+// Inspect returns the current state of the container.
+func (r *Response) Inspect(ctx context.Context) (container.InspectResponse, error) {
+	return r.cli.inner.ContainerInspect(ctx, r.ID)
+}
+
 // PortBinding returns the host port binding for a container port.
 // For SSH connections, it creates a tunnel and returns a cleanup function.
 // For local connections, it returns the local port and cleanup is a no-op.

@@ -290,7 +290,7 @@ configs:
 		}
 	}
 
-	if err := k.waitReady(ctx); err != nil {
+	if err := k.waitReady(ctx, resp); err != nil {
 		logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		logs, logErr := resp.Logs(logCtx)
@@ -375,12 +375,20 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 // "kube-system" to be ready, because that typically takes too long, and isn't
 // actually required to start scheduling pods.
 //
+// If the k3s container exits during the wait (e.g. an internal startup race
+// causing k3s to shut itself down), the poll fails fast instead of waiting for
+// the outer context deadline.
+//
 // On timeout, the returned error wraps the most recent error from the API
 // server poll, since "context deadline exceeded" alone says nothing about why
 // the cluster never became ready.
-func (k *driver) waitReady(ctx context.Context) error {
+func (k *driver) waitReady(ctx context.Context, resp *docker.Response) error {
 	var lastErr error
 	pollErr := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+		if inspect, err := resp.Inspect(ctx); err == nil && inspect.State != nil && !inspect.State.Running {
+			return false, fmt.Errorf("k3s container exited during setup: status=%s exit_code=%d", inspect.State.Status, inspect.State.ExitCode)
+		}
+
 		_, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{})
 		if err != nil {
 			lastErr = err
