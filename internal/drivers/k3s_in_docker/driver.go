@@ -369,19 +369,25 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 }
 
 // waitReady blocks until the k3s cluster is "ready". there are many
-// definitions of "ready". this one specifically waits for the api server to
-// exist, AND for the "default" serviceaccount to exist, which is typically the
-// bare requirements for scheduling a workload are. We don't want to wait for
-// "kube-system" to be ready, because that typically takes too long, and isn't
-// actually required to start scheduling pods.
+// definitions of "ready". this one waits for:
+//   - the api server to be reachable
+//   - the "default" serviceaccount in the "default" namespace to exist
+//     (workloads cannot be scheduled before this)
+//   - the CoreDNS deployment in "kube-system" to have at least one available
+//     replica (workloads cannot resolve external DNS names before this, and
+//     since k3s schedules CoreDNS as part of its addon manager it is not
+//     guaranteed to be ready by the time the api server is)
+//
+// We intentionally do not wait for the rest of "kube-system" — it takes longer
+// and isn't required for scheduling or DNS to function.
 //
 // If the k3s container exits during the wait (e.g. an internal startup race
 // causing k3s to shut itself down), the poll fails fast instead of waiting for
 // the outer context deadline.
 //
-// On timeout, the returned error wraps the most recent error from the API
-// server poll, since "context deadline exceeded" alone says nothing about why
-// the cluster never became ready.
+// On timeout, the returned error wraps the most recent error from the poll,
+// since "context deadline exceeded" alone says nothing about why the cluster
+// never became ready.
 func (k *driver) waitReady(ctx context.Context, resp *docker.Response) error {
 	var lastErr error
 	pollErr := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
@@ -389,12 +395,24 @@ func (k *driver) waitReady(ctx context.Context, resp *docker.Response) error {
 			return false, fmt.Errorf("k3s container exited during setup: status=%s exit_code=%d", inspect.State.Status, inspect.State.ExitCode)
 		}
 
-		_, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{})
-		if err != nil {
-			lastErr = err
+		if _, err := k.kcli.CoreV1().ServiceAccounts("default").Get(ctx, "default", metav1.GetOptions{}); err != nil {
+			lastErr = fmt.Errorf("default service account: %w", err)
 			clog.DebugContext(ctx, "waiting for default service account", "error", err)
 			return false, nil
 		}
+
+		dep, err := k.kcli.AppsV1().Deployments("kube-system").Get(ctx, "coredns", metav1.GetOptions{})
+		if err != nil {
+			lastErr = fmt.Errorf("coredns deployment: %w", err)
+			clog.DebugContext(ctx, "waiting for coredns deployment", "error", err)
+			return false, nil
+		}
+		if dep.Status.AvailableReplicas < 1 {
+			lastErr = fmt.Errorf("coredns has no available replicas (available=%d)", dep.Status.AvailableReplicas)
+			clog.DebugContext(ctx, "waiting for coredns availability", "available_replicas", dep.Status.AvailableReplicas)
+			return false, nil
+		}
+
 		return true, nil
 	})
 	if pollErr != nil && lastErr != nil {
