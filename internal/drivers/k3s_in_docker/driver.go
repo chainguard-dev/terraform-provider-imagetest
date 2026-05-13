@@ -16,6 +16,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/retry"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -94,6 +95,44 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
+	const attempts = 3
+	var lastErr error
+	retry.Do(ctx, retry.Config{
+		Attempts: attempts,
+		Delay:    5 * time.Second,
+	}, func(ctx context.Context, attempt int) error {
+		if attempt > 1 {
+			clog.WarnContext(ctx, "retrying k3s setup", "attempt", attempt, "previous_error", lastErr)
+			teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			if err := k.stack.Teardown(teardownCtx); err != nil {
+				clog.WarnContext(ctx, "failed to teardown resources from previous setup attempt", "error", err)
+			}
+			k.stack = harness.NewStack()
+		}
+
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			lastErr = k.setup(ctx)
+			return lastErr
+		}
+		remaining := time.Until(deadline)
+		attemptsLeft := attempts - attempt + 1
+		perAttempt := remaining / time.Duration(attemptsLeft)
+
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, perAttempt)
+		defer attemptCancel()
+
+		lastErr = k.setup(attemptCtx)
+		return lastErr
+	})
+	return lastErr
+}
+
+func (k *driver) setup(ctx context.Context) error {
 	cli, err := docker.New()
 	if err != nil {
 		return fmt.Errorf("creating docker client: %w", err)
