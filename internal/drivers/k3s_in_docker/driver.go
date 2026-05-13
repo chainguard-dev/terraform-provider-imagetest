@@ -16,10 +16,12 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/retry"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -82,6 +84,9 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 
 		name:  n,
 		stack: harness.NewStack(),
+		timeouts: drivers.Timeouts{
+			Setup: 10 * time.Minute,
+		},
 	}
 
 	for _, opt := range opts {
@@ -94,6 +99,50 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
+	ctx, cancel := k.timeouts.SetupContext(ctx)
+	defer cancel()
+
+	const attempts = 3
+	var lastErr error
+	retry.Do(ctx, retry.Config{
+		Attempts: attempts,
+		Delay:    5 * time.Second,
+	}, func(ctx context.Context, attempt int) error {
+		span := trace.SpanFromContext(ctx)
+		span.AddEvent("k3s.setup.attempt", trace.WithAttributes(
+			attribute.Int("attempt", attempt),
+		))
+
+		if attempt > 1 {
+			teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			if err := k.stack.Teardown(teardownCtx); err != nil {
+				clog.WarnContext(ctx, "failed to teardown resources from previous setup attempt", "error", err)
+			}
+			k.stack = harness.NewStack()
+		}
+
+		attemptCtx := ctx
+		if deadline, ok := ctx.Deadline(); ok {
+			perAttempt := time.Until(deadline) / time.Duration(attempts-attempt+1)
+			var attemptCancel context.CancelFunc
+			attemptCtx, attemptCancel = context.WithTimeout(ctx, perAttempt)
+			defer attemptCancel()
+		}
+
+		lastErr = k.setup(attemptCtx)
+		if lastErr != nil {
+			span.AddEvent("k3s.setup.failed", trace.WithAttributes(
+				attribute.Int("attempt", attempt),
+				attribute.String("error", lastErr.Error()),
+			))
+		}
+		return lastErr
+	})
+	return lastErr
+}
+
+func (k *driver) setup(ctx context.Context) error {
 	cli, err := docker.New()
 	if err != nil {
 		return fmt.Errorf("creating docker client: %w", err)
