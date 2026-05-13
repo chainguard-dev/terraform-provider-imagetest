@@ -21,6 +21,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -83,6 +84,9 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 
 		name:  n,
 		stack: harness.NewStack(),
+		timeouts: drivers.Timeouts{
+			Setup: 10 * time.Minute,
+		},
 	}
 
 	for _, opt := range opts {
@@ -95,7 +99,7 @@ func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 }
 
 func (k *driver) Setup(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	ctx, cancel := k.timeouts.SetupContext(ctx)
 	defer cancel()
 
 	const attempts = 3
@@ -104,8 +108,12 @@ func (k *driver) Setup(ctx context.Context) error {
 		Attempts: attempts,
 		Delay:    5 * time.Second,
 	}, func(ctx context.Context, attempt int) error {
+		span := trace.SpanFromContext(ctx)
+		span.AddEvent("k3s.setup.attempt", trace.WithAttributes(
+			attribute.Int("attempt", attempt),
+		))
+
 		if attempt > 1 {
-			clog.WarnContext(ctx, "retrying k3s setup", "attempt", attempt, "previous_error", lastErr)
 			teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer cancel()
 			if err := k.stack.Teardown(teardownCtx); err != nil {
@@ -114,19 +122,21 @@ func (k *driver) Setup(ctx context.Context) error {
 			k.stack = harness.NewStack()
 		}
 
-		deadline, ok := ctx.Deadline()
-		if !ok {
-			lastErr = k.setup(ctx)
-			return lastErr
+		attemptCtx := ctx
+		if deadline, ok := ctx.Deadline(); ok {
+			perAttempt := time.Until(deadline) / time.Duration(attempts-attempt+1)
+			var attemptCancel context.CancelFunc
+			attemptCtx, attemptCancel = context.WithTimeout(ctx, perAttempt)
+			defer attemptCancel()
 		}
-		remaining := time.Until(deadline)
-		attemptsLeft := attempts - attempt + 1
-		perAttempt := remaining / time.Duration(attemptsLeft)
-
-		attemptCtx, attemptCancel := context.WithTimeout(ctx, perAttempt)
-		defer attemptCancel()
 
 		lastErr = k.setup(attemptCtx)
+		if lastErr != nil {
+			span.AddEvent("k3s.setup.failed", trace.WithAttributes(
+				attribute.Int("attempt", attempt),
+				attribute.String("error", lastErr.Error()),
+			))
+		}
 		return lastErr
 	})
 	return lastErr
