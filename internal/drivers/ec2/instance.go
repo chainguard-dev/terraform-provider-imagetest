@@ -147,11 +147,21 @@ func (i *instance) wait(ctx context.Context) error {
 
 	log.Info("waiting for instance to enter running state", "id", i.id)
 	runningWaiter := ec2.NewInstanceRunningWaiter(i.client)
-	if err := runningWaiter.Wait(ctx, &ec2.DescribeInstancesInput{
+	runningOutput, err := runningWaiter.WaitForOutput(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{i.id},
-	}, time.Hour); err != nil {
+	}, time.Hour)
+	if err != nil {
 		return fmt.Errorf("waiting for running state: %w", err)
 	}
+
+	if len(runningOutput.Reservations) == 0 || len(runningOutput.Reservations[0].Instances) == 0 {
+		return fmt.Errorf("instance not found in waiter output")
+	}
+	inst := runningOutput.Reservations[0].Instances[0]
+	if inst.PublicIpAddress == nil {
+		return fmt.Errorf("instance has no public IP")
+	}
+	i.publicIP = *inst.PublicIpAddress
 
 	log.Info("waiting for instance status checks", "id", i.id)
 	statusWaiter := ec2.NewInstanceStatusOkWaiter(i.client)
@@ -161,23 +171,6 @@ func (i *instance) wait(ctx context.Context) error {
 		return fmt.Errorf("waiting for status checks: %w", err)
 	}
 
-	result, err := i.client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: []string{i.id},
-	})
-	if err != nil {
-		return fmt.Errorf("describing instance: %w", err)
-	}
-
-	if len(result.Reservations) == 0 || len(result.Reservations[0].Instances) == 0 {
-		return fmt.Errorf("instance not found")
-	}
-
-	inst := result.Reservations[0].Instances[0]
-	if inst.PublicIpAddress == nil {
-		return fmt.Errorf("instance has no public IP")
-	}
-
-	i.publicIP = *inst.PublicIpAddress
 	log.Info("instance ready", "id", i.id, "ip", i.publicIP)
 
 	log.Info("waiting for SSH to become available", "ip", i.publicIP)
