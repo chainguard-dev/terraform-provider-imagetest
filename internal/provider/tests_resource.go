@@ -36,7 +36,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -365,9 +364,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	}
 	ctx = clog.WithLogger(ctx, clog.New(logHandler))
 
-	ctx = propagation.TraceContext{}.Extract(ctx, propagation.MapCarrier{
-		"traceparent": os.Getenv("TRACEPARENT"),
-	})
+	ctx = o11y.ExtractTraceContext(ctx)
 
 	ctx = clog.WithValues(ctx,
 		o11y.AttrTestID, id,
