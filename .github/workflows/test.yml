@@ -228,7 +228,7 @@ jobs:
           port: 5005
           disk: true
 
-      - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
+      - uses: step-security/setup-ko@99fa8b492faa894fd9d5ed5ad91d3deea7ef1943 # v0.9.1
 
       - name: Build entrypoint
         id: entrypoint-build
@@ -341,7 +341,7 @@ jobs:
           port: 5005
           disk: true
 
-      - uses: step-security/setup-ko@3b4d97844e4277c74a9d77ac00052d8ce96580d3 # v0.9.0
+      - uses: step-security/setup-ko@99fa8b492faa894fd9d5ed5ad91d3deea7ef1943 # v0.9.1
 
       - name: Run imagetest fixture
         run: make images-test/${{ matrix.images }}
