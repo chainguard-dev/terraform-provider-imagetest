@@ -353,6 +353,21 @@ configs:
 	}
 	trace.SpanFromContext(ctx).AddEvent("k3s.cluster.ready")
 
+	// waitReady above probes via the host port mapping (127.0.0.1:<random>),
+	// but the sandbox container that runs feature steps reaches the API via
+	// the user-defined docker network (DNS name `k.name` -> bridge IP). There
+	// is a small timing race where the host port mapping is wired up before
+	// the bridge route is, leading to `kubectl: dial tcp <ip>:6443: connect:
+	// connection refused` errors in TestAccHarnessK3sResource scenarios that
+	// `kubectl get po -A` immediately after harness creation. Explicitly
+	// probe from a peer container in the same network — when this succeeds
+	// we know any sandbox container that lands next will be able to reach
+	// k3s via the same path.
+	if err := k.waitReadyFromPeerNetwork(ctx, cli, nw); err != nil {
+		return fmt.Errorf("waiting for k3s to be reachable from peer container in network %s: %w", nw.Name, err)
+	}
+	trace.SpanFromContext(ctx).AddEvent("k3s.peer_network.ready")
+
 	// Ensure some common mount propagation fixes are applied to make this feel
 	// more like a "real" cluster
 	defaultMountCommands := []string{
@@ -468,4 +483,46 @@ func (k *driver) waitReady(ctx context.Context, resp *docker.Response) error {
 		return fmt.Errorf("%w (last poll error: %v)", pollErr, lastErr)
 	}
 	return pollErr
+}
+
+// waitReadyFromPeerNetwork verifies the k3s API is reachable from a peer
+// container in the same user-defined docker network as the k3s server. It
+// complements waitReady (which probes via the host port mapping) by
+// validating the path the sandbox container actually uses — DNS
+// resolution of `k.name` + TCP connect to <bridge-ip>:6443. Both paths
+// terminate at the same socket inside the k3s container, but they are
+// wired up by Docker independently and there is a small timing window
+// where the host port works before the bridge route does.
+//
+// The probe re-uses the k3s image (already pulled) and overrides the
+// entrypoint to a short busy-wait loop. It exits as soon as
+// `kubectl get --raw=/healthz` returns ok, or after the per-attempt
+// budget is exhausted.
+func (k *driver) waitReadyFromPeerNetwork(ctx context.Context, cli *docker.Client, nw *docker.NetworkAttachment) error {
+	const probeAttempts = 30
+
+	script := fmt.Sprintf(
+		"i=0; while [ $i -lt %d ]; do "+
+			"  if kubectl --server='https://%s:6443' --insecure-skip-tls-verify get --raw='/healthz' >/dev/null 2>&1; then "+
+			"    exit 0; "+
+			"  fi; "+
+			"  i=$((i+1)); "+
+			"  sleep 1; "+
+			"done; "+
+			"echo 'k3s API not reachable via peer-container network after %d attempts' >&2; "+
+			"exit 1",
+		probeAttempts, k.name, probeAttempts,
+	)
+
+	if _, err := cli.Run(ctx, &docker.Request{
+		Ref:        k.ImageRef,
+		Entrypoint: []string{"/bin/sh", "-c"}, // override the default k3s server entrypoint
+		Cmd:        []string{script},
+		Networks:   []docker.NetworkAttachment{{ID: nw.ID, Name: nw.Name}},
+		AutoRemove: true,
+		Timeout:    60 * time.Second,
+	}); err != nil {
+		return fmt.Errorf("peer-container probe failed: %w", err)
+	}
+	return nil
 }
