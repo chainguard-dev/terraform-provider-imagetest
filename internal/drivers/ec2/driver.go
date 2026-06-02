@@ -429,11 +429,40 @@ func (d *driver) runSetupCommands(ctx context.Context) error {
 	log.Info("running setup commands", "count", len(d.cfg.SetupCommands))
 	if err := issh.ExecIn(conn, d.cfg.Shell, stdout, stderr, cmds...); err != nil {
 		log.Error("setup commands failed", "stdout", stdout.String(), "stderr", stderr.String())
-		return fmt.Errorf("setup commands failed: %w", err)
+		return fmt.Errorf(
+			"setup commands failed: %w\n--- stdout (last %d lines) ---\n%s\n--- stderr (last %d lines) ---\n%s",
+			err,
+			setupFailureTailLines, tailLines(stdout.String(), setupFailureTailLines),
+			setupFailureTailLines, tailLines(stderr.String(), setupFailureTailLines),
+		)
 	}
 
 	log.Info("setup commands complete")
 	return nil
+}
+
+// setupFailureTailLines is the number of trailing lines of stdout/stderr
+// included in the error returned by runSetupCommands. Keeps long-running
+// setup_commands' captured output bounded while still showing the failing
+// context.
+const setupFailureTailLines = 200
+
+// tailLines returns the last n lines of s (newline-separated). If s has
+// at most n lines, it's returned unchanged. The truncation marker reports
+// the original count so consumers know how much was dropped.
+func tailLines(s string, n int) string {
+	if s == "" {
+		return "(empty)"
+	}
+	trimmed := strings.TrimRight(s, "\n")
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= n {
+		return trimmed
+	}
+	return fmt.Sprintf("(...truncated to last %d of %d lines...)\n%s",
+		n, len(lines),
+		strings.Join(lines[len(lines)-n:], "\n"),
+	)
 }
 
 // sanitizeAWSTagValue sanitizes a string to be a valid AWS tag value.
