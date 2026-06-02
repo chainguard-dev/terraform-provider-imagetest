@@ -483,30 +483,35 @@ func (k *driver) waitReady(ctx context.Context, resp *docker.Response) error {
 // the same user-defined network as k3s, validating the bridge route the
 // sandbox will use. Re-uses the k3s image so there's no extra pull.
 func (k *driver) waitReadyFromPeerNetwork(ctx context.Context, cli *docker.Client, nw *docker.NetworkAttachment) error {
-	const probeAttempts = 30
+	probeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
 
-	script := fmt.Sprintf(
-		"i=0; while [ $i -lt %d ]; do "+
-			"  if kubectl --server='https://%s:6443' --insecure-skip-tls-verify get --raw='/healthz' >/dev/null 2>&1; then "+
-			"    exit 0; "+
-			"  fi; "+
-			"  i=$((i+1)); "+
-			"  sleep 1; "+
-			"done; "+
-			"echo 'k3s API not reachable via peer-container network after %d attempts' >&2; "+
-			"exit 1",
-		probeAttempts, k.name, probeAttempts,
-	)
-
-	if _, err := cli.Run(ctx, &docker.Request{
+	// kubectl is in the k3s image; override the default `k3s server`
+	// entrypoint with `kubectl` so a single container run = one probe.
+	req := &docker.Request{
 		Ref:        k.ImageRef,
-		Entrypoint: []string{"/bin/sh", "-c"}, // override the default k3s server entrypoint
-		Cmd:        []string{script},
+		Entrypoint: []string{"kubectl"},
+		Cmd: []string{
+			"--server=https://" + k.name + ":6443",
+			"--insecure-skip-tls-verify",
+			"get", "--raw=/healthz",
+		},
 		Networks:   []docker.NetworkAttachment{{ID: nw.ID, Name: nw.Name}},
 		AutoRemove: true,
-		Timeout:    60 * time.Second,
-	}); err != nil {
-		return fmt.Errorf("peer-container probe failed: %w", err)
+		Timeout:    10 * time.Second,
 	}
-	return nil
+
+	var lastErr error
+	pollErr := wait.PollUntilContextCancel(probeCtx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+		if _, err := cli.Run(ctx, req); err != nil {
+			lastErr = err
+			clog.DebugContext(ctx, "peer-network probe failed; retrying", "error", err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if pollErr != nil && lastErr != nil {
+		return fmt.Errorf("%w (last probe error: %v)", pollErr, lastErr)
+	}
+	return pollErr
 }
