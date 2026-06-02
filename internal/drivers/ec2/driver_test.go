@@ -1,9 +1,59 @@
 package ec2
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestTailLines(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		n    int
+		want string
+	}{
+		{
+			name: "empty input returns placeholder",
+			in:   "",
+			n:    10,
+			want: "(empty)",
+		},
+		{
+			name: "fewer lines than tail returns full input (trailing newline stripped)",
+			in:   "one\ntwo\nthree\n",
+			n:    10,
+			want: "one\ntwo\nthree",
+		},
+		{
+			name: "exactly n lines returns full input",
+			in:   "one\ntwo\nthree",
+			n:    3,
+			want: "one\ntwo\nthree",
+		},
+		{
+			name: "more lines than n returns last n with truncation marker",
+			in:   "a\nb\nc\nd\ne",
+			n:    2,
+			want: fmt.Sprintf("(...truncated to last %d of %d lines...)\n%s", 2, 5, "d\ne"),
+		},
+		{
+			name: "single line input shorter than n",
+			in:   "only one line",
+			n:    5,
+			want: "only one line",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tailLines(tt.in, tt.n)
+			if got != tt.want {
+				t.Errorf("tailLines() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestSanitizeAWSTagValue(t *testing.T) {
 	tests := []struct {
