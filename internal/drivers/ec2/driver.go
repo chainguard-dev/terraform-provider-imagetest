@@ -429,12 +429,6 @@ func (d *driver) runSetupCommands(ctx context.Context) error {
 	log.Info("running setup commands", "count", len(d.cfg.SetupCommands))
 	if err := issh.ExecIn(conn, d.cfg.Shell, stdout, stderr, cmds...); err != nil {
 		log.Error("setup commands failed", "stdout", stdout.String(), "stderr", stderr.String())
-		// Include captured stdout/stderr in the returned error so failures
-		// are diagnosable from terraform's stderr alone (i.e. without
-		// `TF_LOG=ERROR` and without SSH-into-the-host). We tail to the
-		// last setupFailureTailLines lines of each stream so the error
-		// message stays bounded for long-running setup_commands while
-		// still surfacing the failing context.
 		return fmt.Errorf(
 			"setup commands failed: %w\n--- stdout (last %d lines) ---\n%s\n--- stderr (last %d lines) ---\n%s",
 			err,
