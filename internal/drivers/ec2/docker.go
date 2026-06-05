@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -224,7 +225,9 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 		}
 	}()
 
-	var result *drivers.RunResult
+	// Always non-nil so the artifact bundle can be attached even when the test
+	// fails — that's exactly when the collected logs matter most.
+	result := &drivers.RunResult{}
 	var runErr error
 
 	select {
@@ -235,7 +238,7 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	case status := <-statusCh:
 		switch status.StatusCode {
 		case 0, int64(entrypoint.ProcessPausedCode):
-			result = &drivers.RunResult{}
+			// success, or paused via IMAGETEST_SKIP_TEARDOWN
 		default:
 			runErr = fmt.Errorf("container exited with code %d", status.StatusCode)
 		}
@@ -243,7 +246,6 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 		// Health check detected a terminal state
 		if exitCode == int64(entrypoint.ProcessPausedCode) {
 			log.Info("container paused after success (IMAGETEST_SKIP_TEARDOWN)")
-			result = &drivers.RunResult{}
 		} else {
 			runErr = fmt.Errorf("container health check failed with exit code %d", exitCode)
 		}
@@ -255,12 +257,65 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	cancelRun()
 	<-logDone
 
+	// Best-effort: retrieve the artifact bundle the entrypoint wrote (combined
+	// process logs plus anything the test dropped in $IMAGETEST_ARTIFACTS). The
+	// entrypoint bundles it before exit/pause, so it exists on success, on
+	// failure, and while paused. Use a context detached from ctx with its own
+	// deadline so the bundle is still retrievable when the run deadline expired.
+	artifactCtx, cancelArtifact := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancelArtifact()
+	if arc, aerr := copyArtifact(artifactCtx, cli, resp.ID, entrypoint.ArtifactsPath); aerr != nil {
+		clog.WarnContextf(ctx, "failed to retrieve artifact: %v", aerr)
+	} else {
+		a, aerr := drivers.NewRunArtifactResult(artifactCtx, arc)
+		if cerr := arc.Close(); cerr != nil {
+			clog.WarnContextf(ctx, "failed to close artifact reader: %v", cerr)
+		}
+		if aerr != nil {
+			clog.WarnContextf(ctx, "failed to create artifact result: %v", aerr)
+		} else {
+			result.Artifact = a
+		}
+	}
+
 	if runErr != nil && logBuf.Len() > 0 {
 		runErr = fmt.Errorf("%w\n\nContainer %s logs:\n%s", runErr, containerName, logBuf.String())
 	}
 
 	return result, runErr
 }
+
+// copyArtifact retrieves a single regular file from a container, unwrapping the
+// tar stream the Docker API wraps file copies in. It mirrors
+// internal/docker.GetFile, which operates on the wrapper client rather than the
+// raw SDK client used here for the SSH transport.
+func copyArtifact(ctx context.Context, cli *client.Client, cid, path string) (io.ReadCloser, error) {
+	rc, _, err := cli.CopyFromContainer(ctx, cid, path)
+	if err != nil {
+		return nil, err
+	}
+
+	tr := tar.NewReader(rc)
+	if _, err := tr.Next(); err != nil {
+		_ = rc.Close()
+		if err == io.EOF {
+			return nil, fmt.Errorf("no file found in archive for %s", path)
+		}
+		return nil, err
+	}
+
+	return &artifactReader{tr: tr, rc: rc}, nil
+}
+
+// artifactReader exposes the current tar entry as a ReadCloser whose Close
+// closes the underlying CopyFromContainer stream.
+type artifactReader struct {
+	tr *tar.Reader
+	rc io.ReadCloser
+}
+
+func (a *artifactReader) Read(p []byte) (int, error) { return a.tr.Read(p) }
+func (a *artifactReader) Close() error               { return a.rc.Close() }
 
 func (d *driver) mounts(ctx context.Context) []mount.Mount {
 	if len(d.cfg.VolumeMounts) == 0 {
