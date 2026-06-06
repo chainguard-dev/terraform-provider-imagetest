@@ -30,6 +30,10 @@ var (
 var ec2Tests = map[string][]resource.TestStep{
 	"basic": {{
 		Config: configDriverEC2Basic,
+		Check: resource.ComposeAggregateTestCheckFunc(
+			resource.TestCheckResourceAttrSet("imagetest_tests.basic", "tests.0.artifact.uri"),
+			resource.TestCheckResourceAttrSet("imagetest_tests.basic", "tests.0.artifact.checksum"),
+		),
 	}},
 	"driver-commands-fail": {{
 		Config:      configDriverEC2DriverCommandsFail,
