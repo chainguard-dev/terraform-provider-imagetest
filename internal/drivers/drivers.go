@@ -24,15 +24,20 @@ type Tester interface {
 	Run(context.Context, name.Reference) (*RunResult, error)
 }
 
-// Timeouts holds parsed driver lifecycle timeouts. Zero means no
-// driver-level deadline for that phase.
+// DefaultTeardownTimeout is the backstop deadline for teardown when no explicit
+// teardown timeout is configured.
+const DefaultTeardownTimeout = 15 * time.Minute
+
+// Timeouts holds parsed driver lifecycle timeouts. Zero setup means no
+// driver-level setup deadline; zero teardown means DefaultTeardownTimeout.
 type Timeouts struct {
 	Setup    time.Duration
 	Teardown time.Duration
 }
 
-// ParseTimeouts parses setup and teardown duration strings into a
-// Timeouts value. Empty strings are treated as zero (no deadline).
+// ParseTimeouts parses setup and teardown duration strings into a Timeouts
+// value. Empty strings are treated as zero (setup: no deadline; teardown:
+// default backstop).
 func ParseTimeouts(setup, teardown string) (Timeouts, error) {
 	var t Timeouts
 	if setup != "" {
@@ -61,16 +66,16 @@ func (t Timeouts) SetupContext(ctx context.Context) (context.Context, context.Ca
 	return ctx, func() {}
 }
 
-// TeardownContext returns a context for teardown. If Teardown is set,
-// it creates a fresh context from context.Background() with that
-// deadline — detached from the caller's potentially expired context.
-// If Teardown is zero, it detaches from the parent's cancellation
-// without adding a new deadline.
+// TeardownContext returns a context for teardown: detached from the parent's
+// cancellation and possibly-expired deadline (so cleanup can still run) but
+// always finite, so a stuck teardown can't hang forever. Uses the configured
+// Teardown timeout, else DefaultTeardownTimeout. Parent values are preserved.
 func (t Timeouts) TeardownContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if t.Teardown > 0 {
-		return context.WithTimeout(context.Background(), t.Teardown)
+	d := t.Teardown
+	if d <= 0 {
+		d = DefaultTeardownTimeout
 	}
-	return context.WithoutCancel(ctx), func() {}
+	return context.WithTimeout(context.WithoutCancel(ctx), d)
 }
 
 type RunResult struct {
