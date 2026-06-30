@@ -344,4 +344,6 @@ jobs:
       - uses: step-security/setup-ko@99fa8b492faa894fd9d5ed5ad91d3deea7ef1943 # v0.9.1
 
       - name: Run imagetest fixture
-        run: make images-test/${{ matrix.images }}
+        env:
+          MATRIX_IMAGES: ${{ matrix.images }}
+        run: make "images-test/${MATRIX_IMAGES}"
