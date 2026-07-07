@@ -158,12 +158,23 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	return k, nil
 }
 
+// maxEksctlErrOutput bounds how much eksctl output is embedded in error
+// messages. Errors become terraform diagnostics, which -json consumers receive
+// as a single line; unbounded drain/CloudFormation dumps have produced >30MB
+// diagnostics. The tail is kept since that is where the failure is reported.
+const maxEksctlErrOutput = 256 * 1024
+
 func (k *driver) eksctl(ctx context.Context, args ...string) error {
-	args = append(args, []string{
-		"--color", "false", // Disable color output
-		"--dumpLogs",     // Enable CloudFormation log dumping on failures
-		"--verbose", "4", // Set maximum verbosity level
-	}...)
+	args = append(args, "--color", "false") // Disable color output
+
+	// CloudFormation log dumps and debug verbosity are for diagnosing cluster
+	// bring-up; on delete they only amplify drain/retry noise.
+	if len(args) > 0 && args[0] != "delete" {
+		args = append(args,
+			"--dumpLogs",     // Enable CloudFormation log dumping on failures
+			"--verbose", "4", // Set maximum verbosity level
+		)
+	}
 
 	// Add timeout flag if configured (zero = use eksctl default of 25m)
 	if k.timeouts.Setup > 0 {
@@ -179,9 +190,19 @@ func (k *driver) eksctl(ctx context.Context, args ...string) error {
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("eksctl %v: %v: %s", args, err, out)
+		return fmt.Errorf("eksctl %v: %v: %s", args, err, tail(out, maxEksctlErrOutput))
 	}
 	return nil
+}
+
+// tail returns at most limit trailing bytes of b, prefixed with a truncation
+// note when output was dropped.
+func tail(b []byte, limit int) []byte {
+	if len(b) <= limit {
+		return b
+	}
+	note := fmt.Sprintf("[... %d bytes truncated ...]\n", len(b)-limit)
+	return append([]byte(note), b[len(b)-limit:]...)
 }
 
 func (k *driver) createLaunchTemplate(ctx context.Context) error {
@@ -290,7 +311,7 @@ func (k *driver) createNodeGroup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
 	nodeGroupName := fmt.Sprintf("ng-%s", uuid.New().String())
-	k.nodeGroup = nodeGroupName // Store the nodegroup name for later deletion
+	k.nodeGroup = nodeGroupName
 
 	// Create a temporary file for the eksctl config
 	configFile, err := os.CreateTemp("", "eksctl-config-*.yaml")
@@ -351,21 +372,6 @@ managedNodeGroups:
 	}
 
 	log.Infof("Created nodegroup %s with %d nodes for cluster %s", nodeGroupName, k.nodeCount, k.clusterName)
-	return nil
-}
-
-func (k *driver) deleteNodeGroup(ctx context.Context) error {
-	if k.nodeGroup == "" {
-		return nil
-	}
-
-	log := clog.FromContext(ctx)
-
-	if err := k.eksctl(ctx, "delete", "nodegroup", "--region="+k.region, "--cluster="+k.clusterName, "--name="+k.nodeGroup, "--disable-eviction"); err != nil {
-		return fmt.Errorf("eksctl delete nodegroup: %w", err)
-	}
-
-	log.Infof("Deleted nodegroup %s from cluster %s", k.nodeGroup, k.clusterName)
 	return nil
 }
 
@@ -562,13 +568,13 @@ func (k *driver) Teardown(ctx context.Context) error {
 		return nil
 	}
 
-	if k.nodeGroup != "" {
-		if err := k.deleteNodeGroup(ctx); err != nil {
-			return err
-		}
-	}
-
-	if err := k.eksctl(ctx, "delete", "cluster", "--force", "--name", k.clusterName); err != nil {
+	// Cluster deletion covers the nodegroups; no separate nodegroup deletion.
+	// These are throwaway clusters, so the drain that precedes nodegroup
+	// removal is pointless work: bypass PodDisruptionBudgets (rook et al.
+	// create PDBs that block eviction for up to the 25m operation timeout),
+	// drain nodes in parallel instead of the serial default, and continue past
+	// drain errors (--force) so a stuck drain can no longer leak the cluster.
+	if err := k.eksctl(ctx, "delete", "cluster", "--force", "--disable-nodegroup-eviction", "--parallel", "25", "--name", k.clusterName); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
 	}
 
