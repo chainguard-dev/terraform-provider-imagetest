@@ -219,7 +219,7 @@ jobs:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
 
-      - uses: chainguard-dev/actions/setup-registry@e1c4977ad9cb32b12c5b222ec0134a22bec60bd5 # v1.6.25
+      - uses: chainguard-dev/actions/setup-registry@f0be69916b439d0fcced2451b23d0f27cd46d545 # v1.6.26
         with:
           port: 5005
           disk: true
@@ -332,7 +332,7 @@ jobs:
           terraform_version: "1.14.*"
           terraform_wrapper: false
 
-      - uses: chainguard-dev/actions/setup-registry@e1c4977ad9cb32b12c5b222ec0134a22bec60bd5 # v1.6.25
+      - uses: chainguard-dev/actions/setup-registry@f0be69916b439d0fcced2451b23d0f27cd46d545 # v1.6.26
         with:
           port: 5005
           disk: true
