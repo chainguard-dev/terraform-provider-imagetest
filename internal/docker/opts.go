@@ -1,7 +1,7 @@
 package docker
 
 import (
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 type Option func(*Client) error

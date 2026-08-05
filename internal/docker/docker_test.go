@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +32,7 @@ func TestDocker(t *testing.T) {
 	require.NoError(t, err)
 
 	// Validate the network was removed
-	_, err = d.inner.NetworkInspect(ctx, nw.ID, network.InspectOptions{})
+	_, err = d.inner.NetworkInspect(ctx, nw.ID, client.NetworkInspectOptions{})
 	require.ErrorContains(t, err, "not found")
 
 	// Create a network
@@ -102,7 +102,7 @@ func TestDocker(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure the volume was removed
-	_, err = d.inner.VolumeInspect(ctx, vol.Source)
+	_, err = d.inner.VolumeInspect(ctx, vol.Source, client.VolumeInspectOptions{})
 	require.ErrorContains(t, err, "no such volume")
 
 	err = d.RemoveNetwork(ctx, nw)

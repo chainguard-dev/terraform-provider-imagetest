@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"github.com/kballard/go-shellquote"
+	"github.com/moby/moby/client"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/ssh"
@@ -251,7 +252,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 
 	// Verify Docker is accessible
 	log.Info("verifying Docker connection")
-	if _, err := cli.Ping(ctx); err != nil {
+	if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 		return nil, fmt.Errorf("docker is not accessible on the instance (ensure Docker is installed and running via user_data or setup_commands): %w", err)
 	}
 

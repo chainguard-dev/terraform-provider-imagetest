@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -14,11 +15,11 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/docker/cli/cli/config/configfile"
 	dtypes "github.com/docker/cli/cli/config/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -201,10 +202,10 @@ rules:
 			Retries:       5,
 			StartInterval: 1 * time.Second,
 		},
-		PortBindings: nat.PortMap{
-			nat.Port(strconv.Itoa(h.Service.HttpsListenPort)): []nat.PortBinding{
+		PortBindings: network.PortMap{
+			network.MustParsePort(strconv.Itoa(h.Service.HttpsListenPort)): []network.PortBinding{
 				{
-					HostIP:   "127.0.0.1",
+					HostIP:   netip.MustParseAddr("127.0.0.1"),
 					HostPort: "", // Let the daemon pick a random port
 				},
 			},
@@ -220,7 +221,7 @@ rules:
 	}
 
 	// Get port binding for k3s API
-	apiPortName := nat.Port(strconv.Itoa(h.Service.HttpsListenPort)) + "/tcp"
+	apiPortName := network.MustParsePort(fmt.Sprintf("%d/tcp", h.Service.HttpsListenPort))
 	binding, cleanup, err := resp.PortBinding(apiPortName)
 	if err != nil {
 		return nil, fmt.Errorf("getting k3s API port binding: %w", err)

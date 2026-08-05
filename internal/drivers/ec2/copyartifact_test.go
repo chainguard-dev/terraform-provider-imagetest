@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 // TestCopyArtifact exercises copyArtifact against a real Docker daemon. It is
@@ -24,7 +24,7 @@ import (
 func TestCopyArtifact(t *testing.T) {
 	const image = "cgr.dev/chainguard/wolfi-base:latest"
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		t.Skipf("no docker client: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestCopyArtifact(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if _, err := cli.Ping(ctx); err != nil {
+	if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 		t.Skipf("docker daemon not reachable: %v", err)
 	}
 
@@ -43,14 +43,14 @@ func TestCopyArtifact(t *testing.T) {
 	wantSum := sha256.Sum256(want)
 	artifactPath := "/test-artifact.tar.gz"
 
-	resp, err := cli.ContainerCreate(ctx,
-		&container.Config{Image: image, Cmd: []string{"true"}},
-		nil, nil, nil, "")
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{Image: image, Cmd: []string{"true"}},
+	})
 	if err != nil {
 		t.Skipf("could not create container from %s (image present?): %v", image, err)
 	}
 	t.Cleanup(func() {
-		_ = cli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true})
+		_, _ = cli.ContainerRemove(context.Background(), resp.ID, client.ContainerRemoveOptions{Force: true})
 	})
 
 	// Inject the file via the same tar framing the Docker API uses.
@@ -66,7 +66,10 @@ func TestCopyArtifact(t *testing.T) {
 	if err := tw.Close(); err != nil {
 		t.Fatalf("close tar: %v", err)
 	}
-	if err := cli.CopyToContainer(ctx, resp.ID, "/", &buf, container.CopyToContainerOptions{}); err != nil {
+	if _, err := cli.CopyToContainer(ctx, resp.ID, client.CopyToContainerOptions{
+		DestinationPath: "/",
+		Content:         &buf,
+	}); err != nil {
 		t.Fatalf("copy file into container: %v", err)
 	}
 

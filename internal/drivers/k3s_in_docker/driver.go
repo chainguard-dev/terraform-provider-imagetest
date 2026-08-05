@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -17,10 +17,10 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/pod"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/retry"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -258,9 +258,9 @@ configs:
 			Retries:       10,
 			StartInterval: 1 * time.Second,
 		},
-		PortBindings: nat.PortMap{
-			nat.Port(strconv.Itoa(6443)): []nat.PortBinding{{
-				HostIP:   "127.0.0.1",
+		PortBindings: network.PortMap{
+			network.MustParsePort("6443"): []network.PortBinding{{
+				HostIP:   netip.MustParseAddr("127.0.0.1"),
 				HostPort: "", // Lets the docker daemon pick a random port
 			}},
 		},
@@ -289,7 +289,7 @@ configs:
 	}
 
 	// Get port binding - works for both local and SSH
-	binding, cleanup, err := resp.PortBinding("6443/tcp")
+	binding, cleanup, err := resp.PortBinding(network.MustParsePort("6443/tcp"))
 	if err != nil {
 		return fmt.Errorf("getting k3s API port: %w", err)
 	}

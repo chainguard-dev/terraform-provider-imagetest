@@ -13,7 +13,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
 	ggcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -21,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/moby/moby/api/types/mount"
 )
 
 const (

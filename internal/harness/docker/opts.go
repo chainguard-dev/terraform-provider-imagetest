@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/api/types/mount"
 )
 
 type Option func(*docker) error

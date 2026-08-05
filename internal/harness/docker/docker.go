@@ -8,8 +8,8 @@ import (
 
 	client "github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/api/types/mount"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 

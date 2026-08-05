@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/api/types/mount"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
