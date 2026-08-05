@@ -26,6 +26,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -675,6 +676,13 @@ func (h *healthStatus) markProbed() {
 	})
 }
 
+// sanitizeLogValue strips newline characters from user-controlled values
+// before they are logged, so a crafted value cannot forge log entries.
+func sanitizeLogValue(s string) string {
+	s = strings.ReplaceAll(s, "\n", "")
+	return strings.ReplaceAll(s, "\r", "")
+}
+
 type proxyServer struct {
 	port    int
 	logPath string
@@ -698,14 +706,14 @@ func (p *proxyServer) Start() error {
 			r.SetURL(target)
 			logger.Info("request",
 				"method", r.Out.Method,
-				"url", r.Out.URL.String(),
+				"url", sanitizeLogValue(r.Out.URL.String()),
 				"host", r.Out.Host,
 				"remote", r.In.RemoteAddr)
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			logger.Info("response",
 				"method", resp.Request.Method,
-				"url", resp.Request.URL.String(),
+				"url", sanitizeLogValue(resp.Request.URL.String()),
 				"status", resp.StatusCode,
 				"size", resp.ContentLength)
 			return nil
