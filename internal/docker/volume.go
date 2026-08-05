@@ -3,8 +3,8 @@ package docker
 import (
 	"context"
 
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 )
 
 type VolumeRequest struct {
@@ -20,7 +20,7 @@ func (d *Client) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 		req.Labels = make(map[string]string)
 	}
 
-	v, err := d.inner.VolumeCreate(ctx, volume.CreateOptions{
+	v, err := d.inner.VolumeCreate(ctx, client.VolumeCreateOptions{
 		Name:   req.Name,
 		Labels: req.Labels,
 	})
@@ -30,7 +30,7 @@ func (d *Client) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 
 	return mount.Mount{
 		Type:   mount.TypeVolume,
-		Source: v.Name,
+		Source: v.Volume.Name,
 		Target: req.Target,
 		VolumeOptions: &mount.VolumeOptions{
 			Labels: d.withDefaultLabels(req.Labels),
@@ -39,5 +39,6 @@ func (d *Client) CreateVolume(ctx context.Context, req *VolumeRequest) (mount.Mo
 }
 
 func (d *Client) RemoveVolume(ctx context.Context, v mount.Mount) error {
-	return d.inner.VolumeRemove(ctx, v.Source, true)
+	_, err := d.inner.VolumeRemove(ctx, v.Source, client.VolumeRemoveOptions{Force: true})
+	return err
 }

@@ -3,16 +3,17 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
-	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"github.com/moby/moby/api/types/network"
 )
 
 // testAccProtoV6ProviderFactories are used to instantiate a provider during
@@ -51,10 +52,10 @@ func testRegistry(t *testing.T, ctx context.Context) string {
 
 	resp, err := cli.Start(ctx, &docker.Request{
 		Ref: name.MustParseReference("registry:2"),
-		PortBindings: nat.PortMap{
-			nat.Port("5000"): []nat.PortBinding{
+		PortBindings: network.PortMap{
+			network.MustParsePort("5000"): []network.PortBinding{
 				{
-					HostIP:   "0.0.0.0",
+					HostIP:   netip.MustParseAddr("0.0.0.0"),
 					HostPort: "",
 				},
 			},
@@ -80,6 +81,6 @@ func testRegistry(t *testing.T, ctx context.Context) string {
 		}
 	})
 
-	eport := resp.NetworkSettings.Ports["5000/tcp"][0].HostPort
+	eport := resp.NetworkSettings.Ports[network.MustParsePort("5000/tcp")][0].HostPort
 	return fmt.Sprintf("localhost:%s/foo", eport)
 }

@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/network"
 	"github.com/google/uuid"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -47,7 +48,7 @@ func (d *Client) CreateNetwork(ctx context.Context, req *NetworkRequest) (*Netwo
 		Steps:    5,
 		Cap:      1 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		resp, err := d.inner.NetworkCreate(ctx, req.Name, network.CreateOptions{
+		resp, err := d.inner.NetworkCreate(ctx, req.Name, client.NetworkCreateOptions{
 			Driver:     "bridge",
 			Labels:     d.withDefaultLabels(req.Labels),
 			IPAM:       req.IPAM,
@@ -78,7 +79,8 @@ func (d *Client) CreateNetwork(ctx context.Context, req *NetworkRequest) (*Netwo
 }
 
 func (d *Client) RemoveNetwork(ctx context.Context, nw *NetworkAttachment) error {
-	return d.inner.NetworkRemove(ctx, nw.ID)
+	_, err := d.inner.NetworkRemove(ctx, nw.ID, client.NetworkRemoveOptions{})
+	return err
 }
 
 func isRetryableNetworkCreateError(err error) bool {

@@ -10,7 +10,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sandbox"
 	"github.com/docker/cli/cli/connhelper"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 var _ sandbox.Runner = &dockerConnector{}

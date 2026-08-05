@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,17 +25,14 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/cli/cli/connhelper"
 	sshhelper "github.com/docker/cli/cli/connhelper/ssh"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/registry"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/docker/go-connections/nat"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/api/types/registry"
+	"github.com/moby/moby/client"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -66,7 +64,7 @@ type Request struct {
 	Timeout      time.Duration
 	HealthCheck  *container.HealthConfig
 	Contents     []*Content
-	PortBindings nat.PortMap
+	PortBindings network.PortMap
 	CgroupnsMode container.CgroupnsMode
 	PidMode      string
 	ExtraHosts   []string
@@ -96,8 +94,7 @@ func New(opts ...Option) (*Client, error) {
 
 	if d.inner == nil {
 		copts := []client.Opt{
-			client.WithAPIVersionNegotiation(),
-			client.WithVersionFromEnv(),
+			client.WithAPIVersionFromEnv(),
 			client.WithTLSClientConfigFromEnv(),
 		}
 		if hostOverride := os.Getenv("IMAGETEST_DOCKER_HOST"); hostOverride != "" {
@@ -126,7 +123,7 @@ func New(opts ...Option) (*Client, error) {
 		}
 		copts = append(copts, d.copts...)
 
-		cli, err := client.NewClientWithOpts(copts...)
+		cli, err := client.New(copts...)
 		if err != nil {
 			return nil, fmt.Errorf("creating docker client: %w", err)
 		}
@@ -141,14 +138,17 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		return "", fmt.Errorf("starting container: %w", err)
 	}
 
-	statusCh, errCh := d.inner.ContainerWait(ctx, cid, container.WaitConditionNotRunning)
+	waitResult := d.inner.ContainerWait(ctx, cid, client.ContainerWaitOptions{
+		Condition: container.WaitConditionNotRunning,
+	})
+	statusCh, errCh := waitResult.Result, waitResult.Error
 
 	// TODO: This is specific to Run() and not in Start() because Run() has a
 	// clearly defined exit condition. In the future we may want to consider
 	// adding this to Start(), but its unclear how useful those logs would be,
 	// and how to even surface them without being overly verbose.
 	if req.Logger != nil {
-		logs, err := d.inner.ContainerLogs(ctx, cid, container.LogsOptions{
+		logs, err := d.inner.ContainerLogs(ctx, cid, client.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
@@ -182,11 +182,12 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 				case <-ctx.Done():
 					return
 				default:
-					inspect, err := d.inner.ContainerInspect(ctx, cid)
+					inspectResult, err := d.inner.ContainerInspect(ctx, cid, client.ContainerInspectOptions{})
 					if err != nil {
 						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
 						return
 					}
+					inspect := inspectResult.Container
 					if inspect.State == nil {
 						// No usable state yet, try again.
 						continue
@@ -286,12 +287,13 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 	cname := ""
 	var cjson container.InspectResponse
 	if err := wait.PollUntilContextTimeout(ctx, 1*time.Second, req.Timeout, true, func(ctx context.Context) (bool, error) {
-		inspect, err := d.inner.ContainerInspect(ctx, cid)
+		inspectResult, err := d.inner.ContainerInspect(ctx, cid, client.ContainerInspectOptions{})
 		if err != nil {
 			// We always want to retry within the timeout, so ignore the error.
 			//lint:ignore nilerr reason
 			return false, nil
 		}
+		inspect := inspectResult.Container
 
 		if !inspect.State.Running {
 			return false, nil
@@ -323,10 +325,10 @@ func (d *Client) Start(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	return &Response{
-		ContainerJSON: cjson,
-		ID:            cid,
-		Name:          cname,
-		cli:           d,
+		InspectResponse: cjson,
+		ID:              cid,
+		Name:            cname,
+		cli:             d,
 	}, nil
 }
 
@@ -354,10 +356,10 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 	}
 
 	if req.PortBindings == nil {
-		req.PortBindings = make(nat.PortMap)
+		req.PortBindings = make(network.PortMap)
 	}
 
-	exposedPorts := make(nat.PortSet)
+	exposedPorts := make(network.PortSet)
 	for port := range req.PortBindings {
 		exposedPorts[port] = struct{}{}
 	}
@@ -367,8 +369,8 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 		return "", fmt.Errorf("pulling image: %w", err)
 	}
 
-	cresp, err := d.inner.ContainerCreate(ctx,
-		&container.Config{
+	cresp, err := d.inner.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
 			Image:        req.Ref.String(),
 			Entrypoint:   req.Entrypoint,
 			User:         req.User,
@@ -380,7 +382,7 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 			Healthcheck:  req.HealthCheck,
 			ExposedPorts: exposedPorts,
 		},
-		&container.HostConfig{
+		HostConfig: &container.HostConfig{
 			ExtraHosts: req.ExtraHosts,
 			Privileged: req.Privileged,
 			RestartPolicy: container.RestartPolicy{
@@ -397,10 +399,11 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 			AutoRemove:   req.AutoRemove,
 			Init:         &req.Init,
 		},
-		&network.NetworkingConfig{
+		NetworkingConfig: &network.NetworkingConfig{
 			EndpointsConfig: endpointSettings,
 		},
-		nil, req.Name)
+		Name: req.Name,
+	})
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
@@ -410,12 +413,15 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 	}
 
 	for _, content := range req.Contents {
-		if err := d.inner.CopyToContainer(ctx, cresp.ID, "/", content, container.CopyToContainerOptions{}); err != nil {
+		if _, err := d.inner.CopyToContainer(ctx, cresp.ID, client.CopyToContainerOptions{
+			DestinationPath: "/",
+			Content:         content,
+		}); err != nil {
 			return "", fmt.Errorf("copying content to container: %w", err)
 		}
 	}
 
-	if err := d.inner.ContainerStart(ctx, cresp.ID, container.StartOptions{}); err != nil {
+	if _, err := d.inner.ContainerStart(ctx, cresp.ID, client.ContainerStartOptions{}); err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
 	}
 
@@ -424,10 +430,11 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 
 // Connect returns a response for a container that is already running.
 func (d *Client) Connect(ctx context.Context, cid string) (*Response, error) {
-	info, err := d.inner.ContainerInspect(ctx, cid)
+	infoResult, err := d.inner.ContainerInspect(ctx, cid, client.ContainerInspectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("inspecting container: %w", err)
 	}
+	info := infoResult.Container
 
 	if !info.State.Running {
 		return nil, fmt.Errorf("container is not running")
@@ -480,7 +487,7 @@ func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 		Steps:    5,
 		Cap:      1 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		pull, err := d.inner.ImagePull(ctx, ref.Name(), image.PullOptions{
+		pull, err := d.inner.ImagePull(ctx, ref.Name(), client.ImagePullOptions{
 			RegistryAuth: base64.URLEncoding.EncodeToString(authdata),
 		})
 		if err != nil {
@@ -507,20 +514,21 @@ func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 // Remove forcibly removes all the resources associated with the given request.
 func (d *Client) Remove(ctx context.Context, resp *Response) error {
 	force := 0
-	if err := d.inner.ContainerStop(ctx, resp.ID, container.StopOptions{
+	if _, err := d.inner.ContainerStop(ctx, resp.ID, client.ContainerStopOptions{
 		Timeout: &force,
 	}); err != nil {
 		return fmt.Errorf("stopping container: %w", err)
 	}
 
-	return d.inner.ContainerRemove(ctx, resp.ID, container.RemoveOptions{
+	_, err := d.inner.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{
 		RemoveVolumes: true,
 	})
+	return err
 }
 
 // Response is returned from a Start() request.
 type Response struct {
-	types.ContainerJSON
+	container.InspectResponse
 	ID   string
 	Name string
 	cli  *Client
@@ -528,16 +536,20 @@ type Response struct {
 
 // Inspect returns the current state of the container.
 func (r *Response) Inspect(ctx context.Context) (container.InspectResponse, error) {
-	return r.cli.inner.ContainerInspect(ctx, r.ID)
+	result, err := r.cli.inner.ContainerInspect(ctx, r.ID, client.ContainerInspectOptions{})
+	if err != nil {
+		return container.InspectResponse{}, err
+	}
+	return result.Container, nil
 }
 
 // PortBinding returns the host port binding for a container port.
 // For SSH connections, it creates a tunnel and returns a cleanup function.
 // For local connections, it returns the local port and cleanup is a no-op.
-func (r *Response) PortBinding(port nat.Port) (nat.PortBinding, func(), error) {
+func (r *Response) PortBinding(port network.Port) (network.PortBinding, func(), error) {
 	bindings, ok := r.NetworkSettings.Ports[port]
 	if !ok || len(bindings) == 0 {
-		return nat.PortBinding{}, nil, fmt.Errorf("port %s not exposed by container", port)
+		return network.PortBinding{}, nil, fmt.Errorf("port %s not exposed by container", port)
 	}
 
 	if !r.cli.IsSSH() {
@@ -549,23 +561,23 @@ func (r *Response) PortBinding(port nat.Port) (nat.PortBinding, func(), error) {
 	remoteBinding := bindings[0]
 	remotePort, err := strconv.Atoi(remoteBinding.HostPort)
 	if err != nil {
-		return nat.PortBinding{}, nil, fmt.Errorf("parsing remote port: %w", err)
+		return network.PortBinding{}, nil, fmt.Errorf("parsing remote port: %w", err)
 	}
 
 	// Tunnel from the remote host's mapped port to a local port
 	localPort, cleanup, err := r.cli.tunnelToPort("127.0.0.1", remotePort)
 	if err != nil {
-		return nat.PortBinding{}, nil, fmt.Errorf("creating tunnel: %w", err)
+		return network.PortBinding{}, nil, fmt.Errorf("creating tunnel: %w", err)
 	}
 
-	return nat.PortBinding{
-		HostIP:   "127.0.0.1",
+	return network.PortBinding{
+		HostIP:   netip.MustParseAddr("127.0.0.1"),
 		HostPort: localPort,
 	}, cleanup, nil
 }
 
 func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
-	resp, err := r.cli.inner.ContainerExecCreate(ctx, r.ID, container.ExecOptions{
+	resp, err := r.cli.inner.ExecCreate(ctx, r.ID, client.ExecCreateOptions{
 		Cmd:          []string{"sh", "-c", cmd.Args},
 		WorkingDir:   cmd.WorkingDir,
 		AttachStderr: true,
@@ -579,7 +591,7 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 		return fmt.Errorf("exec ID is empty")
 	}
 
-	attach, err := r.cli.inner.ContainerExecAttach(ctx, resp.ID, container.ExecStartOptions{})
+	attach, err := r.cli.inner.ExecAttach(ctx, resp.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return fmt.Errorf("attaching to exec: %w", err)
 	}
@@ -613,7 +625,7 @@ func (r *Response) Run(ctx context.Context, cmd harness.Command) error {
 		}
 	}
 
-	exec, err := r.cli.inner.ContainerExecInspect(ctx, resp.ID)
+	exec, err := r.cli.inner.ExecInspect(ctx, resp.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return fmt.Errorf("inspecting exec: %w", err)
 	}
@@ -635,10 +647,13 @@ func GetFile(ctx context.Context, cli *Client, cid string, path string) (io.Read
 		return nil, fmt.Errorf("path %s is not absolute", path)
 	}
 
-	trc, _, err := cli.inner.CopyFromContainer(ctx, cid, path)
+	copyResult, err := cli.inner.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{
+		SourcePath: path,
+	})
 	if err != nil {
 		return nil, err
 	}
+	trc := copyResult.Content
 
 	// its a tar archive and we just want to return the files read closer
 	tr := tar.NewReader(trc)
@@ -698,7 +713,7 @@ func (r *Response) ReadFile(ctx context.Context, path string) ([]byte, error) {
 // Logs returns the combined stdout and stderr captured from the container
 // since it started.
 func (r *Response) Logs(ctx context.Context) (string, error) {
-	rdr, err := r.cli.inner.ContainerLogs(ctx, r.ID, container.LogsOptions{
+	rdr, err := r.cli.inner.ContainerLogs(ctx, r.ID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       "all",

@@ -18,13 +18,12 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/docker/cli/cli/connhelper"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/client"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -45,12 +44,11 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 		return nil, fmt.Errorf("creating SSH connection helper: %w", err)
 	}
 
-	cli, err := client.NewClientWithOpts(
+	cli, err := client.New(
 		client.WithHTTPClient(&http.Client{
 			Transport: &http.Transport{DialContext: helper.Dialer},
 		}),
 		client.WithHost(url),
-		client.WithAPIVersionNegotiation(),
 		client.WithDialContext(helper.Dialer),
 	)
 	if err != nil {
@@ -86,7 +84,7 @@ func (d *driver) pullImage(ctx context.Context, cli *client.Client, ref name.Ref
 		Steps:    5,
 		Cap:      1 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		result, err := cli.ImagePull(ctx, ref.Name(), image.PullOptions{RegistryAuth: authStr})
+		result, err := cli.ImagePull(ctx, ref.Name(), client.ImagePullOptions{RegistryAuth: authStr})
 		if err != nil {
 			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
 			lastErr = err
@@ -124,8 +122,8 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	hostConfig.DeviceRequests = d.deviceRequests()
 
 	containerName := d.name + "-test"
-	resp, err := cli.ContainerCreate(ctx,
-		&container.Config{
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
 			Image:        ref.String(),
 			User:         "0:0",
 			Env:          env,
@@ -138,7 +136,10 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 				Retries:     1,
 				StartPeriod: 1 * time.Second,
 			},
-		}, hostConfig, nil, nil, containerName)
+		},
+		HostConfig: hostConfig,
+		Name:       containerName,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("creating container: %w", err)
 	}
@@ -148,12 +149,13 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	// Register cleanup immediately so container is removed even if we fail below
 	if err := d.stack.Add(func(ctx context.Context) error {
 		log.Info("removing container", "id", resp.ID)
-		return cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		_, err := cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		return err
 	}); err != nil {
 		return nil, fmt.Errorf("adding container cleanup to stack: %w", err)
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return nil, fmt.Errorf("starting container: %w", err)
 	}
 
@@ -161,9 +163,12 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 
-	statusCh, errCh := cli.ContainerWait(runCtx, resp.ID, container.WaitConditionNotRunning)
+	waitResult := cli.ContainerWait(runCtx, resp.ID, client.ContainerWaitOptions{
+		Condition: container.WaitConditionNotRunning,
+	})
+	statusCh, errCh := waitResult.Result, waitResult.Error
 
-	logs, err := cli.ContainerLogs(runCtx, resp.ID, container.LogsOptions{
+	logs, err := cli.ContainerLogs(runCtx, resp.ID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -208,7 +213,8 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 			case <-runCtx.Done():
 				return
 			case <-ticker.C:
-				inspect, err := cli.ContainerInspect(runCtx, resp.ID)
+				inspectResult, err := cli.ContainerInspect(runCtx, resp.ID, client.ContainerInspectOptions{})
+				inspect := inspectResult.Container
 				if err != nil || inspect.State == nil || !inspect.State.Running {
 					continue
 				}
@@ -290,10 +296,13 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 // internal/docker.GetFile, which operates on the wrapper client rather than the
 // raw SDK client used here for the SSH transport.
 func copyArtifact(ctx context.Context, cli *client.Client, cid, path string) (io.ReadCloser, error) {
-	rc, _, err := cli.CopyFromContainer(ctx, cid, path)
+	copyResult, err := cli.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{
+		SourcePath: path,
+	})
 	if err != nil {
 		return nil, err
 	}
+	rc := copyResult.Content
 
 	tr := tar.NewReader(rc)
 	if _, err := tr.Next(); err != nil {
