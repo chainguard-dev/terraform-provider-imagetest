@@ -175,7 +175,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	unhealthyCh := make(chan error)
 	if req.HealthCheck != nil {
 		go func() {
-			var negativeExitCodeRetries int
+			var exitRaceRetries int
 			for {
 				time.Sleep(time.Second)
 				select {
@@ -207,16 +207,19 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						// There is a race condition where the container can exit and the health
 						// check can report unhealthy because of it. Negative exit codes indicate
 						// the exec infrastructure failed (command never ran), which typically
-						// happens when the container is exiting. Give it a few iterations to
-						// resolve - if the container exited, we'll see !Running above and the
-						// main wait loop will handle the actual exit.
-						if check.ExitCode < 0 {
-							negativeExitCodeRetries++
-							if negativeExitCodeRetries < 5 {
+						// happens when the container is exiting. Similarly, the entrypoint tears
+						// down its health socket just before exiting, so a probe landing in that
+						// window fails to dial the socket while the container still reports
+						// Running. Give both a few iterations to resolve - if the container
+						// exited, we'll see !Running above and the main wait loop will handle
+						// the actual exit.
+						if check.ExitCode < 0 || strings.Contains(check.Output, "failed to connect to health socket") {
+							exitRaceRetries++
+							if exitRaceRetries < 5 {
 								continue
 							}
 						} else {
-							negativeExitCodeRetries = 0
+							exitRaceRetries = 0
 						}
 
 						// Additional safety: skip known exec infrastructure error messages that
