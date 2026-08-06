@@ -188,12 +188,16 @@ func (o *opts) Run(ctx context.Context) int {
 		}
 	}
 
-	healthCleanup, err := o.healthStatus.startSocket()
-	if err != nil {
+	// The health socket must stay up until the process exits. Tearing it down
+	// any earlier opens a window where the container still reports Running but
+	// a probe can no longer dial the socket, flipping the container to
+	// unhealthy. Process exit closes the listener, and the socket file lives
+	// in the container's own filesystem, so no explicit cleanup is needed
+	// (startSocket removes any stale file on the next start).
+	if err := o.healthStatus.startSocket(); err != nil {
 		clog.ErrorContextf(ctx, "failed to start health socket: %v", err)
 		return entrypoint.InternalErrorCode
 	}
-	defer healthCleanup()
 
 	code, err := o.executeProcess(ctx)
 	if err != nil {
@@ -576,11 +580,10 @@ func wait(ctx context.Context) error {
 	clog.InfoContext(ctx, "starting wait...")
 
 	health := newHealthStatus()
-	teardown, err := health.startSocket()
-	if err != nil {
+	// Keep the socket alive until process exit, see Run for why.
+	if err := health.startSocket(); err != nil {
 		return fmt.Errorf("failed to start health socket: %w", err)
 	}
-	defer teardown()
 
 	health.update(healthPaused, "paused in wait mode", 0)
 
@@ -633,14 +636,18 @@ func (h *healthStatus) update(state healthState, message string, exitCode int64)
 	h.Time = time.Now()
 }
 
-func (h *healthStatus) startSocket() (func(), error) {
+// startSocket starts the health socket listener. The listener intentionally
+// has no teardown: it must serve probes until the very moment the process
+// exits, since removing the socket while the container is still Running
+// causes probes to fail and mark the container unhealthy.
+func (h *healthStatus) startSocket() error {
 	if err := os.Remove(entrypoint.DefaultHealthCheckSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("failed to remove health socket: %w", err)
+		return fmt.Errorf("failed to remove health socket: %w", err)
 	}
 
 	listener, err := net.Listen("unix", entrypoint.DefaultHealthCheckSocket)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create health socket: %w", err)
+		return fmt.Errorf("failed to create health socket: %w", err)
 	}
 
 	go func() {
@@ -649,24 +656,24 @@ func (h *healthStatus) startSocket() (func(), error) {
 			if err != nil {
 				return
 			}
-			defer conn.Close()
 
 			// Take out a lock, since this is on the same goroutine it blocks, but we
 			// only ever expect this to be called by runtimes during health checks
 			h.mu.RLock()
-			if err := json.NewEncoder(conn).Encode(h); err != nil {
-				return
-			}
+			err = json.NewEncoder(conn).Encode(h)
 			h.mu.RUnlock()
+			_ = conn.Close()
+			if err != nil {
+				// A single broken probe connection must not take down the
+				// health server, keep serving.
+				continue
+			}
 
 			h.markProbed()
 		}
 	}()
 
-	return func() {
-		_ = listener.Close()
-		_ = os.Remove(entrypoint.DefaultHealthCheckSocket)
-	}, nil
+	return nil
 }
 
 func (h *healthStatus) markProbed() {
