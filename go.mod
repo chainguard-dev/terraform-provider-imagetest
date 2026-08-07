@@ -16,7 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iam v1.57.0
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.100.1
 	github.com/aws/smithy-go v1.27.5
-	github.com/chainguard-dev/clog v1.8.0
+	github.com/chainguard-dev/clog v1.8.1
 	github.com/charmbracelet/log v1.0.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/cli v29.7.0+incompatible
