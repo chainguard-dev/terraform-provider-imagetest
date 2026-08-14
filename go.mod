@@ -20,7 +20,7 @@ require (
 	github.com/charmbracelet/log v1.0.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/cli v29.7.2+incompatible
-	github.com/google/go-containerregistry v0.21.8
+	github.com/google/go-containerregistry v0.21.9
 	github.com/google/uuid v1.6.0
 	github.com/gosimple/slug v1.15.0
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
