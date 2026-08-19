@@ -224,7 +224,7 @@ jobs:
           port: 5005
           disk: true
 
-      - uses: step-security/setup-ko@99fa8b492faa894fd9d5ed5ad91d3deea7ef1943 # v0.9.1
+      - uses: step-security/setup-ko@42d1142447a233fc9590a8f3a866f515cbaff896 # v0.10.0
 
       - name: Build entrypoint
         id: entrypoint-build
@@ -337,7 +337,7 @@ jobs:
           port: 5005
           disk: true
 
-      - uses: step-security/setup-ko@99fa8b492faa894fd9d5ed5ad91d3deea7ef1943 # v0.9.1
+      - uses: step-security/setup-ko@42d1142447a233fc9590a8f3a866f515cbaff896 # v0.10.0
 
       - name: Run imagetest fixture
         env:
