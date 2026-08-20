@@ -526,8 +526,7 @@ func TestMonitor(t *testing.T) {
 				}
 
 				if tt.expectedExitErr != nil {
-					var podErr PodMonitorError
-					if errors.As(err, &podErr) {
+					if podErr, ok := errors.AsType[PodMonitorError](err); ok {
 						if diff := cmp.Diff(tt.expectedExitErr.Name, podErr.Name); diff != "" {
 							t.Errorf("Name mismatch (-want +got):\n%s", diff)
 						}

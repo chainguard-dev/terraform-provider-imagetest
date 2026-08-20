@@ -285,9 +285,7 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 
 	// extract the exit code from the error
 	if waitErr != nil {
-		var exitErr *exec.ExitError
-
-		if errors.As(waitErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 			return exitErr.ExitCode(), exitErr
 		}
 

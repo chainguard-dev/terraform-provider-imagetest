@@ -330,8 +330,7 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 		err = issh.ExecIn(conn, issh.ShellBash, stdout, stderr, "sudo cloud-init status --wait")
 		if err != nil {
 			// Check if this is an exit error (command ran but failed) vs connection error
-			var exitErr *ssh.ExitError
-			if errors.As(err, &exitErr) {
+			if exitErr, ok := errors.AsType[*ssh.ExitError](err); ok {
 				// cloud-init exit codes: 0=success, 1=critical failure, 2=recoverable failure
 				// Either way, cloud-init is done - don't retry
 				log.Error("cloud-init failed", "exit_code", exitErr.ExitStatus(), "stdout", stdout.String(), "stderr", stderr.String())
