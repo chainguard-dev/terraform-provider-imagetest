@@ -85,8 +85,7 @@ func (i *instance) create(ctx context.Context) (Teardown, error) {
 			break
 		}
 
-		var apiErr smithy.APIError
-		if errors.As(err, &apiErr) {
+		if apiErr, ok := errors.AsType[smithy.APIError](err); ok {
 			code := apiErr.ErrorCode()
 			msg := strings.ToLower(apiErr.ErrorMessage())
 			isProfileError := strings.Contains(msg, "instance profile") || strings.Contains(msg, "iaminstanceprofile")

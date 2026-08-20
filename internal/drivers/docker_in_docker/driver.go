@@ -246,8 +246,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	}
 
 	if err != nil {
-		var rerr *docker.RunError
-		if errors.As(err, &rerr) {
+		if rerr, ok := errors.AsType[*docker.RunError](err); ok {
 			if rerr.ExitCode == entrypoint.ProcessPausedCode {
 				return result, nil
 			}

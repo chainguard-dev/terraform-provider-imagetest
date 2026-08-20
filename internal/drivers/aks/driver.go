@@ -882,8 +882,7 @@ func (k *driver) getClusterIdentityProfile(ctx context.Context, identityName str
 }
 
 func isAzureConflictErr(err error) bool {
-	var respErr *azcore.ResponseError
-	if errors.As(err, &respErr) {
+	if respErr, ok := errors.AsType[*azcore.ResponseError](err); ok {
 		if respErr.StatusCode == http.StatusConflict {
 			return true
 		}
