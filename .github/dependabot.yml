@@ -16,5 +16,9 @@ updates:
       terraform:
         patterns:
           - "github.com/hashicorp/*"
+      aws:
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2*"
+          - "github.com/aws/smithy-go"
     cooldown:
       default-days: 7
