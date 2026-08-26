@@ -19,7 +19,7 @@ import (
 type subnet struct {
 	client *ec2.Client
 	vpcID  string
-	region string
+	az     string // availability zone to create the subnet in
 	cidr   string // if empty, auto-detect
 	tags   []types.Tag
 
@@ -27,8 +27,6 @@ type subnet struct {
 }
 
 var _ resource = (*subnet)(nil)
-
-var azSuffixes = []string{"a", "b", "c"}
 
 func (s *subnet) create(ctx context.Context) (Teardown, error) {
 	log := clog.FromContext(ctx)
@@ -79,11 +77,10 @@ func (s *subnet) create(ctx context.Context) (Teardown, error) {
 func (s *subnet) createWithCIDR(ctx context.Context, cidr string) (Teardown, error) {
 	log := clog.FromContext(ctx)
 
-	az := s.region + azSuffixes[rand.IntN(len(azSuffixes))]
 	result, err := s.client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:            aws.String(s.vpcID),
 		CidrBlock:        aws.String(cidr),
-		AvailabilityZone: aws.String(az),
+		AvailabilityZone: aws.String(s.az),
 		TagSpecifications: []types.TagSpecification{{
 			ResourceType: types.ResourceTypeSubnet,
 			Tags:         s.tags,
@@ -94,7 +91,7 @@ func (s *subnet) createWithCIDR(ctx context.Context, cidr string) (Teardown, err
 	}
 
 	s.id = *result.Subnet.SubnetId
-	log.Info("created subnet", "id", s.id, "cidr", cidr, "az", az)
+	log.Info("created subnet", "id", s.id, "cidr", cidr, "az", s.az)
 
 	_, err = s.client.ModifySubnetAttribute(ctx, &ec2.ModifySubnetAttributeInput{
 		SubnetId:            aws.String(s.id),

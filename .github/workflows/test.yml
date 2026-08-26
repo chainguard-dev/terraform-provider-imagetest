@@ -343,3 +343,58 @@ jobs:
         env:
           MATRIX_IMAGES: ${{ matrix.images }}
         run: make "images-test/${MATRIX_IMAGES}"
+
+  # EC2 driver integration test against floci (LocalStack-wire-compatible AWS
+  # emulator) - exercises subnet/instance placement and teardown through the
+  # real driver code with no AWS credentials.
+  floci:
+    name: EC2 driver floci integration test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          # No allowed-endpoints list, unlike the sibling jobs: AWS is
+          # emulated by a local container (floci on localhost:4566), so this
+          # job has no cloud egress to allowlist - only the standard
+          # build-time fetches (Docker Hub for the floci image, checkout,
+          # Go modules/toolchain).
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: "go.mod"
+          check-latest: true
+          cache: true
+
+      - name: Start floci
+        run: |
+          docker run -d --name floci -p 4566:4566 \
+            -v /var/run/docker.sock:/var/run/docker.sock -u root \
+            floci/floci:latest@sha256:bec9b9f749322444a57fb0f00d3e007ffd49015162361aab84ccecd9b4f5f8ed
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:4566/_floci/health >/dev/null 2>&1; then
+              echo "floci is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "floci failed to become healthy"
+          docker logs floci
+          exit 1
+
+      - name: Run floci-backed EC2 driver test
+        env:
+          FLOCI_ENDPOINT: http://localhost:4566
+        run: |
+          go test -tags floci -count 1 -v -run TestFlociPlacement \
+            ./internal/drivers/ec2/

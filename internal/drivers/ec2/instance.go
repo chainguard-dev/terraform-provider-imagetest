@@ -35,6 +35,30 @@ type instance struct {
 
 var _ resource = (*instance)(nil)
 
+// isAZRetryable reports whether err indicates the availability zone (rather
+// than the request itself) is the problem, so the same request is worth
+// retrying in a different zone: the AZ is out of capacity for the instance
+// type, doesn't offer it, or doesn't exist in this region.
+func isAZRetryable(err error) bool {
+	apiErr, ok := errors.AsType[smithy.APIError](err)
+	if !ok {
+		return false
+	}
+	switch apiErr.ErrorCode() {
+	case "InsufficientInstanceCapacity":
+		return true
+	case "Unsupported":
+		// "Your requested instance type (g6.4xlarge) is not supported in
+		// your requested Availability Zone (us-west-2d)."
+		return strings.Contains(apiErr.ErrorMessage(), "Availability Zone")
+	case "InvalidParameterValue":
+		// "Value (us-west-2d) for parameter availabilityZone is invalid."
+		// (from CreateSubnet in a region without that zone)
+		return strings.Contains(apiErr.ErrorMessage(), "availabilityZone")
+	}
+	return false
+}
+
 func (i *instance) create(ctx context.Context) (Teardown, error) {
 	log := clog.FromContext(ctx)
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"time"
@@ -111,17 +112,6 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	d.name = "imagetest-ec2-" + uuid.New().String()[:8]
 	log.Info("setting up EC2 driver", "name", d.name, "vpc_id", d.cfg.VPCID)
 
-	d.subnet = &subnet{
-		client: d.ec2,
-		vpcID:  d.cfg.VPCID,
-		region: d.cfg.Region,
-		cidr:   d.cfg.SubnetCIDR,
-		tags:   d.buildTags(d.name + "-subnet"),
-	}
-	if err := d.create(ctx, d.subnet); err != nil {
-		return fmt.Errorf("creating subnet: %w", err)
-	}
-
 	d.sg = &securityGroup{
 		client:  d.ec2,
 		vpcID:   d.cfg.VPCID,
@@ -155,21 +145,8 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 		profileName = d.profile.profileName
 	}
 
-	d.instance = &instance{
-		client:          d.ec2,
-		ami:             d.cfg.AMI,
-		instanceType:    d.cfg.instanceType(),
-		rootVolumeSize:  d.cfg.RootVolumeSize,
-		subnetID:        d.subnet.id,
-		securityGroupID: d.sg.id,
-		keyName:         d.key.name,
-		profileName:     profileName,
-		userData:        d.cfg.UserData,
-		sshPort:         d.cfg.SSHPort,
-		tags:            d.buildTags(d.name + "-instance"),
-	}
-	if err := d.create(ctx, d.instance); err != nil {
-		return fmt.Errorf("creating instance: %w", err)
+	if err := d.createPlacement(ctx, profileName); err != nil {
+		return err
 	}
 	span.AddEvent("ec2.instance.created")
 
@@ -203,6 +180,90 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// azSuffixes are the availability zone suffixes to try. Not every region has
+// every zone (or offers the instance type in every zone) - attempts against
+// an unusable zone fail fast and the next one is tried.
+var azSuffixes = []string{"a", "b", "c", "d"}
+
+// createPlacement launches the instance, trying availability zones in random
+// order until one works. Subnets are AZ-bound, so each attempt gets its own
+// subnet; a failed attempt's subnet is deleted immediately and never
+// registered on the teardown stack - only the successful subnet+instance pair
+// lands there, as a single teardown that terminates the instance before
+// deleting its subnet.
+func (d *driver) createPlacement(ctx context.Context, profileName string) error {
+	log := clog.FromContext(ctx)
+
+	candidates := make([]string, len(azSuffixes))
+	for i, suffix := range azSuffixes {
+		candidates[i] = d.cfg.Region + suffix
+	}
+	rand.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	})
+
+	for _, az := range candidates {
+		sn := &subnet{
+			client: d.ec2,
+			vpcID:  d.cfg.VPCID,
+			az:     az,
+			cidr:   d.cfg.SubnetCIDR,
+			tags:   d.buildTags(d.name + "-subnet"),
+		}
+		snTeardown, err := sn.create(ctx)
+		if err != nil {
+			if isAZRetryable(err) {
+				log.Warn("availability zone unusable, trying next", "az", az, "error", err)
+				continue
+			}
+			return fmt.Errorf("creating subnet in %s: %w", az, err)
+		}
+
+		inst := &instance{
+			client:          d.ec2,
+			ami:             d.cfg.AMI,
+			instanceType:    d.cfg.instanceType(),
+			rootVolumeSize:  d.cfg.RootVolumeSize,
+			subnetID:        sn.id,
+			securityGroupID: d.sg.id,
+			keyName:         d.key.name,
+			profileName:     profileName,
+			userData:        d.cfg.UserData,
+			sshPort:         d.cfg.SSHPort,
+			tags:            d.buildTags(d.name + "-instance"),
+		}
+		instTeardown, err := inst.create(ctx)
+		if err == nil {
+			d.subnet = sn
+			d.instance = inst
+			if err := d.stack.Add(func(ctx context.Context) error {
+				// Instance first: its teardown waits for termination so the
+				// ENI is released before the subnet can be deleted.
+				ierr := instTeardown(ctx)
+				serr := snTeardown(ctx)
+				return errors.Join(ierr, serr)
+			}); err != nil {
+				return fmt.Errorf("adding teardown to stack: %w", err)
+			}
+			return nil
+		}
+
+		// This attempt's subnet is not on the stack - clean it up now.
+		if terr := snTeardown(ctx); terr != nil {
+			log.Warn("cleaning up subnet after failed launch", "az", az, "error", terr)
+		}
+
+		if !isAZRetryable(err) {
+			return fmt.Errorf("creating instance: %w", err)
+		}
+		log.Warn("availability zone unusable, trying next",
+			"instance_type", d.cfg.instanceType(), "az", az, "error", err)
+	}
+
+	return fmt.Errorf("no availability zone in %s could run instance type %s (tried %v)",
+		d.cfg.Region, d.cfg.instanceType(), candidates)
 }
 
 func (d *driver) create(ctx context.Context, r resource) error {
