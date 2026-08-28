@@ -20,5 +20,8 @@ updates:
         patterns:
           - "github.com/aws/aws-sdk-go-v2*"
           - "github.com/aws/smithy-go"
+      k8s:
+        patterns:
+          - "k8s.io/*"
     cooldown:
       default-days: 7
