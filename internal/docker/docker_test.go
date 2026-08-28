@@ -127,11 +127,13 @@ func TestStartRemovesConflictingContainer(t *testing.T) {
 	ref := name.MustParseReference("cgr.dev/chainguard/wolfi-base:latest")
 
 	// Simulate the corpse of a failed first attempt: a container created with
-	// the target name but never started or cleaned up.
+	// the target name and the imagetest ownership label, but never started or
+	// cleaned up.
 	require.NoError(t, d.pull(ctx, ref))
 	corpse, err := d.inner.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image: ref.String(),
+			Image:  ref.String(),
+			Labels: map[string]string{"dev.chainguard.imagetest": "true"},
 		},
 		Name: cname,
 	})
@@ -153,4 +155,46 @@ func TestStartRemovesConflictingContainer(t *testing.T) {
 
 	err = d.Remove(ctx, resp)
 	require.NoError(t, err)
+}
+
+// TestStartRefusesUnownedConflictingContainer ensures Start() does not remove
+// a conflicting container that was not created by imagetest.
+func TestStartRefusesUnownedConflictingContainer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	ctx := t.Context()
+
+	d, err := New()
+	require.NoError(t, err)
+
+	const cname = "imagetest-unowned-conflict-test"
+	ref := name.MustParseReference("cgr.dev/chainguard/wolfi-base:latest")
+
+	// A same-named container without the imagetest ownership label.
+	require.NoError(t, d.pull(ctx, ref))
+	unowned, err := d.inner.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: ref.String(),
+		},
+		Name: cname,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = d.inner.ContainerRemove(context.Background(), cname, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	})
+
+	_, err = d.Start(ctx, &Request{
+		Name:       cname,
+		Ref:        ref,
+		Entrypoint: []string{"sh"},
+		Cmd:        []string{"-c", "sleep inf"},
+	})
+	require.ErrorContains(t, err, "not owned by imagetest")
+
+	// The unowned container must still exist.
+	inspect, err := d.inner.ContainerInspect(ctx, cname, client.ContainerInspectOptions{})
+	require.NoError(t, err)
+	require.Equal(t, unowned.ID, inspect.Container.ID)
 }
