@@ -1,11 +1,13 @@
 package docker
 
 import (
+	"context"
 	"io"
 	"testing"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
@@ -106,5 +108,49 @@ func TestDocker(t *testing.T) {
 	require.ErrorContains(t, err, "no such volume")
 
 	err = d.RemoveNetwork(ctx, nw)
+	require.NoError(t, err)
+}
+
+// TestStartRemovesConflictingContainer ensures Start() succeeds even when a
+// same-named container leaked from a previous failed bring-up attempt.
+func TestStartRemovesConflictingContainer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	ctx := t.Context()
+
+	d, err := New()
+	require.NoError(t, err)
+
+	const cname = "imagetest-conflict-test"
+	ref := name.MustParseReference("cgr.dev/chainguard/wolfi-base:latest")
+
+	// Simulate the corpse of a failed first attempt: a container created with
+	// the target name but never started or cleaned up.
+	require.NoError(t, d.pull(ctx, ref))
+	corpse, err := d.inner.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: ref.String(),
+		},
+		Name: cname,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, corpse.ID)
+	t.Cleanup(func() {
+		_, _ = d.inner.ContainerRemove(context.Background(), cname, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	})
+
+	// The second attempt must remove the corpse and start cleanly.
+	resp, err := d.Start(ctx, &Request{
+		Name:       cname,
+		Ref:        ref,
+		Entrypoint: []string{"sh"},
+		Cmd:        []string{"-c", "sleep inf"},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, corpse.ID, resp.ID)
+
+	err = d.Remove(ctx, resp)
 	require.NoError(t, err)
 }

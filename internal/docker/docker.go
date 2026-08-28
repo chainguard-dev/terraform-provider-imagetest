@@ -372,7 +372,7 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 		return "", fmt.Errorf("pulling image: %w", err)
 	}
 
-	cresp, err := d.inner.ContainerCreate(ctx, client.ContainerCreateOptions{
+	copts := client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:        req.Ref.String(),
 			Entrypoint:   req.Entrypoint,
@@ -406,7 +406,23 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 			EndpointsConfig: endpointSettings,
 		},
 		Name: req.Name,
-	})
+	}
+
+	cresp, err := d.inner.ContainerCreate(ctx, copts)
+	if err != nil && req.Name != "" && cerrdefs.IsConflict(err) {
+		// A same-named container may have leaked from an earlier failed
+		// bring-up attempt. Names are derived from the test identity, so a
+		// conflicting container is a stale leftover, never a concurrent test.
+		// Remove it and retry once so retries are idempotent.
+		clog.WarnContext(ctx, "removing conflicting container left over from a previous attempt", "name", req.Name, "error", err)
+		if _, rerr := d.inner.ContainerRemove(ctx, req.Name, client.ContainerRemoveOptions{
+			Force:         true,
+			RemoveVolumes: true,
+		}); rerr != nil && !cerrdefs.IsNotFound(rerr) {
+			return "", fmt.Errorf("removing conflicting container %q: %w", req.Name, rerr)
+		}
+		cresp, err = d.inner.ContainerCreate(ctx, copts)
+	}
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
