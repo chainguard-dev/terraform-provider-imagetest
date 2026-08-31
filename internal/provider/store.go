@@ -1,11 +1,16 @@
 package provider
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
+	"path"
+	"strings"
 	"sync"
 
 	"github.com/chainguard-dev/clog"
@@ -147,7 +152,12 @@ func getEntrypointLayers(opts ...remote.Option) (map[string][]v1.Layer, error) {
 			return nil, fmt.Errorf("failed to get entrypoint layers: %w", err)
 		}
 
-		players[m.Platform.Architecture] = l
+		fl, err := filterEntrypointLayers(l)
+		if err != nil {
+			return nil, fmt.Errorf("failed to filter entrypoint layers for %s: %w", m.Platform, err)
+		}
+
+		players[m.Platform.Architecture] = fl
 	}
 
 	if len(players) == 0 {
@@ -155,6 +165,86 @@ func getEntrypointLayers(opts ...remote.Option) (map[string][]v1.Layer, error) {
 	}
 
 	return players, nil
+}
+
+// entrypointLayerRoots are the only paths the entrypoint is allowed to
+// contribute to the test image: the ko app binary and its kodata (the
+// wrapper script).
+var entrypointLayerRoots = []string{"ko-app", "var/run/ko"}
+
+// filterEntrypointLayers returns only the layers that exclusively contain the
+// entrypoint's own files. The entrypoint image is never run as-is, it acts
+// purely as a layer donor for the per-test images, where its layers are
+// appended on top of the user's test image. Its base image layers therefore
+// must never be included: they would shadow the test image's files, most
+// notably its apk database.
+func filterEntrypointLayers(layers []v1.Layer) ([]v1.Layer, error) {
+	filtered := make([]v1.Layer, 0, len(layers))
+	for _, l := range layers {
+		ok, err := isEntrypointLayer(l)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			filtered = append(filtered, l)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no layers containing only entrypoint files (%s) found", strings.Join(entrypointLayerRoots, ", "))
+	}
+
+	return filtered, nil
+}
+
+// isEntrypointLayer reports whether every entry in the layer is within the
+// allowed entrypoint roots (or one of their parent directories).
+func isEntrypointLayer(l v1.Layer) (bool, error) {
+	rc, err := l.Uncompressed()
+	if err != nil {
+		return false, fmt.Errorf("failed to read layer: %w", err)
+	}
+	defer rc.Close()
+
+	tr := tar.NewReader(rc)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to read layer tar: %w", err)
+		}
+
+		if !entrypointPathAllowed(hdr.Name) {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func entrypointPathAllowed(p string) bool {
+	// Normalize away leading "/" or "./" and any trailing "/".
+	p = strings.TrimPrefix(path.Clean("/"+p), "/")
+	if p == "" {
+		// The root directory entry itself.
+		return true
+	}
+
+	for _, root := range entrypointLayerRoots {
+		// The root or anything below it.
+		if p == root || strings.HasPrefix(p, root+"/") {
+			return true
+		}
+		// A parent directory of the root, e.g. "var" and "var/run" for
+		// "var/run/ko".
+		if strings.HasPrefix(root, p+"/") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // mmap is a generic thread-safe map implementation.
