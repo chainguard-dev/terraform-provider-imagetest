@@ -1,9 +1,9 @@
-chainguard.dev/apko v1.2.40 h1:GxcCsN+CbBYKlTwPpEA+3AWh+3ertp6LxS8eXaLrCnw=
-chainguard.dev/apko v1.2.40/go.mod h1:ZSS+7I653ZCbKQ/+0MF3+IEbL5XOyTL7GpOUdRGbBjY=
+chainguard.dev/apko v1.2.42 h1:ki656+weKerZc4BfUQ+5A1tQiUKbx4SNFADvMuhRMRA=
+chainguard.dev/apko v1.2.42/go.mod h1:ArJWBjaWP+2cW3lRbG92qO4y99QGKHG5HrnsbCx+stg=
 chainguard.dev/go-grpc-kit v0.18.0 h1:kr451ml4eBgNcc0ytqcSSPZ3KGtyfHRrrBcYxW/oZwI=
 chainguard.dev/go-grpc-kit v0.18.0/go.mod h1:N1ZZiV3KkNHFlIS6RPhLT9ppfObC7aa1hqWMPmNiTA0=
-chainguard.dev/sdk v0.1.197 h1:xfMVEJTDlLNYwqWQwFHM0lXW88zHseIjU4/RMcxSdkE=
-chainguard.dev/sdk v0.1.197/go.mod h1:EdDABW102LAdDIbUXoTokZlRlyTa6D2ml0tC9Agnpbs=
+chainguard.dev/sdk v0.1.213 h1:332Op3622Tlh24DZSDQ+nNdqpsFMueC28rNm4eTXiwo=
+chainguard.dev/sdk v0.1.213/go.mod h1:x2K7zBYasThji57XQbsvNkiKPrUyCSd+zy3jI5eZERk=
 cloud.google.com/go/auth v0.23.0 h1:6Gg1CMgpgubRG7DGz5Vf1pcoNo8RfiRiRAPS4crTp54=
 cloud.google.com/go/auth v0.23.0/go.mod h1:4DhBRcqvtljQN3dJ57qtqbib5ZGCYE5f2crfiiC2EM0=
 cloud.google.com/go/auth/oauth2adapt v0.2.8 h1:keo8NaayQZ6wimpNSmW5OPc283g65QNIiLpZnkHRbnc=
@@ -409,8 +409,8 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
-github.com/package-url/packageurl-go v0.1.6 h1:YO3p6u1XmCUliivUg/qWphaY8vI6hxSnnPv7Bfg3m5M=
-github.com/package-url/packageurl-go v0.1.6/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
+github.com/package-url/packageurl-go v0.1.7 h1:iFWg6tzAjLA6F/qX3M5nZaiMHJgc+p2zxVyr/fY+sZY=
+github.com/package-url/packageurl-go v0.1.7/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/pavlo-v-chernykh/keystore-go/v4 v4.5.0 h1:2nosf3P75OZv2/ZO/9Px5ZgZ5gbKrzA3joN1QMfOGMQ=
 github.com/pavlo-v-chernykh/keystore-go/v4 v4.5.0/go.mod h1:lAVhWwbNaveeJmxrxuSTxMgKpF6DjnuVpn6T8WiBwYQ=
 github.com/pjbgf/sha1cd v0.6.0 h1:3WJ8Wz8gvDz29quX1OcEmkAlUg9diU4GxJHqs0/XiwU=
@@ -534,8 +534,8 @@ go.opentelemetry.io/otel/trace v1.46.0 h1:OULy7ccdJnZtJ0UDYFOIGaCmiWzJ8Vi2G/Rsu6
 go.opentelemetry.io/otel/trace v1.46.0/go.mod h1:J7GAXweO77XSFkB/rmAqk9D6ihszhFjLU+d9WuUxDLI=
 go.opentelemetry.io/proto/otlp v1.11.0 h1:5rrYs0Ykyj50sdU/JU0x8etU+LubXWb+gED6TbEdMIk=
 go.opentelemetry.io/proto/otlp v1.11.0/go.mod h1:SmVizdCOAm3XBtG1g1NnOdhW6jtddT72hLMhv8VwA8E=
-go.step.sm/crypto v0.88.0 h1:ZTPqGHyt6hI/68gJgovFnKZkWDtsEXUKUnQnZSCh0BM=
-go.step.sm/crypto v0.88.0/go.mod h1:v7+HWSnr4CGAuK4wp5wH6xTwBLGC4yuvE3TMKQ669wY=
+go.step.sm/crypto v0.89.0 h1:NPxryE+cZ4XDwXOQY2U6Gu+mOzOihuRLPIsX7WtPzZM=
+go.step.sm/crypto v0.89.0/go.mod h1:IEgE6DndnYojbDyHU7eYXpwWzpu4ftkouw7nyI6jsxg=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.yaml.in/yaml/v2 v2.4.4 h1:tuyd0P+2Ont/d6e2rl3be67goVK4R6deVxCUX5vyPaQ=
