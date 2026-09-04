@@ -117,7 +117,7 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	hostConfig := &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		Mounts:        d.mounts(ctx),
-		Resources:     container.Resources{Devices: d.deviceMappings(ctx)},
+		Devices:       d.deviceMappings(ctx),
 	}
 	hostConfig.DeviceRequests = d.deviceRequests()
 

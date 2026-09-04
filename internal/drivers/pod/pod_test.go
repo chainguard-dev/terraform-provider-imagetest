@@ -12,7 +12,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
@@ -32,10 +31,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "successful_completion",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -44,10 +41,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -56,10 +51,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 							ContainerStatuses: []corev1.ContainerStatus{
@@ -83,10 +76,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "paused_container",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -95,10 +86,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -107,10 +96,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 							ContainerStatuses: []corev1.ContainerStatus{
@@ -134,10 +121,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "container_failure",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -146,10 +131,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -158,10 +141,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 							ContainerStatuses: []corev1.ContainerStatus{
@@ -191,10 +172,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "container_failure_with_logs",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod-with-logs",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod-with-logs",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -203,10 +182,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod-with-logs",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod-with-logs",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -215,10 +192,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod-with-logs",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod-with-logs",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 							ContainerStatuses: []corev1.ContainerStatus{
@@ -249,10 +224,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "pod_deleted",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -261,10 +234,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Deleted,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 					},
 				},
 			},
@@ -275,10 +246,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "readiness_probe_failure_as_event",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -287,10 +256,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -301,9 +268,7 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Added,
 					Object: &corev1.Event{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "test-event",
-						},
+						Name:   "test-event",
 						Reason: string(corev1.ResourceHealthStatusUnhealthy),
 						Message: func() string {
 							msg := struct {
@@ -330,10 +295,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "readiness_probe_pause_as_event",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -342,10 +305,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -356,9 +317,7 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Added,
 					Object: &corev1.Event{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "test-event",
-						},
+						Name:   "test-event",
 						Reason: string(corev1.ResourceHealthStatusUnhealthy),
 						Message: func() string {
 							msg := struct {
@@ -379,10 +338,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "readiness_probe_without_exit_code_defers_to_pod_status",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},
@@ -391,10 +348,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 						},
@@ -403,10 +358,8 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Modified,
 					Object: &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-pod",
-							Namespace: "test-namespace",
-						},
+						Name:      "test-pod",
+						Namespace: "test-namespace",
 						Status: corev1.PodStatus{
 							Phase: corev1.PodRunning,
 							ContainerStatuses: []corev1.ContainerStatus{
@@ -428,9 +381,7 @@ func TestMonitor(t *testing.T) {
 				{
 					Type: watch.Added,
 					Object: &corev1.Event{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "test-event",
-						},
+						Name:   "test-event",
 						Reason: string(corev1.ResourceHealthStatusUnhealthy),
 						// Simulates a healthcheck that couldn't connect to the
 						// health socket (no exit_code field). The monitor should
@@ -444,10 +395,8 @@ func TestMonitor(t *testing.T) {
 		{
 			name: "context_cancelled",
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "test-namespace",
-				},
+				Name:      "test-pod",
+				Namespace: "test-namespace",
 				Status: corev1.PodStatus{
 					Phase: corev1.PodPending,
 				},

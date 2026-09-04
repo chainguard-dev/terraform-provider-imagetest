@@ -449,11 +449,9 @@ func (h *k3s) registrySecret(ctx context.Context) error {
 	ns := "kube-system"
 
 	_, err = h.kcli.CoreV1().Secrets(ns).Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "imagetest-registry-auth",
-			Namespace: ns,
-		},
-		Type: corev1.SecretTypeDockerConfigJson,
+		Name:      "imagetest-registry-auth",
+		Namespace: ns,
+		Type:      corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{
 			".dockerconfigjson": dockerConfigJSON,
 		},

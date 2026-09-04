@@ -469,12 +469,10 @@ func (o *opts) pod() *corev1.Pod {
 	}
 
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: fmt.Sprintf("%s-", o.Name),
-			Namespace:    o.Namespace,
-			Labels:       map[string]string{},
-			Annotations:  map[string]string{},
-		},
+		GenerateName: fmt.Sprintf("%s-", o.Name),
+		Namespace:    o.Namespace,
+		Labels:       map[string]string{},
+		Annotations:  map[string]string{},
 		Spec: corev1.PodSpec{
 			ServiceAccountName:           o.Name,
 			AutomountServiceAccountToken: new(false),
@@ -483,25 +481,21 @@ func (o *opts) pod() *corev1.Pod {
 			Volumes: []corev1.Volume{
 				{
 					Name: "kube-api-access",
-					VolumeSource: corev1.VolumeSource{
-						Projected: &corev1.ProjectedVolumeSource{
-							Sources: []corev1.VolumeProjection{
-								{
-									ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
-										Path:              "token",
-										ExpirationSeconds: &[]int64{3600}[0],
-									},
+					Projected: &corev1.ProjectedVolumeSource{
+						Sources: []corev1.VolumeProjection{
+							{
+								ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+									Path:              "token",
+									ExpirationSeconds: &[]int64{3600}[0],
 								},
-								{
-									ConfigMap: &corev1.ConfigMapProjection{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "kube-root-ca.crt",
-										},
-										Items: []corev1.KeyToPath{
-											{
-												Key:  "ca.crt",
-												Path: "ca.crt",
-											},
+							},
+							{
+								ConfigMap: &corev1.ConfigMapProjection{
+									Name: "kube-root-ca.crt",
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "ca.crt",
+											Path: "ca.crt",
 										},
 									},
 								},
@@ -510,10 +504,8 @@ func (o *opts) pod() *corev1.Pod {
 					},
 				},
 				{
-					Name: ArtifactContainerName,
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{},
-					},
+					Name:     ArtifactContainerName,
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
 			},
 			Containers: []corev1.Container{
@@ -547,10 +539,8 @@ func (o *opts) pod() *corev1.Pod {
 					},
 					WorkingDir: o.WorkingDir,
 					StartupProbe: &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							Exec: &corev1.ExecAction{
-								Command: entrypoint.DefaultHealthCheckCommand,
-							},
+						Exec: &corev1.ExecAction{
+							Command: entrypoint.DefaultHealthCheckCommand,
 						},
 						InitialDelaySeconds: 0,
 						PeriodSeconds:       1,
@@ -560,10 +550,8 @@ func (o *opts) pod() *corev1.Pod {
 					},
 					// Once running, any failure should be captured by probe and considered a stop
 					ReadinessProbe: &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							Exec: &corev1.ExecAction{
-								Command: entrypoint.DefaultHealthCheckCommand,
-							},
+						Exec: &corev1.ExecAction{
+							Command: entrypoint.DefaultHealthCheckCommand,
 						},
 						InitialDelaySeconds: 0,
 						PeriodSeconds:       1,
@@ -629,14 +617,12 @@ func (o *opts) pod() *corev1.Pod {
 	if o.DockerConfig != nil {
 		dockerConfigVolume := corev1.Volume{
 			Name: "docker-config",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: fmt.Sprintf("%s-docker-config", o.Name),
-					Items: []corev1.KeyToPath{
-						{
-							Key:  ".dockerconfigjson",
-							Path: "config.json",
-						},
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: fmt.Sprintf("%s-docker-config", o.Name),
+				Items: []corev1.KeyToPath{
+					{
+						Key:  ".dockerconfigjson",
+						Path: "config.json",
 					},
 				},
 			},

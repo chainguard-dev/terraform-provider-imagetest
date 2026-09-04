@@ -392,15 +392,13 @@ func (d *Client) start(ctx context.Context, req *Request) (string, error) {
 				// Never restart
 				Name: container.RestartPolicyDisabled,
 			},
-			Resources: container.Resources{
-				Memory:            req.Resources.MemoryLimit.Value(),
-				MemoryReservation: req.Resources.MemoryRequest.Value(),
-				NanoCPUs:          req.Resources.CpuRequest.Value(),
-			},
-			Mounts:       req.Mounts,
-			PortBindings: req.PortBindings,
-			AutoRemove:   req.AutoRemove,
-			Init:         &req.Init,
+			Memory:            req.Resources.MemoryLimit.Value(),
+			MemoryReservation: req.Resources.MemoryRequest.Value(),
+			NanoCPUs:          req.Resources.CpuRequest.Value(),
+			Mounts:            req.Mounts,
+			PortBindings:      req.PortBindings,
+			AutoRemove:        req.AutoRemove,
+			Init:              &req.Init,
 		},
 		NetworkingConfig: &network.NetworkingConfig{
 			EndpointsConfig: endpointSettings,

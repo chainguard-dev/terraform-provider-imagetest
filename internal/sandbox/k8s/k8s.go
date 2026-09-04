@@ -48,12 +48,10 @@ func NewFromConfig(config *rest.Config, opts ...Option) (*k8s, error) {
 
 	k := &k8s{
 		request: &Request{
-			Request: sandbox.Request{
-				Ref:       name.MustParseReference("cgr.dev/chainguard/kubectl:latest-dev"),
-				Namespace: "default",
-				Env:       make(map[string]string),
-				Labels:    make(map[string]string),
-			},
+			Ref:       name.MustParseReference("cgr.dev/chainguard/kubectl:latest-dev"),
+			Namespace: "default",
+			Env:       make(map[string]string),
+			Labels:    make(map[string]string),
 		},
 
 		cfg:   config,
@@ -161,11 +159,9 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 		// if the namespace doesn't exist, create it
 		if errors.IsNotFound(err) {
 			ns, err = k.cli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: k.request.Namespace,
-					Labels: map[string]string{
-						"dev.chainguard.imagetest": "true",
-					},
+				Name: k.request.Namespace,
+				Labels: map[string]string{
+					"dev.chainguard.imagetest": "true",
 				},
 			}, metav1.CreateOptions{})
 			if err != nil {
@@ -187,9 +183,7 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 
 	if k.request.Name == "" {
 		dryns, err := k.cli.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "imagetest-",
-			},
+			GenerateName: "imagetest-",
 		}, metav1.CreateOptions{
 			DryRun: []string{"All"},
 		})
@@ -201,10 +195,8 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 
 	// Create the laundry list of namespace scoped RBAC related resources
 	sa, err := k.cli.CoreV1().ServiceAccounts(ns.Name).Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.request.Name,
-			Namespace: ns.Name,
-		},
+		Name:      k.request.Name,
+		Namespace: ns.Name,
 	}, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("creating service account: %w", err)
@@ -220,10 +212,8 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 
 	// Finally, create the role binding
 	rb, err := k.cli.RbacV1().ClusterRoleBindings().Create(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.request.Name,
-			Namespace: ns.Name,
-		},
+		Name:      k.request.Name,
+		Namespace: ns.Name,
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      rbacv1.ServiceAccountKind,
@@ -250,10 +240,8 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	preq := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k.request.Name,
-			Namespace: ns.Name,
-		},
+		Name:      k.request.Name,
+		Namespace: ns.Name,
 		Spec: corev1.PodSpec{
 			ServiceAccountName: sa.Name,
 			SecurityContext: &corev1.PodSecurityContext{
@@ -288,36 +276,32 @@ func (k *k8s) setupPod(ctx context.Context) (*corev1.Pod, error) {
 			Volumes: []corev1.Volume{
 				{
 					Name: "kube-api-access",
-					VolumeSource: corev1.VolumeSource{
-						Projected: &corev1.ProjectedVolumeSource{
-							Sources: []corev1.VolumeProjection{
-								{
-									ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
-										Path:              "token",
-										ExpirationSeconds: &[]int64{3600}[0],
-									},
+					Projected: &corev1.ProjectedVolumeSource{
+						Sources: []corev1.VolumeProjection{
+							{
+								ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+									Path:              "token",
+									ExpirationSeconds: &[]int64{3600}[0],
 								},
-								{
-									ConfigMap: &corev1.ConfigMapProjection{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "kube-root-ca.crt",
-										},
-										Items: []corev1.KeyToPath{
-											{
-												Key:  "ca.crt",
-												Path: "ca.crt",
-											},
+							},
+							{
+								ConfigMap: &corev1.ConfigMapProjection{
+									Name: "kube-root-ca.crt",
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "ca.crt",
+											Path: "ca.crt",
 										},
 									},
 								},
-								{
-									DownwardAPI: &corev1.DownwardAPIProjection{
-										Items: []corev1.DownwardAPIVolumeFile{
-											{
-												Path: "namespace",
-												FieldRef: &corev1.ObjectFieldSelector{
-													FieldPath: "metadata.namespace",
-												},
+							},
+							{
+								DownwardAPI: &corev1.DownwardAPIProjection{
+									Items: []corev1.DownwardAPIVolumeFile{
+										{
+											Path: "namespace",
+											FieldRef: &corev1.ObjectFieldSelector{
+												FieldPath: "metadata.namespace",
 											},
 										},
 									},
