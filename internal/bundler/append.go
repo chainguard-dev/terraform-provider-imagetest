@@ -68,14 +68,12 @@ func Mutate(ctx context.Context, base name.Reference, target name.Repository, op
 			}
 
 			midx = mutate.AppendManifests(midx, mutate.IndexAddendum{
-				Add: img,
-				Descriptor: v1.Descriptor{
-					MediaType:    m.MediaType,
-					URLs:         m.URLs,
-					Annotations:  m.Annotations,
-					Platform:     m.Platform,
-					ArtifactType: m.ArtifactType,
-				},
+				Add:          img,
+				MediaType:    m.MediaType,
+				URLs:         m.URLs,
+				Annotations:  m.Annotations,
+				Platform:     m.Platform,
+				ArtifactType: m.ArtifactType,
 			})
 		}
 
@@ -164,14 +162,12 @@ func Append(ctx context.Context, base name.Reference, target name.Repository, op
 			}
 
 			idx = mutate.AppendManifests(idx, mutate.IndexAddendum{
-				Add: mutated,
-				Descriptor: v1.Descriptor{
-					MediaType:    manifest.MediaType,
-					URLs:         manifest.URLs,
-					Annotations:  manifest.Annotations,
-					Platform:     manifest.Platform,
-					ArtifactType: manifest.ArtifactType,
-				},
+				Add:          mutated,
+				MediaType:    manifest.MediaType,
+				URLs:         manifest.URLs,
+				Annotations:  manifest.Annotations,
+				Platform:     manifest.Platform,
+				ArtifactType: manifest.ArtifactType,
 			})
 		}
 
