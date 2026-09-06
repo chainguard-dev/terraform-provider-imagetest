@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
@@ -203,6 +204,62 @@ func tail(b []byte, limit int) []byte {
 	}
 	note := fmt.Sprintf("[... %d bytes truncated ...]\n", len(b)-limit)
 	return append([]byte(note), b[len(b)-limit:]...)
+}
+
+// eksctl create cluster installs default addons at the tail of the create and
+// returns while the last addon operation may still be in progress. EKS applies
+// cluster updates one at a time, so an immediately following
+// update-cluster-logging can fail with ResourceInUseException. Addon installs
+// complete within seconds to a couple of minutes, so the logging update is
+// retried until the ceiling below.
+const (
+	loggingUpdateRetryInterval = 15 * time.Second
+	loggingUpdateRetryCeiling  = 5 * time.Minute
+)
+
+// shouldRetryLoggingUpdate reports whether a failed update-cluster-logging
+// should be retried: the error must indicate the transient "cluster has an
+// update in progress" conflict and the retry ceiling must not have elapsed.
+// Both markers of the conflict are matched independently because eksctl output
+// embedded in the error may be truncated.
+func shouldRetryLoggingUpdate(err error, elapsed time.Duration) bool {
+	if err == nil || elapsed >= loggingUpdateRetryCeiling {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "ResourceInUseException") ||
+		strings.Contains(msg, "currently has an update in progress")
+}
+
+// logInFlightClusterUpdates logs the cluster's updates with their type and
+// status so the update blocking the logging update is identified in the log.
+// Diagnostic only: errors are logged, never returned.
+func (k *driver) logInFlightClusterUpdates(ctx context.Context, eksClient *eks.Client) {
+	log := clog.FromContext(ctx)
+
+	updates, err := eksClient.ListUpdates(ctx, &eks.ListUpdatesInput{Name: aws.String(k.clusterName)})
+	if err != nil {
+		log.Infof("Failed to list updates for cluster %s: %v", k.clusterName, err)
+		return
+	}
+	if len(updates.UpdateIds) == 0 {
+		log.Infof("No updates listed for cluster %s", k.clusterName)
+		return
+	}
+	for _, id := range updates.UpdateIds {
+		update, err := eksClient.DescribeUpdate(ctx, &eks.DescribeUpdateInput{
+			Name:     aws.String(k.clusterName),
+			UpdateId: aws.String(id),
+		})
+		if err != nil {
+			log.Infof("Failed to describe update %s for cluster %s: %v", id, k.clusterName, err)
+			continue
+		}
+		if update.Update == nil {
+			continue
+		}
+		log.Infof("Cluster %s update %s: type=%s status=%s", k.clusterName, id, update.Update.Type, update.Update.Status)
+	}
 }
 
 func (k *driver) createLaunchTemplate(ctx context.Context) error {
@@ -526,8 +583,23 @@ func (k *driver) Setup(ctx context.Context) error {
 			// changes to your cluster.
 			"--approve",
 		}
-		if err := k.eksctl(ctx, updateArgs...); err != nil {
-			return fmt.Errorf("eksctl update-cluster-logging: %w", err)
+		eksClient := eks.NewFromConfig(awsCfg)
+		start := time.Now()
+		for {
+			err := k.eksctl(ctx, updateArgs...)
+			if err == nil {
+				break
+			}
+			if !shouldRetryLoggingUpdate(err, time.Since(start)) {
+				return fmt.Errorf("eksctl update-cluster-logging: %w", err)
+			}
+			k.logInFlightClusterUpdates(ctx, eksClient)
+			log.Infof("Cluster %s has an update in progress, retrying logging update in %s", k.clusterName, loggingUpdateRetryInterval)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("eksctl update-cluster-logging: %w", err)
+			case <-time.After(loggingUpdateRetryInterval):
+			}
 		}
 		log.Infof("Enabled all cluster logging for %s", k.clusterName)
 	}
