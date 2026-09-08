@@ -12,6 +12,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
@@ -501,6 +502,205 @@ func TestMonitor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// watchSeq returns a watch reactor that hands out the given watchers in
+// order, one per watch call, then fails any further watch calls. A nil
+// entry fails that call, injecting a transient watch failure.
+func watchSeq(watchers ...watch.Interface) ktesting.WatchReactionFunc {
+	calls := 0
+	return func(ktesting.Action) (bool, watch.Interface, error) {
+		calls++
+		if calls <= len(watchers) && watchers[calls-1] != nil {
+			return true, watchers[calls-1], nil
+		}
+		return true, nil, errors.New("watch dropped")
+	}
+}
+
+func newWatcher() *watch.FakeWatcher {
+	return watch.NewFakeWithChanSize(10, false)
+}
+
+// monitorTestClient returns a deadline-bounded context and a clientset
+// seeded with objs, with a default healthy events watch already registered.
+func monitorTestClient(t *testing.T, objs ...runtime.Object) (context.Context, *fake.Clientset) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	t.Cleanup(cancel)
+	client := fake.NewClientset(objs...)
+	client.PrependWatchReactor("events", watchSeq(newWatcher()))
+	return ctx, client
+}
+
+// TestMonitorSurvivesWatchClosure covers watch streams ending mid-run (the
+// API server times out watch requests by design, and intermediaries such as
+// load balancers can additionally cut idle streams): the monitor must
+// re-establish dropped watches and, failing that, still detect termination
+// through the poll fallback instead of spinning on the closed channel until
+// the context deadline.
+func TestMonitorSurvivesWatchClosure(t *testing.T) {
+	runningPod := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			Name:      name,
+			Namespace: "test-namespace",
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+			},
+		}
+	}
+
+	terminatedPod := func(name string, exitCode int32) *corev1.Pod {
+		return &corev1.Pod{
+			Name:      name,
+			Namespace: "test-namespace",
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{
+					{
+						Name: SandboxContainerName,
+						State: corev1.ContainerState{
+							Terminated: &corev1.ContainerStateTerminated{
+								ExitCode: exitCode,
+								Reason:   "Error",
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("pod_watch_closes_then_rewatch_sees_success", func(t *testing.T) {
+		pod := runningPod("test-pod")
+		ctx, client := monitorTestClient(t, pod)
+
+		firstWatcher := newWatcher()
+		secondWatcher := newWatcher()
+		client.PrependWatchReactor("pods", watchSeq(firstWatcher, secondWatcher))
+
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			firstWatcher.Action(watch.Modified, runningPod("test-pod"))
+
+			// Simulate the API server dropping the watch stream, then
+			// deliver the successful termination only on the re-established
+			// watch.
+			time.Sleep(10 * time.Millisecond)
+			firstWatcher.Stop()
+			secondWatcher.Action(watch.Modified, terminatedPod("test-pod", 0))
+		}()
+
+		// A long poll interval ensures the re-watch path is what detects the
+		// termination, not the poll fallback.
+		if err := monitorWithPollInterval(ctx, client, pod, time.Hour); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("failed_rewatch_is_retried_on_poll_tick", func(t *testing.T) {
+		pod := runningPod("test-pod")
+		ctx, client := monitorTestClient(t, pod)
+
+		// The immediate re-watch after the drop fails (nil entry), and the
+		// poll cannot decide either (the seeded pod stays running), so the
+		// only way to observe the termination on the third watcher is the
+		// tick-driven watch retry.
+		firstWatcher := newWatcher()
+		thirdWatcher := newWatcher()
+		thirdWatcher.Action(watch.Modified, terminatedPod("test-pod", 0))
+		client.PrependWatchReactor("pods", watchSeq(firstWatcher, nil, thirdWatcher))
+		time.AfterFunc(10*time.Millisecond, firstWatcher.Stop)
+
+		if err := monitorWithPollInterval(ctx, client, pod, 20*time.Millisecond); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("pod_watch_closes_then_poll_sees_nonzero_exit", func(t *testing.T) {
+		pod := terminatedPod("test-pod", 42)
+		ctx, client := monitorTestClient(t, pod)
+
+		// Re-watch attempts fail, leaving the poll fallback as the only way
+		// to observe the termination.
+		firstWatcher := newWatcher()
+		client.PrependWatchReactor("pods", watchSeq(firstWatcher))
+		time.AfterFunc(10*time.Millisecond, firstWatcher.Stop)
+
+		err := monitorWithPollInterval(ctx, client, pod, 20*time.Millisecond)
+		if err == nil {
+			t.Fatal("expected error but got nil")
+		}
+
+		podErr, ok := errors.AsType[PodMonitorError](err)
+		if !ok {
+			t.Fatalf("expected error to be PodMonitorError, but was %T: %v", err, err)
+		}
+		if podErr.ExitCode != 42 {
+			t.Errorf("expected exit code 42, got %d", podErr.ExitCode)
+		}
+	})
+
+	t.Run("pod_watch_closes_then_poll_sees_deleted", func(t *testing.T) {
+		pod := runningPod("test-pod")
+
+		// The pod is not seeded into the clientset, so the poll fallback
+		// observes it as deleted.
+		ctx, client := monitorTestClient(t)
+
+		firstWatcher := newWatcher()
+		client.PrependWatchReactor("pods", watchSeq(firstWatcher))
+		time.AfterFunc(10*time.Millisecond, firstWatcher.Stop)
+
+		err := monitorWithPollInterval(ctx, client, pod, 20*time.Millisecond)
+		if err == nil {
+			t.Fatal("expected error but got nil")
+		}
+		if !strings.Contains(err.Error(), "pod was deleted before tests could run") {
+			t.Errorf("expected pod-deleted error, got %q", err.Error())
+		}
+	})
+
+	t.Run("events_watch_closes_then_rewatch_sees_pause", func(t *testing.T) {
+		pod := runningPod("test-pod")
+		ctx, client := monitorTestClient(t, pod)
+
+		podWatcher := newWatcher()
+		firstEventWatcher := newWatcher()
+		secondEventWatcher := newWatcher()
+		client.PrependWatchReactor("pods", watchSeq(podWatcher))
+		// Overrides the default healthy events watch from monitorTestClient:
+		// the most recently prepended reactor wins.
+		client.PrependWatchReactor("events", watchSeq(firstEventWatcher, secondEventWatcher))
+
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			podWatcher.Action(watch.Modified, runningPod("test-pod"))
+
+			// Drop the events watch, then deliver the PAUSE readiness-probe
+			// event only on the re-established watch.
+			time.Sleep(10 * time.Millisecond)
+			firstEventWatcher.Stop()
+
+			msg := struct {
+				ExitCode int64  `json:"exit_code"`
+				Msg      string `json:"msg"`
+			}{
+				ExitCode: entrypoint.ProcessPausedCode,
+				Msg:      "test pause",
+			}
+			jsonMsg, _ := json.Marshal(msg)
+			secondEventWatcher.Action(watch.Added, &corev1.Event{
+				Name:    "test-event",
+				Reason:  string(corev1.ResourceHealthStatusUnhealthy),
+				Message: "Readiness probe failed: " + string(jsonMsg),
+			})
+		}()
+
+		if err := monitorWithPollInterval(ctx, client, pod, time.Hour); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 // No mocks defined here as they aren't needed for the current tests

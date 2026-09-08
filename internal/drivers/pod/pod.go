@@ -22,6 +22,7 @@ import (
 	authv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -223,36 +224,117 @@ func (o *opts) preflight(ctx context.Context) error {
 	return nil
 }
 
+// defaultPollInterval is how often monitor polls the pod status directly, as
+// an authoritative fallback in case the watch drops or misses events.
+const defaultPollInterval = 30 * time.Second
+
 // monitor will block until the pod completes according to the entrypoint exit criteria.
 func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) error {
+	return monitorWithPollInterval(ctx, cli, pod, defaultPollInterval)
+}
+
+func monitorWithPollInterval(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod, pollInterval time.Duration) error {
 	ctx = clog.WithValues(ctx,
 		"pod_name", pod.Name,
 		"pod_namespace", pod.Namespace,
 	)
 
-	pw, err := cli.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", pod.Name),
-	})
+	// Watches are established without a resourceVersion, so the API server
+	// always starts them from a fresh list and re-watching can never fail
+	// with "resourceVersion too old". Any events missed between a watch
+	// dropping and its re-establishment are covered by the poll fallback.
+	watchPods := func() (watch.Interface, error) {
+		return cli.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("metadata.name=%s", pod.Name),
+		})
+	}
+
+	watchEvents := func() (watch.Interface, error) {
+		return cli.CoreV1().Events(pod.Namespace).Watch(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name),
+		})
+	}
+
+	pw, err := watchPods()
 	if err != nil {
 		return fmt.Errorf("failed to watch pod: %w", err)
 	}
-	defer pw.Stop()
+	defer func() {
+		if pw != nil {
+			pw.Stop()
+		}
+	}()
 
-	ew, err := cli.CoreV1().Events(pod.Namespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("involvedObject.name=%s", pod.Name),
-	})
+	ew, err := watchEvents()
 	if err != nil {
 		return fmt.Errorf("failed to watch events: %w", err)
 	}
-	defer ew.Stop()
+	defer func() {
+		if ew != nil {
+			ew.Stop()
+		}
+	}()
+
+	pwch := pw.ResultChan()
+	ewch := ew.ResultChan()
+
+	// The API server times out watch requests by design, and intermediaries
+	// such as load balancers can additionally cut idle streams. When a watch
+	// channel closes, it is nilled out so the select stops firing on it, then
+	// re-established. If re-establishing fails, the next poll tick retries.
+	rewatchPods := func() {
+		if pw != nil {
+			pw.Stop()
+			pw = nil
+		}
+		pwch = nil
+		w, err := watchPods()
+		if err != nil {
+			clog.WarnContext(ctx, "failed to re-establish pod watch, will retry", "error", err)
+			return
+		}
+		pw = w
+		pwch = w.ResultChan()
+	}
+
+	rewatchEvents := func() {
+		if ew != nil {
+			ew.Stop()
+			ew = nil
+		}
+		ewch = nil
+		w, err := watchEvents()
+		if err != nil {
+			clog.WarnContext(ctx, "failed to re-establish events watch, will retry", "error", err)
+			return
+		}
+		ew = w
+		ewch = w.ResultChan()
+	}
 
 	logStarted := false
 	logch := make(<-chan error, 1)
 
+	// maybeStartLogs starts the log stream exactly once, when the pod is
+	// first seen running.
+	maybeStartLogs := func(p *corev1.Pod) {
+		if logStarted || p.Status.Phase != corev1.PodRunning {
+			return
+		}
+		logStarted = true
+		trace.SpanFromContext(ctx).AddEvent("pod.running")
+		clog.InfoContext(ctx, "starting log stream")
+		logch = startLogStream(ctx, cli, pod)
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case w, ok := <-pw.ResultChan():
+		case w, ok := <-pwch:
 			if !ok {
+				rewatchPods()
 				continue
 			}
 
@@ -265,50 +347,15 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 				continue
 			}
 
-			if !logStarted && p.Status.Phase == corev1.PodRunning {
-				logStarted = true
-				trace.SpanFromContext(ctx).AddEvent("pod.running")
-				clog.InfoContext(ctx, "starting log stream")
-				logch = startLogStream(ctx, cli, pod)
+			maybeStartLogs(p)
+
+			if done, err := checkSandboxTerminated(ctx, cli, pod, p); done {
+				return err
 			}
 
-			if w.Type == watch.Deleted {
-				return fmt.Errorf("pod was deleted before tests could run")
-			}
-
-			for _, cs := range p.Status.ContainerStatuses {
-				if cs.Name == SandboxContainerName && cs.State.Terminated != nil {
-					trace.SpanFromContext(ctx).AddEvent("pod.completed",
-						trace.WithAttributes(attribute.Int64("exit_code", int64(cs.State.Terminated.ExitCode))),
-					)
-					clog.InfoContext(ctx, "sandbox container terminated",
-						"exit_code", cs.State.Terminated.ExitCode,
-						"reason", cs.State.Terminated.Reason,
-						"message", cs.State.Terminated.Message,
-					)
-
-					switch ec := cs.State.Terminated.ExitCode; ec {
-					case 0:
-						clog.InfoContextf(ctx, "sandbox container completed successfully with exit code %d", ec)
-						return nil
-					case entrypoint.ProcessPausedCode:
-						clog.InfoContextf(ctx, "sandbox container is paused with exit code %d", ec)
-						return nil
-					default:
-						clog.ErrorContextf(ctx, "sandbox container failed with non-zero exit code %d", ec)
-						return PodMonitorError{
-							Name:      pod.Name,
-							Namespace: pod.Namespace,
-							Reason:    fmt.Sprintf("container %s terminated: %s", SandboxContainerName, cs.State.Terminated.Reason),
-							ExitCode:  int(ec),
-							Logs:      maybeLog(ctx, cli, pod),
-						}
-					}
-				}
-			}
-
-		case w, ok := <-ew.ResultChan():
+		case w, ok := <-ewch:
 			if !ok {
+				rewatchEvents()
 				continue
 			}
 
@@ -376,6 +423,34 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 				return err
 			}
 
+		case <-ticker.C:
+			// Poll the pod directly as the authoritative source of container
+			// termination status, in case the watch dropped or missed the
+			// terminal event.
+			p, err := cli.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					return fmt.Errorf("pod was deleted before tests could run")
+				}
+				clog.WarnContext(ctx, "failed to poll pod status", "error", err)
+				continue
+			}
+
+			maybeStartLogs(p)
+
+			if done, err := checkSandboxTerminated(ctx, cli, pod, p); done {
+				return err
+			}
+
+			// Use the tick to also recover watches that could not be
+			// re-established when their channel closed.
+			if pwch == nil {
+				rewatchPods()
+			}
+			if ewch == nil {
+				rewatchEvents()
+			}
+
 		case <-ctx.Done():
 			return PodMonitorError{
 				Name:      pod.Name,
@@ -386,6 +461,47 @@ func monitor(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) err
 			}
 		}
 	}
+}
+
+// checkSandboxTerminated inspects the observed pod state p for a terminated
+// sandbox container and reports whether the monitor is done, along with the
+// error it should return: nil for a successful (0) or paused
+// (entrypoint.ProcessPausedCode) exit, a PodMonitorError otherwise.
+func checkSandboxTerminated(ctx context.Context, cli kubernetes.Interface, pod, p *corev1.Pod) (bool, error) {
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Name != SandboxContainerName || cs.State.Terminated == nil {
+			continue
+		}
+
+		trace.SpanFromContext(ctx).AddEvent("pod.completed",
+			trace.WithAttributes(attribute.Int64("exit_code", int64(cs.State.Terminated.ExitCode))),
+		)
+		clog.InfoContext(ctx, "sandbox container terminated",
+			"exit_code", cs.State.Terminated.ExitCode,
+			"reason", cs.State.Terminated.Reason,
+			"message", cs.State.Terminated.Message,
+		)
+
+		switch ec := cs.State.Terminated.ExitCode; ec {
+		case 0:
+			clog.InfoContextf(ctx, "sandbox container completed successfully with exit code %d", ec)
+			return true, nil
+		case entrypoint.ProcessPausedCode:
+			clog.InfoContextf(ctx, "sandbox container is paused with exit code %d", ec)
+			return true, nil
+		default:
+			clog.ErrorContextf(ctx, "sandbox container failed with non-zero exit code %d", ec)
+			return true, PodMonitorError{
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Reason:    fmt.Sprintf("container %s terminated: %s", SandboxContainerName, cs.State.Terminated.Reason),
+				ExitCode:  int(ec),
+				Logs:      maybeLog(ctx, cli, pod),
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func startLogStream(ctx context.Context, cli kubernetes.Interface, pod *corev1.Pod) <-chan error {
