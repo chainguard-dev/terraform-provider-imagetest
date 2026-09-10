@@ -327,6 +327,12 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 			opts = append(opts, k3sindocker.WithRegistry(extraRepo.RegistryStr()))
 		}
 
+		if t.pullCache != nil {
+			// containerd tells the mirror which upstream it wants via the `ns`
+			// query parameter, so one wildcard entry covers every registry.
+			opts = append(opts, k3sindocker.WithRegistryMirror("*", pullCacheURL(t.pullCache)))
+		}
+
 		tf, err := os.CreateTemp("", "imagetest-k3s-in-docker")
 		if err != nil {
 			return nil, err
@@ -444,6 +450,16 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 
 		for _, extraRepo := range t.extraRepos {
 			opts = append(opts, dockerindocker.WithRegistryAuth(extraRepo.RegistryStr()))
+		}
+
+		if t.pullCache != nil {
+			// dockerd only honours registry-mirrors for Docker Hub, so every other
+			// registry is reached through the cache acting as an https proxy.
+			// The registries of the images under test are added to the intercept
+			// set so they are cached too.
+			t.pullCache.AddRegistries(registriesOf(data.Images)...)
+			t.pullCache.AddRegistries(repo.RegistryStr())
+			opts = append(opts, dockerindocker.WithPullCache(pullCacheURL(t.pullCache), t.pullCache.CACert(), t.pullCache.Registries()))
 		}
 
 		if cfg.Image.ValueString() != "" {
