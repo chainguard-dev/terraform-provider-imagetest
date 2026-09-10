@@ -19,6 +19,7 @@ import (
 	internallog "github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/pullcache"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/retry"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -65,6 +66,7 @@ type TestsResource struct {
 	includeTests     map[string]string
 	excludeTests     map[string]string
 	logsDirectory    string
+	pullCache        *pullcache.Server // nil when disabled
 }
 
 type TestsResourceModel struct {
@@ -325,6 +327,7 @@ func (t *TestsResource) Configure(ctx context.Context, req resource.ConfigureReq
 	t.includeTests = store.includeTests
 	t.excludeTests = store.excludeTests
 	t.logsDirectory = store.logsDirectory
+	t.pullCache = store.pullCache
 }
 
 func (t *TestsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

@@ -2,6 +2,8 @@ package dockerindocker
 
 import (
 	"maps"
+	"path"
+	"strings"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
@@ -114,6 +116,34 @@ func WithRegistryMirrors(mirrors ...string) DriverOpts {
 func WithTimeouts(t drivers.Timeouts) DriverOpts {
 	return func(d *driver) error {
 		d.timeouts = t
+		return nil
+	}
+}
+
+// WithPullCache routes the inner daemon's registry traffic through the
+// provider's pull cache. The cache is configured as the daemon's https proxy
+// and its CA is trusted for each intercepted registry host via
+// /etc/docker/certs.d, so pulls from those hosts terminate at the cache while
+// everything else is tunneled through untouched.
+func WithPullCache(proxyURL string, caPEM []byte, hosts []string) DriverOpts {
+	return func(d *driver) error {
+		if d.daemonCfg == nil {
+			d.daemonCfg = &daemonConfig{}
+		}
+		d.daemonCfg.Proxies = &daemonConfigProxies{
+			HTTPSProxy: proxyURL,
+			NoProxy:    "localhost,127.0.0.1,host.docker.internal",
+		}
+
+		for _, h := range hosts {
+			h = strings.TrimSpace(h)
+			if h == "" {
+				continue
+			}
+			d.extraContents = append(d.extraContents,
+				docker.NewContentFromString(string(caPEM), path.Join("/etc/docker/certs.d", h, "ca.crt")),
+			)
+		}
 		return nil
 	}
 }
