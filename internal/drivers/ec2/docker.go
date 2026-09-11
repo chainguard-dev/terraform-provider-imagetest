@@ -59,6 +59,42 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 	return cli, nil
 }
 
+// waitDocker pings the Docker daemon over SSH until it responds. The first
+// connection after provisioning is fragile: sshd may be restarting after an
+// apt install (needrestart, unattended-upgrades) or the daemon may still be
+// coming up, so a single failed ping is not conclusive.
+func (d *driver) waitDocker(ctx context.Context, cli *client.Client) error {
+	log := clog.FromContext(ctx)
+	log.Info("verifying Docker connection")
+
+	backoff := wait.Backoff{
+		Duration: 5 * time.Second,
+		Factor:   1.0,
+		Steps:    24, // 2 min max
+	}
+
+	var attempt int
+	var lastErr error
+	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
+		attempt++
+		if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
+			lastErr = err
+			log.Warn("Docker not reachable yet, retrying", "attempt", attempt, "error", err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		if lastErr != nil {
+			err = lastErr
+		}
+		return fmt.Errorf("docker is not accessible on the instance (ensure Docker is installed and running via user_data or setup_commands): %w", err)
+	}
+
+	log.Info("Docker connection verified", "attempts", attempt)
+	return nil
+}
+
 func (d *driver) pullImage(ctx context.Context, cli *client.Client, ref name.Reference) error {
 	auth, err := authn.DefaultKeychain.Resolve(ref.Context().Registry)
 	if err != nil {
