@@ -107,6 +107,57 @@ func TestSSH(t *testing.T) {
 	require.NoError(t, server.Shutdown(ctx))
 }
 
+func TestKeepAlive(t *testing.T) {
+	userKeys, err := NewED25519KeyPair()
+	require.NoError(t, err)
+	userSigner, err := userKeys.Private.ToSSH()
+	require.NoError(t, err)
+	userPubKey, err := userKeys.Public.ToSSH()
+	require.NoError(t, err)
+	serverKeys, err := NewED25519KeyPair()
+	require.NoError(t, err)
+	serverSigner, err := serverKeys.Private.ToSSH()
+	require.NoError(t, err)
+	serverPubKey, err := serverKeys.Public.ToSSH()
+	require.NoError(t, err)
+
+	// A distinct port from TestSSH so the two can never collide.
+	const keepalivePort uint16 = 2223
+	server, err := mock.NewServer(t, keepalivePort, serverSigner, mock.PublicKeyCallback(t, userPubKey))
+	require.NoError(t, err)
+	_, _, err = server.ListenAndServe(t, t.Context())
+	require.NoError(t, err)
+
+	client, err := Connect(mockListenHost, keepalivePort, "hellope", userSigner, serverPubKey)
+	require.NoError(t, err)
+
+	// Connect already runs keepAlive at the 15s production interval; drive our own
+	// at millisecond cadence so the test observes keepalives without waiting on it.
+	// done closes when keepAlive returns, so we can assert it exits on close.
+	done := make(chan struct{})
+	go func() { keepAlive(client, 10*time.Millisecond); close(done) }()
+
+	// An idle connection (we never run a command) still accrues keepalives.
+	require.Eventually(t, func() bool {
+		return server.KeepaliveCount() >= 3
+	}, 2*time.Second, 5*time.Millisecond, "expected periodic keepalives on an idle connection")
+
+	// Closing the client terminates the keepalive goroutine promptly (rather than
+	// lingering until the next tick). Asserting on done, not on the request count,
+	// proves the goroutine exited: the count would settle after close regardless,
+	// since the server can no longer receive on the closed connection.
+	require.NoError(t, client.Close())
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("keepAlive did not return after client close")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, server.Shutdown(ctx))
+}
+
 func TestJoinHostPort(t *testing.T) {
 	// invalid ip4 address
 	s, err := joinHostPort("192.168.255.", 33)
