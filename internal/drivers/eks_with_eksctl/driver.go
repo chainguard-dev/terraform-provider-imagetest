@@ -12,10 +12,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
@@ -45,16 +41,13 @@ type driver struct {
 	tags       map[string]string
 	timeouts   drivers.Timeouts
 
-	region           string
-	clusterName      string
-	namespace        string
-	kubeconfig       string
-	kcli             kubernetes.Interface
-	kcfg             *rest.Config
-	ec2Client        *ec2.Client
-	launchTemplate   string
-	launchTemplateId string
-	nodeGroup        string
+	region      string
+	clusterName string
+	namespace   string
+	kubeconfig  string
+	kcli        kubernetes.Interface
+	kcfg        *rest.Config
+	nodeGroup   string
 
 	podIdentityAssociations []*podIdentityAssociation
 	registries              map[string]*RegistryConfig
@@ -205,108 +198,6 @@ func tail(b []byte, limit int) []byte {
 	return append([]byte(note), b[len(b)-limit:]...)
 }
 
-func (k *driver) createLaunchTemplate(ctx context.Context) error {
-	log := clog.FromContext(ctx)
-
-	templateName := fmt.Sprintf("imagetest-%s", uuid.New().String())
-	k.launchTemplate = templateName
-
-	blockDeviceMappings := []ec2types.LaunchTemplateBlockDeviceMappingRequest{
-		// Root volume
-		{
-			DeviceName: aws.String("/dev/xvda"),
-			Ebs: &ec2types.LaunchTemplateEbsBlockDeviceRequest{
-				DeleteOnTermination: aws.Bool(true),
-				VolumeType:          ec2types.VolumeTypeGp3,
-				VolumeSize:          aws.Int32(80),
-			},
-		},
-	}
-
-	// Add secondary volume if storage options are provided
-	if k.storage != nil && k.storage.Size != "" {
-		var sizeGB int
-
-		_, err := fmt.Sscanf(k.storage.Size, "%dGB", &sizeGB)
-		if err != nil {
-			return fmt.Errorf("failed to parse storage size '%s': %w", k.storage.Size, err)
-		}
-
-		// Default to gp3 volume type if not specified
-		volumeType := ec2types.VolumeTypeGp3
-		if k.storage.Type != "" {
-			volumeType = ec2types.VolumeType(k.storage.Type)
-		}
-
-		log.Infof("Adding secondary volume: %dGB, type: %s", sizeGB, volumeType)
-
-		blockDeviceMappings = append(blockDeviceMappings, ec2types.LaunchTemplateBlockDeviceMappingRequest{
-			DeviceName: aws.String("/dev/xvdb"),
-			Ebs: &ec2types.LaunchTemplateEbsBlockDeviceRequest{
-				DeleteOnTermination: aws.Bool(true),
-				VolumeSize:          aws.Int32(int32(sizeGB)),
-				VolumeType:          volumeType,
-			},
-		})
-	}
-
-	ec2Tags := []ec2types.Tag{
-		{Key: aws.String("Name"), Value: aws.String(templateName)},
-	}
-	for key, value := range k.buildTags() {
-		ec2Tags = append(ec2Tags, ec2types.Tag{Key: aws.String(key), Value: aws.String(value)})
-	}
-
-	input := &ec2.CreateLaunchTemplateInput{
-		LaunchTemplateName: aws.String(templateName),
-		VersionDescription: aws.String("Created by imagetest"),
-		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{
-			InstanceType:        ec2types.InstanceType(k.nodeType),
-			BlockDeviceMappings: blockDeviceMappings,
-		},
-		TagSpecifications: []ec2types.TagSpecification{
-			{
-				ResourceType: ec2types.ResourceTypeLaunchTemplate,
-				Tags:         ec2Tags,
-			},
-		},
-	}
-
-	// Set AMI ID if provided
-	if k.nodeAMI != "" {
-		input.LaunchTemplateData.ImageId = aws.String(k.nodeAMI)
-	}
-
-	result, err := k.ec2Client.CreateLaunchTemplate(ctx, input)
-	if err != nil {
-		return fmt.Errorf("failed to create launch template: %w", err)
-	}
-
-	k.launchTemplate = templateName
-	k.launchTemplateId = *result.LaunchTemplate.LaunchTemplateId
-
-	log.Infof("Created launch template: %s (ID: %s)", *result.LaunchTemplate.LaunchTemplateName, *result.LaunchTemplate.LaunchTemplateId)
-	return nil
-}
-
-func (k *driver) deleteLaunchTemplate(ctx context.Context) error {
-	if k.launchTemplate == "" {
-		return nil
-	}
-
-	log := clog.FromContext(ctx)
-
-	_, err := k.ec2Client.DeleteLaunchTemplate(ctx, &ec2.DeleteLaunchTemplateInput{
-		LaunchTemplateName: aws.String(k.launchTemplate),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete launch template %s: %w", k.launchTemplate, err)
-	}
-
-	log.Infof("Deleted launch template: %s", k.launchTemplate)
-	return nil
-}
-
 // createCluster provisions the control plane (and its VPC) without nodegroups.
 // The configuration is passed as a ClusterConfig rather than flags so that
 // cluster logging is part of the initial create: enabling it afterwards via
@@ -373,11 +264,24 @@ cloudWatch:
 	return nil
 }
 
+// createNodeGroup adds a self-managed nodegroup to the cluster. Self-managed
+// (unmanaged) nodegroups are a plain autoscaling group in CloudFormation: EKS
+// managed nodegroups add a provisioning wait on create and, on delete, an
+// EKS-side drain that dominated teardown time for these throwaway clusters.
+// eksctl renders the launch template (AMI, instance type, volumes) from the
+// nodegroup spec, so no separate launch template is created.
 func (k *driver) createNodeGroup(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
 	nodeGroupName := fmt.Sprintf("ng-%s", uuid.New().String())
 	k.nodeGroup = nodeGroupName
+
+	var storageSize int
+	if k.storage != nil && k.storage.Size != "" {
+		if _, err := fmt.Sscanf(k.storage.Size, "%dGB", &storageSize); err != nil {
+			return fmt.Errorf("failed to parse storage size '%s': %w", k.storage.Size, err)
+		}
+	}
 
 	// Create a temporary file for the eksctl config
 	configFile, err := os.CreateTemp("", "eksctl-config-*.yaml")
@@ -391,16 +295,25 @@ kind: ClusterConfig
 metadata:
   name: {{ .ClusterName }}
   region: {{ .Region }}
-managedNodeGroups:
+nodeGroups:
 - name: {{ .NodeGroup }}
   desiredCapacity: {{ .NodeCount }}
   amiFamily: {{ .AMIFamily }}
-  launchTemplate:
-    id: {{ .LaunchTemplateId }}
-    version: "1"
+{{- if .AMI }}
+  ami: {{ .AMI }}
+{{- end }}
+  instanceType: {{ .InstanceType }}
+  volumeSize: 80
+  volumeType: gp3
+{{- if .StorageSize }}
+  additionalVolumes:
+  - volumeName: /dev/xvdb
+    volumeSize: {{ .StorageSize }}
+    volumeType: {{ .StorageType }}
+{{- end }}
   tags:
 {{- range $key, $value := .Tags }}
-    {{ $key }}: {{ $value | printf "%q" }}
+    {{ $key | printf "%q" }}: {{ $value | printf "%q" }}
 {{- end }}
 `
 
@@ -409,15 +322,23 @@ managedNodeGroups:
 		return fmt.Errorf("failed to parse nodegroup template: %w", err)
 	}
 
+	storageType := "gp3"
+	if k.storage != nil && k.storage.Type != "" {
+		storageType = k.storage.Type
+	}
+
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, map[string]any{
-		"ClusterName":      k.clusterName,
-		"Region":           k.region,
-		"NodeGroup":        k.nodeGroup,
-		"NodeCount":        k.nodeCount,
-		"AMIFamily":        k.amiFamily(),
-		"LaunchTemplateId": k.launchTemplateId,
-		"Tags":             k.buildTags(),
+		"ClusterName":  k.clusterName,
+		"Region":       k.region,
+		"NodeGroup":    k.nodeGroup,
+		"NodeCount":    k.nodeCount,
+		"AMIFamily":    k.amiFamily(),
+		"AMI":          k.nodeAMI,
+		"InstanceType": k.nodeType,
+		"StorageSize":  storageSize,
+		"StorageType":  storageType,
+		"Tags":         k.buildTags(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to execute nodegroup template: %w", err)
@@ -535,26 +456,12 @@ func (k *driver) Setup(ctx context.Context) error {
 	log.Infof("Using kubeconfig: %s", cfg.Name())
 	k.kubeconfig = cfg.Name()
 
-	awsOpts := []func(*config.LoadOptions) error{config.WithRegion(k.region)}
-	if k.awsProfile != "" {
-		awsOpts = append(awsOpts, config.WithSharedConfigProfile(k.awsProfile))
-	}
-	awsCfg, err := config.LoadDefaultConfig(ctx, awsOpts...)
-	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
-	}
-	k.ec2Client = ec2.NewFromConfig(awsCfg)
-
 	usingExistingCluster := false
 	if _, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
 		if err := k.eksctl(ctx, "utils", "write-kubeconfig", "--cluster", k.clusterName, "--region", k.region, "--kubeconfig", k.kubeconfig); err != nil {
 			return fmt.Errorf("eksctl utils write-kubeconfig: %w", err)
 		}
 		usingExistingCluster = true
-	}
-
-	if err := k.createLaunchTemplate(ctx); err != nil {
-		return err
 	}
 
 	if !usingExistingCluster {
@@ -608,12 +515,6 @@ func (k *driver) Teardown(ctx context.Context) error {
 	// drain errors (--force) so a stuck drain can no longer leak the cluster.
 	if err := k.eksctl(ctx, "delete", "cluster", "--force", "--disable-nodegroup-eviction", "--parallel", "25", "--name", k.clusterName); err != nil {
 		return fmt.Errorf("eksctl delete cluster: %w", err)
-	}
-
-	if k.launchTemplate != "" {
-		if err := k.deleteLaunchTemplate(ctx); err != nil {
-			return err
-		}
 	}
 
 	if k.podIdentityAssociations != nil {
