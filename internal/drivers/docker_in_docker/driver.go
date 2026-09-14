@@ -34,13 +34,14 @@ type driver struct {
 	ExtraHosts []string          // Extra hosts (--add-hosts) to add to the sandbox
 	Mirrors    []string          // Registry mirrors to use for docker-in-docker
 
-	name      string
-	stack     *harness.Stack
-	cli       *docker.Client
-	cliCfg    *docker.DockerConfig
-	daemonCfg *daemonConfig
-	ropts     []remote.Option
-	timeouts  drivers.Timeouts
+	name          string
+	stack         *harness.Stack
+	cli           *docker.Client
+	cliCfg        *docker.DockerConfig
+	daemonCfg     *daemonConfig
+	extraContents []*docker.Content // Additional files copied into the sandbox before start
+	ropts         []remote.Option
+	timeouts      drivers.Timeouts
 }
 
 func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
@@ -180,7 +181,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		return nil, err
 	}
 
-	content := []*docker.Content{cliCfg, daemonCfg}
+	content := append([]*docker.Content{cliCfg, daemonCfg}, d.extraContents...)
 
 	r, w := io.Pipe()
 	defer w.Close()
@@ -271,9 +272,18 @@ type daemonConfigDefaultAddressPool struct {
 	Size int    `json:"size"`
 }
 
+// daemonConfigProxies mirrors the `proxies` block of daemon.json. It only
+// affects the daemon's own outbound registry traffic, not the containers it
+// runs.
+type daemonConfigProxies struct {
+	HTTPSProxy string `json:"https-proxy,omitempty"`
+	NoProxy    string `json:"no-proxy,omitempty"`
+}
+
 type daemonConfig struct {
 	Mirrors             []string                         `json:"registry-mirrors,omitempty"`
 	DefaultAddressPools []daemonConfigDefaultAddressPool `json:"default-address-pools,omitempty"`
+	Proxies             *daemonConfigProxies             `json:"proxies,omitempty"`
 }
 
 func (c daemonConfig) Content() (*docker.Content, error) {

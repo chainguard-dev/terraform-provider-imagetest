@@ -50,6 +50,7 @@ provider "imagetest" {
 - `extra_repos` (List of String) An optional list of extra oci registries to wire in auth credentials for.
 - `harnesses` (Attributes) (see [below for nested schema](#nestedatt--harnesses))
 - `logs` (Attributes) Configuration for test log output to files. (see [below for nested schema](#nestedatt--logs))
+- `pull_cache` (Attributes) Configuration for the shared image pull cache used by the `docker_in_docker` and `k3s_in_docker` drivers. When enabled, the provider runs an in-process pull-through cache that all harnesses fetch images through, so layers are downloaded from upstream registries once per provider run instead of once per harness. Can also be enabled by setting `IMAGETEST_PULL_CACHE=true`. (see [below for nested schema](#nestedatt--pull_cache))
 - `repo` (String) The target repository the provider will use for pushing/pulling dynamically built images.
 - `sandbox` (Attributes) The optional configuration for all test sandboxes. (see [below for nested schema](#nestedatt--sandbox))
 - `test_execution` (Attributes) (see [below for nested schema](#nestedatt--test_execution))
@@ -180,6 +181,17 @@ Optional:
 Optional:
 
 - `directory` (String) Base directory where test logs will be written. Each test resource creates its own subdirectory. Can be overridden by IMAGETEST_LOGS environment variable.
+
+
+<a id="nestedatt--pull_cache"></a>
+### Nested Schema for `pull_cache`
+
+Optional:
+
+- `dir` (String) Directory holding cached blobs and manifests. Defaults to `<user cache dir>/imagetest/pull-cache`. Can be overridden by `IMAGETEST_PULL_CACHE_DIR`.
+- `enabled` (Boolean) Enable the pull cache. Defaults to false.
+- `listen_address` (String) Host IP the cache listens on. Must be reachable from containers as `host.docker.internal`. Detected from the docker daemon when unset. Can be overridden by `IMAGETEST_PULL_CACHE_ADDR`.
+- `registries` (List of String) Additional registry hosts whose traffic the docker_in_docker driver routes through the cache. The provider repositories, the registries of all test images, and a set of well known public registries are always included.
 
 
 <a id="nestedatt--sandbox"></a>

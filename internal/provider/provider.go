@@ -37,6 +37,15 @@ type ImageTestProviderModel struct {
 	ExtraRepos    []string                       `tfsdk:"extra_repos"`
 	Sandbox       *ProviderSandboxModel          `tfsdk:"sandbox"`
 	Logs          *ProviderLogsModel             `tfsdk:"logs"`
+	PullCache     *ProviderPullCacheModel        `tfsdk:"pull_cache"`
+}
+
+// ProviderPullCacheModel describes the shared image pull cache configuration.
+type ProviderPullCacheModel struct {
+	Enabled       types.Bool   `tfsdk:"enabled"`
+	Dir           types.String `tfsdk:"dir"`
+	ListenAddress types.String `tfsdk:"listen_address"`
+	Registries    []string     `tfsdk:"registries"`
 }
 
 // ProviderLogsModel describes the logs configuration.
@@ -151,6 +160,32 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					"directory": schema.StringAttribute{
 						Description: "Base directory where test logs will be written. Each test resource creates its own subdirectory. Can be overridden by IMAGETEST_LOGS environment variable.",
 						Optional:    true,
+					},
+				},
+			},
+			"pull_cache": schema.SingleNestedAttribute{
+				Description:         "Configuration for the shared image pull cache used by the docker_in_docker and k3s_in_docker drivers.",
+				MarkdownDescription: "Configuration for the shared image pull cache used by the `docker_in_docker` and `k3s_in_docker` drivers. When enabled, the provider runs an in-process pull-through cache that all harnesses fetch images through, so layers are downloaded from upstream registries once per provider run instead of once per harness. Can also be enabled by setting `IMAGETEST_PULL_CACHE=true`.",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"enabled": schema.BoolAttribute{
+						Description: "Enable the pull cache. Defaults to false.",
+						Optional:    true,
+					},
+					"dir": schema.StringAttribute{
+						Description:         "Directory holding cached blobs and manifests. Defaults to <user cache dir>/imagetest/pull-cache. Can be overridden by IMAGETEST_PULL_CACHE_DIR.",
+						MarkdownDescription: "Directory holding cached blobs and manifests. Defaults to `<user cache dir>/imagetest/pull-cache`. Can be overridden by `IMAGETEST_PULL_CACHE_DIR`.",
+						Optional:            true,
+					},
+					"listen_address": schema.StringAttribute{
+						Description:         "Host IP the cache listens on. Must be reachable from containers as host.docker.internal. Detected from the docker daemon when unset. Can be overridden by IMAGETEST_PULL_CACHE_ADDR.",
+						MarkdownDescription: "Host IP the cache listens on. Must be reachable from containers as `host.docker.internal`. Detected from the docker daemon when unset. Can be overridden by `IMAGETEST_PULL_CACHE_ADDR`.",
+						Optional:            true,
+					},
+					"registries": schema.ListAttribute{
+						Description: "Additional registry hosts whose traffic the docker_in_docker driver routes through the cache. The provider repositories, the registries of all test images, and a set of well known public registries are always included.",
+						Optional:    true,
+						ElementType: types.StringType,
 					},
 				},
 			},
@@ -388,6 +423,11 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 
 	if err := o11y.Setup(ctx); err != nil {
 		resp.Diagnostics.AddError("failed to setup observability", err.Error())
+		return
+	}
+
+	if err := store.configurePullCache(ctx, data.PullCache); err != nil {
+		resp.Diagnostics.AddError("failed to start pull cache", err.Error())
 		return
 	}
 

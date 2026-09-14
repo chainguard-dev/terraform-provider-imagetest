@@ -17,6 +17,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/pullcache"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -47,6 +48,8 @@ type ProviderStore struct {
 	ropts                []remote.Option
 	entrypointLayers     map[string][]v1.Layer
 	logsDirectory        string // Base directory for test logs
+	keychain             authn.Keychain
+	pullCache            *pullcache.Server // nil when disabled
 }
 
 func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
@@ -87,6 +90,7 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 		repo:             repo,
 		ropts:            ropts,
 		entrypointLayers: el,
+		keychain:         kc,
 	}, nil
 }
 
