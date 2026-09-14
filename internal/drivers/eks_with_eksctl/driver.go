@@ -33,6 +33,7 @@ const (
 
 type driver struct {
 	name       string
+	k8sVersion string
 	nodeAMI    string
 	nodeType   string
 	nodeCount  int
@@ -55,6 +56,7 @@ type driver struct {
 
 type Options struct {
 	Region                  string
+	KubernetesVersion       string
 	NodeType                string
 	NodeAMI                 string
 	NodeCount               int
@@ -106,6 +108,7 @@ type podIdentityAssociation struct {
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
 		name:       name,
+		k8sVersion: opts.KubernetesVersion,
 		region:     opts.Region,
 		nodeAMI:    opts.NodeAMI,
 		nodeType:   opts.NodeType,
@@ -218,6 +221,9 @@ kind: ClusterConfig
 metadata:
   name: {{ .ClusterName }}
   region: {{ .Region }}
+{{- if .Version }}
+  version: {{ .Version | printf "%q" }}
+{{- end }}
   tags:
 {{- range $key, $value := .Tags }}
     {{ $key | printf "%q" }}: {{ $value | printf "%q" }}
@@ -240,6 +246,7 @@ cloudWatch:
 	err = tmpl.Execute(&buf, map[string]any{
 		"ClusterName": k.clusterName,
 		"Region":      k.region,
+		"Version":     k.k8sVersion,
 		"Tags":        k.buildTags(),
 	})
 	if err != nil {
