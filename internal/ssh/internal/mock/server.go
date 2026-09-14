@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +37,11 @@ type (
 		// 'Waiter' is a 'sync.WaitGroup'-like construct, save that it accepts a
 		// 'context.Context' on its 'Done' method, supporting deadlines.
 		wait Waiter
+
+		// keepalives counts keepalive@openssh.com global requests received across
+		// all connections, letting a test observe that a client is keeping an
+		// otherwise-idle connection alive. Read via KeepaliveCount.
+		keepalives atomic.Int64
 	}
 	// PubKeyCallback is the function called when the server receives an
 	// authentication attempt via public key. Any non-nil error returned will
@@ -89,6 +95,12 @@ func (s *server) ListenAndServe(t *testing.T, ctx context.Context) (ReqChannel, 
 	s.wait.Add()
 	go s.serve(t, ctx, listener, outReqChan, outMsgChan)
 	return outReqChan, outMsgChan, nil
+}
+
+// KeepaliveCount returns the number of keepalive@openssh.com global requests the
+// server has received across all connections.
+func (s *server) KeepaliveCount() int64 {
+	return s.keepalives.Load()
 }
 
 func (s *server) serve(
@@ -149,18 +161,30 @@ func (s *server) handleTCPConn(
 	)
 	require.NoError(t, err)
 	defer sshConn.Close()
-	// Discard everything from the request chan (we don't care about anything
-	// in here).
+	// Drain connection-level (global) requests, ACKing any that want a reply (the
+	// same contract as ssh.DiscardRequests) while counting keepalives so a test
+	// can assert a client keeps an idle connection alive.
 	go func() {
-		// This just ACKs all requests, if one was received and requested a reply.
-		ssh.DiscardRequests(inReqChan)
+		for req := range inReqChan {
+			if req.Type == "keepalive@openssh.com" {
+				s.keepalives.Add(1)
+			}
+			if req.WantReply {
+				_ = req.Reply(false, nil)
+			}
+		}
 	}()
 	// Field all new channel requests.
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case newChannelRequest := <-inChanReqChan:
+		case newChannelRequest, ok := <-inChanReqChan:
+			// The client closed the connection: inChanReqChan is closed and
+			// yields a nil request. Stop serving it rather than dereferencing nil.
+			if !ok {
+				return
+			}
 			// Reject non-session channels
 			if newChannelRequest.ChannelType() != "session" {
 				require.NoError(t, newChannelRequest.Reject(

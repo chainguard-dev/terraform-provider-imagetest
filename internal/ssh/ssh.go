@@ -16,6 +16,23 @@ import (
 
 const sshDefaultTimeout = 3 * time.Second
 
+// keepaliveInterval is how often Connect sends an SSH-level keepalive request on
+// an established connection. A long-lived session can legitimately go idle for
+// minutes (e.g. a setup command blocked on `cloud-init status --wait`);
+// intermediate network infrastructure (NAT gateways, proxies, idle-connection
+// reapers) tears down connections that carry no bytes for a while, severing the
+// session mid-command. Periodic keepalives keep real traffic flowing so those
+// idle-reap timers never fire. Kept well under common reap windows (~60s) so a
+// single missed tick is safe.
+//
+// This is the same mechanism as OpenSSH's ServerAliveInterval: both send
+// keepalive@openssh.com global requests on the SSH connection at a fixed
+// interval. We implement it here because golang.org/x/crypto/ssh has no
+// built-in keepalive knob in ssh.ClientConfig. Unlike OpenSSH we do not pair it
+// with a ServerAliveCountMax, so this only keeps bytes flowing, it is not a
+// dead-peer detector, which is all the idle-reap problem needs.
+const keepaliveInterval = 15 * time.Second
+
 var (
 	ErrSSHFailedDial   = fmt.Errorf("failed to establish TCP/22 connection")
 	ErrFailedHostParse = fmt.Errorf("failed to parse hostname")
@@ -76,7 +93,35 @@ func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSSHFailedDial, err)
 	}
+	// Keep the connection alive during idle stretches so intermediate network
+	// infrastructure doesn't reap a mostly-idle long-lived session.
+	go keepAlive(client, keepaliveInterval)
 	return client, nil
+}
+
+// keepAlive periodically sends a keepalive@openssh.com global request on client
+// every interval (the same mechanism as OpenSSH's ServerAliveInterval) so a
+// long-lived, idle SSH connection keeps carrying bytes. It returns the moment
+// the connection closes (client.Wait unblocks on close/teardown), so it never
+// outlives the connection it guards rather than lingering until the next tick.
+func keepAlive(client *ssh.Client, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	closed := make(chan struct{})
+	go func() {
+		client.Wait() //nolint:errcheck // return value is the close reason; we only need the signal
+		close(closed)
+	}()
+	for {
+		select {
+		case <-closed:
+			return
+		case <-t.C:
+			if _, _, err := client.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+				return
+			}
+		}
+	}
 }
 
 // joinHostPort parses and validates 'host' is a valid IPv4 or IPv6 address,
