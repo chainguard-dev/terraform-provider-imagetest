@@ -116,6 +116,7 @@ type DockerInDockerDriverResourceModel struct {
 
 type EKSWithEksctlDriverResourceModel struct {
 	Region                  types.String                                         `tfsdk:"region"`
+	KubernetesVersion       types.String                                         `tfsdk:"kubernetes_version"`
 	NodeAMI                 types.String                                         `tfsdk:"node_ami"`
 	NodeType                types.String                                         `tfsdk:"node_type"`
 	NodeCount               types.Int64                                          `tfsdk:"node_count"`
@@ -530,6 +531,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 
 		return ekswitheksctl.NewDriver(id, ekswitheksctl.Options{
 			Region:                  cfg.Region.ValueString(),
+			KubernetesVersion:       cfg.KubernetesVersion.ValueString(),
 			NodeAMI:                 cfg.NodeAMI.ValueString(),
 			NodeType:                cfg.NodeType.ValueString(),
 			NodeCount:               int(cfg.NodeCount.ValueInt64()),
@@ -856,6 +858,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 				Attributes: map[string]schema.Attribute{
 					"region": schema.StringAttribute{
 						Description: "The AWS region to use for the eks_with_eksctl driver (default is us-west-2)",
+						Optional:    true,
+					},
+					"kubernetes_version": schema.StringAttribute{
+						Description: "The Kubernetes minor version of the EKS control plane, e.g. '1.32' (default is the eksctl default version). Nodegroups follow the control plane version.",
 						Optional:    true,
 					},
 					"node_ami": schema.StringAttribute{

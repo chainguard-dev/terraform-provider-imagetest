@@ -194,6 +194,7 @@ Optional:
 Optional:
 
 - `aws_profile` (String) The AWS CLI profile to use for eksctl and AWS CLI commands
+- `kubernetes_version` (String) The Kubernetes minor version of the EKS control plane, e.g. '1.32' (default is the eksctl default version). Nodegroups follow the control plane version.
 - `node_ami` (String) The AMI to use for the eks_with_eksctl driver (default is the latest EKS optimized AMI)
 - `node_count` (Number) The number of nodes to use for the eks_with_eksctl driver (default is 1)
 - `node_type` (String) The instance type to use for the eks_with_eksctl driver (default is m5.large)
