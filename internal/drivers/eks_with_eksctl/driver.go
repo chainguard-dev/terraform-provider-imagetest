@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
@@ -206,62 +205,6 @@ func tail(b []byte, limit int) []byte {
 	return append([]byte(note), b[len(b)-limit:]...)
 }
 
-// eksctl create cluster installs default addons at the tail of the create and
-// returns while the last addon operation may still be in progress. EKS applies
-// cluster updates one at a time, so an immediately following
-// update-cluster-logging can fail with ResourceInUseException. Addon installs
-// complete within seconds to a couple of minutes, so the logging update is
-// retried until the ceiling below.
-const (
-	loggingUpdateRetryInterval = 15 * time.Second
-	loggingUpdateRetryCeiling  = 5 * time.Minute
-)
-
-// shouldRetryLoggingUpdate reports whether a failed update-cluster-logging
-// should be retried: the error must indicate the transient "cluster has an
-// update in progress" conflict and the retry ceiling must not have elapsed.
-// Both markers of the conflict are matched independently because eksctl output
-// embedded in the error may be truncated.
-func shouldRetryLoggingUpdate(err error, elapsed time.Duration) bool {
-	if err == nil || elapsed >= loggingUpdateRetryCeiling {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "ResourceInUseException") ||
-		strings.Contains(msg, "currently has an update in progress")
-}
-
-// logInFlightClusterUpdates logs the cluster's updates with their type and
-// status so the update blocking the logging update is identified in the log.
-// Diagnostic only: errors are logged, never returned.
-func (k *driver) logInFlightClusterUpdates(ctx context.Context, eksClient *eks.Client) {
-	log := clog.FromContext(ctx)
-
-	updates, err := eksClient.ListUpdates(ctx, &eks.ListUpdatesInput{Name: aws.String(k.clusterName)})
-	if err != nil {
-		log.Infof("Failed to list updates for cluster %s: %v", k.clusterName, err)
-		return
-	}
-	if len(updates.UpdateIds) == 0 {
-		log.Infof("No updates listed for cluster %s", k.clusterName)
-		return
-	}
-	for _, id := range updates.UpdateIds {
-		update, err := eksClient.DescribeUpdate(ctx, &eks.DescribeUpdateInput{
-			Name:     aws.String(k.clusterName),
-			UpdateId: aws.String(id),
-		})
-		if err != nil {
-			log.Infof("Failed to describe update %s for cluster %s: %v", id, k.clusterName, err)
-			continue
-		}
-		if update.Update == nil {
-			continue
-		}
-		log.Infof("Cluster %s update %s: type=%s status=%s", k.clusterName, id, update.Update.Type, update.Update.Status)
-	}
-}
-
 func (k *driver) createLaunchTemplate(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
@@ -361,6 +304,72 @@ func (k *driver) deleteLaunchTemplate(ctx context.Context) error {
 	}
 
 	log.Infof("Deleted launch template: %s", k.launchTemplate)
+	return nil
+}
+
+// createCluster provisions the control plane (and its VPC) without nodegroups.
+// The configuration is passed as a ClusterConfig rather than flags so that
+// cluster logging is part of the initial create: enabling it afterwards via
+// update-cluster-logging costs a separate, serialized cluster update and races
+// the addon installs eksctl kicks off at the tail of the create
+// (ResourceInUseException: cluster currently has an update in progress).
+func (k *driver) createCluster(ctx context.Context) error {
+	log := clog.FromContext(ctx)
+
+	configFile, err := os.CreateTemp("", "eksctl-cluster-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary config file: %w", err)
+	}
+	defer os.Remove(configFile.Name())
+
+	const configTemplate = `apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: {{ .ClusterName }}
+  region: {{ .Region }}
+  tags:
+{{- range $key, $value := .Tags }}
+    {{ $key | printf "%q" }}: {{ $value | printf "%q" }}
+{{- end }}
+vpc:
+  nat:
+    # Nodes live in public subnets, so a NAT gateway is dead weight.
+    gateway: Disable
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["*"]
+`
+
+	tmpl, err := template.New("cluster").Parse(configTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse cluster template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, map[string]any{
+		"ClusterName": k.clusterName,
+		"Region":      k.region,
+		"Tags":        k.buildTags(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to execute cluster template: %w", err)
+	}
+	configContent := buf.String()
+
+	log.Infof("Using cluster config:\n%s", configContent)
+
+	if _, err := configFile.WriteString(configContent); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	if err := configFile.Close(); err != nil {
+		return fmt.Errorf("failed to close config file: %w", err)
+	}
+
+	if err := k.eksctl(ctx, "create", "cluster", "--config-file="+configFile.Name(), "--kubeconfig="+k.kubeconfig); err != nil {
+		return fmt.Errorf("eksctl create cluster: %w", err)
+	}
+
+	log.Infof("Created cluster %s without nodegroups, cluster logging enabled", k.clusterName)
 	return nil
 }
 
@@ -549,59 +558,10 @@ func (k *driver) Setup(ctx context.Context) error {
 	}
 
 	if !usingExistingCluster {
-		args := []string{
-			"create", "cluster",
-			"--node-private-networking=false",
-			"--region=" + k.region,
-			"--vpc-nat-mode=Disable",
-			"--kubeconfig=" + k.kubeconfig,
-			"--name=" + k.clusterName,
-			"--without-nodegroup",
+		if err := k.createCluster(ctx); err != nil {
+			return err
 		}
-
-		tags := k.buildTags()
-		pairs := make([]string, 0, len(tags))
-		for key, value := range tags {
-			pairs = append(pairs, key+"="+value)
-		}
-		args = append(args, "--tags="+strings.Join(pairs, ","))
-
-		if err := k.eksctl(ctx, args...); err != nil {
-			return fmt.Errorf("eksctl create cluster: %w", err)
-		}
-		log.Infof("Created cluster %s without nodegroups", k.clusterName)
 		span.AddEvent("eks.cluster.created")
-
-		log.Infof("Enabling all cluster logging for %s", k.clusterName)
-		updateArgs := []string{
-			"utils", "update-cluster-logging",
-			"--cluster=" + k.clusterName,
-			"--region=" + k.region,
-			"--enable-types=all",
-			// per AWS: Note this command runs in plan mode by default,
-			// you will need to specify --approve flag to apply the
-			// changes to your cluster.
-			"--approve",
-		}
-		eksClient := eks.NewFromConfig(awsCfg)
-		start := time.Now()
-		for {
-			err := k.eksctl(ctx, updateArgs...)
-			if err == nil {
-				break
-			}
-			if !shouldRetryLoggingUpdate(err, time.Since(start)) {
-				return fmt.Errorf("eksctl update-cluster-logging: %w", err)
-			}
-			k.logInFlightClusterUpdates(ctx, eksClient)
-			log.Infof("Cluster %s has an update in progress, retrying logging update in %s", k.clusterName, loggingUpdateRetryInterval)
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("eksctl update-cluster-logging: %w", err)
-			case <-time.After(loggingUpdateRetryInterval):
-			}
-		}
-		log.Infof("Enabled all cluster logging for %s", k.clusterName)
 	}
 
 	if err := k.createNodeGroup(ctx); err != nil {
