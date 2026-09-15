@@ -47,3 +47,17 @@ IMAGETEST_EKS_STORAGE_SIZE=20GB \
 IMAGETEST_EKS_STORAGE_TYPE=gp3 \
 TF_ACC=1 go test -tags=eks ./internal/provider/... -count=1 -v -run=EKS -timeout=30m
 ```
+
+## Teardown
+
+Teardown does not drain nodes. It deletes the nodegroup with
+`eksctl delete nodegroup --drain=false --wait`, then the cluster with
+`eksctl delete cluster --force --wait`. Both are bounded by the driver's
+`timeouts.teardown` (default 20m), passed to eksctl as `--timeout`.
+
+To keep the cluster around after a test run, set `IMAGETEST_EKS_SKIP_TEARDOWN=true`.
+Clean it up manually with:
+
+```
+eksctl delete cluster --name <cluster> --region us-west-2 --force --disable-nodegroup-eviction --wait
+```
