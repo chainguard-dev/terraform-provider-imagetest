@@ -3,6 +3,7 @@ package ekswitheksctl
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -49,6 +50,10 @@ type driver struct {
 	kcli        kubernetes.Interface
 	kcfg        *rest.Config
 	nodeGroup   string
+
+	// run executes an eksctl command. Defaults to (*driver).eksctl; tests
+	// substitute it to exercise Teardown without eksctl or AWS.
+	run func(ctx context.Context, args ...string) error
 
 	podIdentityAssociations []*podIdentityAssociation
 	registries              map[string]*RegistryConfig
@@ -101,10 +106,14 @@ type podIdentityAssociation struct {
 // NewDriver creates a new EKS driver instance that uses eksctl to provision and manage
 // an Amazon EKS cluster for running tests.
 //
-// When opts.SetupTimeout is set, Setup() enforces it as a context deadline and
+// When opts.Timeouts.Setup is set, Setup() enforces it as a context deadline and
 // passes it to eksctl --timeout for individual CloudFormation operations. If
 // unset, eksctl uses its default of 25 minutes and Setup() is bounded only by
 // the caller's context.
+//
+// Teardown() is always bounded: by opts.Timeouts.Teardown if set, otherwise by
+// teardownTimeoutDefault. The bound is enforced both as a context deadline and
+// as eksctl --timeout on every delete. Nodes are not drained on teardown.
 func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	k := &driver{
 		name:       name,
@@ -151,6 +160,8 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	if _, err := exec.LookPath("eksctl"); err != nil {
 		return nil, fmt.Errorf("eksctl not found in $PATH: %w", err)
 	}
+	k.run = k.eksctl
+
 	return k, nil
 }
 
@@ -160,22 +171,68 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 // diagnostics. The tail is kept since that is where the failure is reported.
 const maxEksctlErrOutput = 256 * 1024
 
-func (k *driver) eksctl(ctx context.Context, args ...string) error {
+// teardownTimeoutDefault bounds teardown when no teardown timeout is
+// configured. It is applied both as the Teardown() context deadline and as
+// eksctl --timeout on every delete, so a stuck delete can never run for the
+// eksctl default of 25 minutes per operation and outlive the short-lived
+// credentials CI jobs typically run with. Deleting the nodegroup stack and
+// then the cluster stack takes on the order of 10 minutes.
+const teardownTimeoutDefault = 20 * time.Minute
+
+// eksctlTimeoutGrace is how much earlier than the Teardown() deadline eksctl's
+// own --timeout fires on deletes, so that a stuck delete ends with eksctl's
+// report of what it was waiting on rather than a bare "signal: killed".
+const eksctlTimeoutGrace = 30 * time.Second
+
+// teardownTimeout returns the configured teardown timeout, or
+// teardownTimeoutDefault when unset.
+func (k *driver) teardownTimeout() time.Duration {
+	if k.timeouts.Teardown > 0 {
+		return k.timeouts.Teardown
+	}
+	return teardownTimeoutDefault
+}
+
+// eksctlArgs returns the full eksctl argument list for args, with the common
+// flags appended. For deletes, --timeout is the time left until ctx's
+// deadline (see Teardown) so eksctl gives up, and reports why, before the
+// context kills it. Without a deadline the teardown timeout is used.
+func (k *driver) eksctlArgs(ctx context.Context, args ...string) []string {
 	args = append(args, "--color", "false") // Disable color output
+
+	isDelete := len(args) > 0 && args[0] == "delete"
 
 	// CloudFormation log dumps and debug verbosity are for diagnosing cluster
 	// bring-up; on delete they only amplify drain/retry noise.
-	if len(args) > 0 && args[0] != "delete" {
+	if !isDelete {
 		args = append(args,
 			"--dumpLogs",     // Enable CloudFormation log dumping on failures
 			"--verbose", "4", // Set maximum verbosity level
 		)
 	}
 
-	// Add timeout flag if configured (zero = use eksctl default of 25m)
-	if k.timeouts.Setup > 0 {
+	// --timeout bounds each long-running eksctl operation (CloudFormation
+	// waits, drains). Deletes are always bounded, see teardownTimeout. For
+	// everything else the configured setup timeout is used, if any (zero =
+	// eksctl default of 25m).
+	switch {
+	case isDelete:
+		timeout := k.teardownTimeout()
+		if deadline, ok := ctx.Deadline(); ok {
+			// Stop short of the deadline so eksctl reports its own timeout
+			// (and what it was waiting on) before the context kills it.
+			timeout = max((time.Until(deadline) - eksctlTimeoutGrace).Truncate(time.Second), time.Second)
+		}
+		args = append(args, "--timeout", timeout.String())
+	case k.timeouts.Setup > 0:
 		args = append(args, "--timeout", k.timeouts.Setup.String())
 	}
+
+	return args
+}
+
+func (k *driver) eksctl(ctx context.Context, args ...string) error {
+	args = k.eksctlArgs(ctx, args...)
 
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
 	clog.FromContext(ctx).Infof("Running command: eksctl %s", strings.Join(args, " "))
@@ -402,34 +459,6 @@ func (k *driver) createPodIdentityAssociation(ctx context.Context) error {
 	return nil
 }
 
-// deletePodIdentityAssociation deletes a pod identity association for EKS workload.
-func (k *driver) deletePodIdentityAssociation(ctx context.Context) error {
-	if err := k.eksctl(ctx, "delete", "addon", "--cluster="+k.clusterName, "--name=eks-pod-identity-agent"); err != nil {
-		return fmt.Errorf("eksctl delete addon eks-pod-identity-agent: %w", err)
-	}
-
-	if k.podIdentityAssociations == nil {
-		return fmt.Errorf("pod identity associations is nil")
-	}
-
-	for _, v := range k.podIdentityAssociations {
-		if v == nil {
-			continue
-		}
-		if err := k.eksctl(ctx, "delete", "podidentityassociation",
-			"--region="+k.region,
-			"--cluster="+k.clusterName,
-			"--service-account-name="+v.serviceAccountName,
-			"--namespace="+v.namespace); err != nil {
-			return fmt.Errorf("eksctl delete podidentityassociation: %w", err)
-		}
-		log.Infof("Deleted pod identity associations for service account %s/%s for cluster %s",
-			v.namespace, v.serviceAccountName, k.clusterName)
-	}
-
-	return nil
-}
-
 func (k *driver) Setup(ctx context.Context) error {
 	if k.timeouts.Setup > 0 {
 		// Validate: the setup timeout must leave room for test execution
@@ -505,32 +534,115 @@ func (k *driver) Setup(ctx context.Context) error {
 	return nil
 }
 
+// teardownCommands returns the eksctl commands Teardown runs, in order. Each
+// command is attempted even if an earlier one failed. Only the last one, the
+// cluster delete, decides whether teardown failed: `delete cluster --wait`
+// removes any nodegroup stacks still present, so if it succeeds nothing has
+// leaked no matter what happened before. A failed nodegroup delete is
+// expected whenever Setup failed before the nodegroup stack existed (the
+// name is recorded before the create runs, and the provider tears down after
+// a failed Setup too); eksctl then cannot find it and errors.
+//
+// The nodegroup is deleted first, on its own, with --drain=false. These are
+// throwaway clusters, so draining is pointless work, and it is also the step
+// that used to leak clusters: `eksctl delete cluster` drains every
+// self-managed nodegroup it finds and, even with eviction disabled, waits for
+// the pods to disappear. Workloads pinned by PodDisruptionBudgets or storage
+// mounts (rook/ceph et al.) never do, so the drain ran into the operation
+// timeout (25m by default), by which time short-lived CI credentials had
+// expired and every following AWS call failed without deleting anything.
+// `eksctl delete nodegroup` is the only delete that can skip the drain
+// outright, so it runs first and waits for the stack to be gone. The cluster
+// delete then finds no nodegroup stacks and has nothing to drain.
+//
+// The cluster delete keeps --force (continue past errors, e.g. an unreachable
+// control plane), and keeps the PDB-bypassing, parallel drain flags as a
+// fallback for the case where the nodegroup delete failed and its stack is
+// still around. --wait makes eksctl report CloudFormation failures (e.g. a
+// stack stuck in DELETE_FAILED on dangling ENIs) instead of exiting after
+// the delete request is accepted, so leaks surface as errors.
+//
+// Pod identity role stacks and addons are removed by the cluster delete, so
+// there is no separate deletion for them.
+func (k *driver) teardownCommands() [][]string {
+	var cmds [][]string
+	if k.nodeGroup != "" {
+		cmds = append(cmds, []string{
+			"delete", "nodegroup",
+			"--cluster", k.clusterName,
+			"--region", k.region,
+			"--name", k.nodeGroup,
+			"--drain=false",
+			"--wait",
+		})
+	}
+	cmds = append(cmds, []string{
+		"delete", "cluster",
+		"--name", k.clusterName,
+		"--region", k.region,
+		"--force",
+		"--disable-nodegroup-eviction",
+		"--parallel", "25",
+		"--wait",
+	})
+	return cmds
+}
+
+// Teardown deletes the nodegroup and then the cluster, see teardownCommands.
+// The whole teardown is bounded by the teardown timeout (default
+// teardownTimeoutDefault), detached from the caller's cancellation. Failures
+// are logged at error level, including the tail of the eksctl output, since
+// callers may downgrade the returned error to a warning and a failed teardown
+// means AWS resources have leaked.
 func (k *driver) Teardown(ctx context.Context) error {
-	ctx, cancel := k.timeouts.TeardownContext(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), k.teardownTimeout())
 	defer cancel()
 
+	log := clog.FromContext(ctx)
+
 	if v := os.Getenv("IMAGETEST_EKS_SKIP_TEARDOWN"); v == "true" {
-		clog.FromContext(ctx).Info("Skipping EKS teardown due to IMAGETEST_EKS_SKIP_TEARDOWN=true")
+		log.Info("Skipping EKS teardown due to IMAGETEST_EKS_SKIP_TEARDOWN=true")
 		return nil
 	}
 
-	// Cluster deletion covers the nodegroups; no separate nodegroup deletion.
-	// These are throwaway clusters, so the drain that precedes nodegroup
-	// removal is pointless work: bypass PodDisruptionBudgets (rook et al.
-	// create PDBs that block eviction for up to the 25m operation timeout),
-	// drain nodes in parallel instead of the serial default, and continue past
-	// drain errors (--force) so a stuck drain can no longer leak the cluster.
-	if err := k.eksctl(ctx, "delete", "cluster", "--force", "--disable-nodegroup-eviction", "--parallel", "25", "--name", k.clusterName); err != nil {
-		return fmt.Errorf("eksctl delete cluster: %w", err)
-	}
-
-	if k.podIdentityAssociations != nil {
-		if err := k.deletePodIdentityAssociation(ctx); err != nil {
-			return fmt.Errorf("deleting pod identity association: %w", err)
+	cmds := k.teardownCommands()
+	var errs []error
+	for i, args := range cmds {
+		err := k.run(ctx, args...)
+		if err == nil {
+			continue
 		}
+		err = fmt.Errorf("eksctl %s %s: %w", args[0], args[1], err)
+		if i < len(cmds)-1 {
+			// Not final: the cluster delete below still removes whatever is
+			// left. Logged at warning level in case it does not, then this
+			// is the context for that failure.
+			log.Warnf("%v (continuing with the cluster delete, which removes any remaining nodegroup)", err)
+			errs = append(errs, err)
+			continue
+		}
+		errs = append(errs, err)
+		log.Errorf("Teardown of EKS cluster %s (region %s) failed, AWS resources have likely leaked and need manual cleanup: %s", k.clusterName, k.region, k.manualCleanup())
+		return errors.Join(errs...)
 	}
 
+	log.Infof("Deleted EKS cluster %s", k.clusterName)
 	return nil
+}
+
+// manualCleanup is the command sequence to remove the cluster by hand. It is
+// the same order Teardown uses, since a plain `eksctl delete cluster` would
+// run into the very drain that Teardown avoids.
+func (k *driver) manualCleanup() string {
+	var b strings.Builder
+	for i, args := range k.teardownCommands() {
+		if i > 0 {
+			b.WriteString(" && ")
+		}
+		b.WriteString("eksctl ")
+		b.WriteString(strings.Join(args, " "))
+	}
+	return b.String()
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
