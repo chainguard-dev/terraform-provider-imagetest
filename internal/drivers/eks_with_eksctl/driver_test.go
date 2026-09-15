@@ -2,6 +2,8 @@ package ekswitheksctl
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -80,10 +82,35 @@ func TestEksctlArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			k := &driver{timeouts: tt.timeouts}
-			if got := k.eksctlArgs(tt.in...); !slices.Equal(got, tt.want) {
+			if got := k.eksctlArgs(context.Background(), tt.in...); !slices.Equal(got, tt.want) {
 				t.Errorf("eksctlArgs() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEksctlArgsDeleteUsesRemainingDeadline(t *testing.T) {
+	k := &driver{timeouts: drivers.Timeouts{Teardown: 20 * time.Minute}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	got := k.eksctlArgs(ctx, "delete", "cluster")
+	timeout, err := time.ParseDuration(got[len(got)-1])
+	if err != nil || got[len(got)-2] != "--timeout" {
+		t.Fatalf("eksctlArgs() = %q, want trailing --timeout <duration>", got)
+	}
+	// Remaining time minus the grace, not the configured 20m.
+	want := 10*time.Minute - eksctlTimeoutGrace
+	if timeout > want || timeout < want-5*time.Second {
+		t.Errorf("--timeout = %s, want about %s", timeout, want)
+	}
+
+	// An (almost) expired deadline still yields a valid, positive duration.
+	ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	got = k.eksctlArgs(ctx, "delete", "cluster")
+	if got[len(got)-1] != "1s" {
+		t.Errorf("--timeout = %s past the deadline, want 1s", got[len(got)-1])
 	}
 }
 
@@ -117,5 +144,74 @@ func TestTeardownCommands(t *testing.T) {
 				t.Errorf("teardownCommands() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestTeardown checks that only the cluster delete decides the outcome: a
+// failed nodegroup delete (e.g. Setup failed before the stack existed) is not
+// a teardown failure when the cluster delete succeeds, and every command runs
+// regardless of earlier failures.
+func TestTeardown(t *testing.T) {
+	errNG := errors.New("nodegroup not found")
+	errCluster := errors.New("stack DELETE_FAILED")
+
+	tests := []struct {
+		name     string
+		fail     map[string]error // keyed by args[1]
+		wantRuns []string
+		wantErr  error // nil, or an error that must be in the chain
+	}{
+		{
+			name:     "both succeed",
+			wantRuns: []string{"nodegroup", "cluster"},
+		},
+		{
+			name:     "nodegroup delete failure is not a teardown failure when the cluster delete succeeds",
+			fail:     map[string]error{"nodegroup": errNG},
+			wantRuns: []string{"nodegroup", "cluster"},
+		},
+		{
+			name:     "cluster delete failure is a teardown failure",
+			fail:     map[string]error{"cluster": errCluster},
+			wantRuns: []string{"nodegroup", "cluster"},
+			wantErr:  errCluster,
+		},
+		{
+			name:     "both failures are reported when the cluster delete fails",
+			fail:     map[string]error{"nodegroup": errNG, "cluster": errCluster},
+			wantRuns: []string{"nodegroup", "cluster"},
+			wantErr:  errNG,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var runs []string
+			k := &driver{clusterName: "imagetest-abc", region: "us-west-2", nodeGroup: "ng-1"}
+			k.run = func(_ context.Context, args ...string) error {
+				runs = append(runs, args[1])
+				return tt.fail[args[1]]
+			}
+
+			err := k.Teardown(context.Background())
+			if !slices.Equal(runs, tt.wantRuns) {
+				t.Errorf("ran %q, want %q", runs, tt.wantRuns)
+			}
+			switch {
+			case tt.wantErr == nil && err != nil:
+				t.Errorf("Teardown() = %v, want nil", err)
+			case tt.wantErr != nil && !errors.Is(err, tt.wantErr):
+				t.Errorf("Teardown() = %v, want error wrapping %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestManualCleanup(t *testing.T) {
+	k := &driver{clusterName: "imagetest-abc", region: "us-west-2", nodeGroup: "ng-1"}
+	got := k.manualCleanup()
+	want := "eksctl delete nodegroup --cluster imagetest-abc --region us-west-2 --name ng-1 --drain=false --wait && eksctl delete cluster --name imagetest-abc --region us-west-2 --force --disable-nodegroup-eviction --parallel 25 --wait"
+	if got != want {
+		t.Errorf("manualCleanup() =\n%s\nwant\n%s", got, want)
 	}
 }

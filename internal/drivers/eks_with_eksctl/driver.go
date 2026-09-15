@@ -51,6 +51,10 @@ type driver struct {
 	kcfg        *rest.Config
 	nodeGroup   string
 
+	// run executes an eksctl command. Defaults to (*driver).eksctl; tests
+	// substitute it to exercise Teardown without eksctl or AWS.
+	run func(ctx context.Context, args ...string) error
+
 	podIdentityAssociations []*podIdentityAssociation
 	registries              map[string]*RegistryConfig
 }
@@ -156,6 +160,8 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 	if _, err := exec.LookPath("eksctl"); err != nil {
 		return nil, fmt.Errorf("eksctl not found in $PATH: %w", err)
 	}
+	k.run = k.eksctl
+
 	return k, nil
 }
 
@@ -173,6 +179,11 @@ const maxEksctlErrOutput = 256 * 1024
 // then the cluster stack takes on the order of 10 minutes.
 const teardownTimeoutDefault = 20 * time.Minute
 
+// eksctlTimeoutGrace is how much earlier than the Teardown() deadline eksctl's
+// own --timeout fires on deletes, so that a stuck delete ends with eksctl's
+// report of what it was waiting on rather than a bare "signal: killed".
+const eksctlTimeoutGrace = 30 * time.Second
+
 // teardownTimeout returns the configured teardown timeout, or
 // teardownTimeoutDefault when unset.
 func (k *driver) teardownTimeout() time.Duration {
@@ -183,8 +194,10 @@ func (k *driver) teardownTimeout() time.Duration {
 }
 
 // eksctlArgs returns the full eksctl argument list for args, with the common
-// flags appended.
-func (k *driver) eksctlArgs(args ...string) []string {
+// flags appended. For deletes, --timeout is the time left until ctx's
+// deadline (see Teardown) so eksctl gives up, and reports why, before the
+// context kills it. Without a deadline the teardown timeout is used.
+func (k *driver) eksctlArgs(ctx context.Context, args ...string) []string {
 	args = append(args, "--color", "false") // Disable color output
 
 	isDelete := len(args) > 0 && args[0] == "delete"
@@ -204,7 +217,13 @@ func (k *driver) eksctlArgs(args ...string) []string {
 	// eksctl default of 25m).
 	switch {
 	case isDelete:
-		args = append(args, "--timeout", k.teardownTimeout().String())
+		timeout := k.teardownTimeout()
+		if deadline, ok := ctx.Deadline(); ok {
+			// Stop short of the deadline so eksctl reports its own timeout
+			// (and what it was waiting on) before the context kills it.
+			timeout = max((time.Until(deadline) - eksctlTimeoutGrace).Truncate(time.Second), time.Second)
+		}
+		args = append(args, "--timeout", timeout.String())
 	case k.timeouts.Setup > 0:
 		args = append(args, "--timeout", k.timeouts.Setup.String())
 	}
@@ -213,7 +232,7 @@ func (k *driver) eksctlArgs(args ...string) []string {
 }
 
 func (k *driver) eksctl(ctx context.Context, args ...string) error {
-	args = k.eksctlArgs(args...)
+	args = k.eksctlArgs(ctx, args...)
 
 	cmd := exec.CommandContext(ctx, "eksctl", args...)
 	clog.FromContext(ctx).Infof("Running command: eksctl %s", strings.Join(args, " "))
@@ -516,7 +535,13 @@ func (k *driver) Setup(ctx context.Context) error {
 }
 
 // teardownCommands returns the eksctl commands Teardown runs, in order. Each
-// command is attempted even if an earlier one failed.
+// command is attempted even if an earlier one failed. Only the last one, the
+// cluster delete, decides whether teardown failed: `delete cluster --wait`
+// removes any nodegroup stacks still present, so if it succeeds nothing has
+// leaked no matter what happened before. A failed nodegroup delete is
+// expected whenever Setup failed before the nodegroup stack existed (the
+// name is recorded before the create runs, and the provider tears down after
+// a failed Setup too); eksctl then cannot find it and errors.
 //
 // The nodegroup is deleted first, on its own, with --drain=false. These are
 // throwaway clusters, so draining is pointless work, and it is also the step
@@ -580,21 +605,44 @@ func (k *driver) Teardown(ctx context.Context) error {
 		return nil
 	}
 
+	cmds := k.teardownCommands()
 	var errs []error
-	for _, args := range k.teardownCommands() {
-		if err := k.eksctl(ctx, args...); err != nil {
-			log.Errorf("eksctl %s %s failed: %v", args[0], args[1], err)
-			errs = append(errs, fmt.Errorf("eksctl %s %s: %w", args[0], args[1], err))
+	for i, args := range cmds {
+		err := k.run(ctx, args...)
+		if err == nil {
+			continue
 		}
-	}
-
-	if len(errs) > 0 {
-		log.Errorf("Teardown of EKS cluster %s (region %s) failed, AWS resources have likely leaked and need manual cleanup: eksctl delete cluster --name %s --region %s --force --disable-nodegroup-eviction --wait", k.clusterName, k.region, k.clusterName, k.region)
+		err = fmt.Errorf("eksctl %s %s: %w", args[0], args[1], err)
+		if i < len(cmds)-1 {
+			// Not final: the cluster delete below still removes whatever is
+			// left. Logged at warning level in case it does not, then this
+			// is the context for that failure.
+			log.Warnf("%v (continuing with the cluster delete, which removes any remaining nodegroup)", err)
+			errs = append(errs, err)
+			continue
+		}
+		errs = append(errs, err)
+		log.Errorf("Teardown of EKS cluster %s (region %s) failed, AWS resources have likely leaked and need manual cleanup: %s", k.clusterName, k.region, k.manualCleanup())
 		return errors.Join(errs...)
 	}
 
 	log.Infof("Deleted EKS cluster %s", k.clusterName)
 	return nil
+}
+
+// manualCleanup is the command sequence to remove the cluster by hand. It is
+// the same order Teardown uses, since a plain `eksctl delete cluster` would
+// run into the very drain that Teardown avoids.
+func (k *driver) manualCleanup() string {
+	var b strings.Builder
+	for i, args := range k.teardownCommands() {
+		if i > 0 {
+			b.WriteString(" && ")
+		}
+		b.WriteString("eksctl ")
+		b.WriteString(strings.Join(args, " "))
+	}
+	return b.String()
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
