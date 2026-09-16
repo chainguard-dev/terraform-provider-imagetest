@@ -27,6 +27,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// OpenSSH ServerAliveInterval/ServerAliveCountMax for the docker dial-stdio
+// connection. All docker API calls share one long-lived SSH connection, and a
+// silent container (headless browser, long build) can leave it idle for
+// minutes, long enough for NAT gateways and idle-connection reapers (~60s) to
+// drop it mid-command. Keepalives every 15s keep bytes flowing, the count max
+// bounds a dead host to ~2 min. Mirrors the keepalive in internal/ssh.
+const (
+	sshKeepaliveInterval = 15
+	sshKeepaliveCountMax = 8
+)
+
 func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 	log := clog.FromContext(ctx)
 
@@ -35,6 +46,8 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 
 	opts := []string{
 		"-o", "StrictHostKeyChecking=no",
+		"-o", fmt.Sprintf("ServerAliveInterval=%d", sshKeepaliveInterval),
+		"-o", fmt.Sprintf("ServerAliveCountMax=%d", sshKeepaliveCountMax),
 		"-i", d.sshKeyPath(),
 		"-l", d.cfg.SSHUser,
 	}
