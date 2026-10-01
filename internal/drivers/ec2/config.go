@@ -35,6 +35,9 @@ type Config struct {
 	DeviceMounts []string
 	GPUs         string // "all", "0", "1", "2", etc. Empty means no GPUs.
 
+	// Commands run on the instance on failure, see Diagnose.
+	OnFailure []string
+
 	// Operational
 	SkipTeardown bool
 	Timeouts     drivers.Timeouts

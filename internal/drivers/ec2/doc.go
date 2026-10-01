@@ -57,4 +57,7 @@ package ec2
 
 import "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 
-var _ drivers.Tester = (*driver)(nil)
+var (
+	_ drivers.Tester    = (*driver)(nil)
+	_ drivers.Diagnoser = (*driver)(nil)
+)
