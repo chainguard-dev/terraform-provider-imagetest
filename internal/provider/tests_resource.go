@@ -483,9 +483,12 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 			))
 		}
 
-		ds = t.doAttempt(ctx, data, trefs, tracer)
+		// No retry follows the last attempt, or one whose context has ended.
+		ds = t.doAttempt(ctx, data, trefs, tracer, func() bool { return retryCfg.IsLast(attempt) || ctx.Err() != nil })
 		if ds.HasError() {
-			return fmt.Errorf("%s", ds[len(ds)-1].Detail())
+			// Warnings (diagnostics, teardown) may follow the error.
+			errs := ds.Errors()
+			return fmt.Errorf("%s", errs[len(errs)-1].Detail())
 		}
 		return nil
 	})
@@ -508,7 +511,9 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 
 // doAttempt runs a single attempt of the full driver lifecycle: load → setup →
 // run tests → teardown. Each resource-level retry calls this with a fresh driver.
-func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel, trefs []name.Reference, tracer trace.Tracer) (ds diag.Diagnostics) {
+// final reports, once the attempt is over, whether no further attempt will
+// follow; driver diagnostics only run then.
+func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel, trefs []name.Reference, tracer trace.Tracer, final func() bool) (ds diag.Diagnostics) {
 	dr, err := t.LoadDriver(ctx, data)
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to load driver", err.Error())}
@@ -524,6 +529,12 @@ func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel,
 			trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx)),
 			clog.FromContext(ctx),
 		)
+		if ds.HasError() && final() {
+			if d := t.diagnose(teardownCtx, dr, data); d != nil {
+				ds = append(ds, d)
+			}
+		}
+
 		teardownCtx, teardownSpan := tracer.Start(teardownCtx, "imagetest.teardown",
 			trace.WithAttributes(
 				attribute.String(o11y.AttrDriver, string(data.Driver)),
@@ -694,6 +705,65 @@ func truncateWithLogHint(msg string, logPath string, artifactURI string) string 
 		fmt.Fprintf(&b, "Test artifact bundle: %s\n", artifactURI)
 	}
 	return b.String()
+}
+
+// diagnosticsTimeout bounds a driver's on-failure diagnostics.
+const diagnosticsTimeout = 5 * time.Minute
+
+// maxOnFailureOutputBytes caps a driver's on_failure output in the warning.
+// Terraform receives a resource's apply response, diagnostics included, with
+// gRPC's default 4 MiB limit, and a larger response fails as a whole, losing
+// the test error too. This leaves room for that error (capped at
+// maxErrorMessageBytes), setup output and state.
+const maxOnFailureOutputBytes = 2 << 20
+
+// diagnose runs on-failure diagnostics for drivers that support it and
+// reports their output as a warning, like a test's on_failure output ends up
+// in its error. It never turns into an error.
+func (t *TestsResource) diagnose(ctx context.Context, dr drivers.Tester, data *TestsResourceModel) diag.Diagnostic {
+	dg, ok := dr.(drivers.Diagnoser)
+	if !ok {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, diagnosticsTimeout)
+	defer cancel()
+
+	out := &capWriter{max: maxOnFailureOutputBytes}
+	err := dg.Diagnose(ctx, out)
+	clog.InfoContext(ctx, "ran driver on_failure", "bytes", out.total, "error", err)
+
+	output := strings.TrimRight(string(out.buf), "\n")
+	if out.total > int64(len(out.buf)) {
+		output = fmt.Sprintf("%s\n\n--- output truncated (%d bytes total) ---", output, out.total)
+	}
+	if err != nil {
+		detail := err.Error()
+		if output != "" {
+			detail += "\n\n" + output
+		}
+		return diag.NewWarningDiagnostic(fmt.Sprintf("%s on_failure failed", data.Driver), detail)
+	}
+	if output == "" {
+		return nil
+	}
+	return diag.NewWarningDiagnostic(fmt.Sprintf("%s on_failure output", data.Driver), output)
+}
+
+// capWriter keeps the first max bytes written to it and counts the rest, so
+// memory stays bounded however much a driver writes.
+type capWriter struct {
+	max   int
+	buf   []byte
+	total int64
+}
+
+func (c *capWriter) Write(p []byte) (int, error) {
+	c.total += int64(len(p))
+	if room := c.max - len(c.buf); room > 0 {
+		c.buf = append(c.buf, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
 }
 
 func (t *TestsResource) maybeTeardown(ctx context.Context, d drivers.Tester, failed bool) diag.Diagnostic {

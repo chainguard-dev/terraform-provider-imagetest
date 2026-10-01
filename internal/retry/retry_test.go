@@ -159,3 +159,38 @@ func TestDo_RespectsContextDeadline(t *testing.T) {
 		t.Fatal("expected non-nil LastError")
 	}
 }
+
+func TestIsLast(t *testing.T) {
+	for _, tt := range []struct {
+		attempts, attempt int
+		want              bool
+	}{
+		{attempts: 0, attempt: 1, want: true},
+		{attempts: 1, attempt: 1, want: true},
+		{attempts: 3, attempt: 1, want: false},
+		{attempts: 3, attempt: 2, want: false},
+		{attempts: 3, attempt: 3, want: true},
+	} {
+		if got := (Config{Attempts: tt.attempts}).IsLast(tt.attempt); got != tt.want {
+			t.Errorf("Config{Attempts: %d}.IsLast(%d) = %v, want %v", tt.attempts, tt.attempt, got, tt.want)
+		}
+	}
+
+	// Do stops exactly when IsLast says so.
+	for _, attempts := range []int{-1, 0, 1, 3} {
+		cfg := Config{Attempts: attempts}
+		var lastSeen bool
+		calls := 0
+		Do(context.Background(), cfg, func(_ context.Context, attempt int) error {
+			calls++
+			lastSeen = cfg.IsLast(attempt)
+			return errors.New("fail")
+		})
+		if want := max(attempts, 1); calls != want {
+			t.Errorf("attempts=%d: Do made %d calls, want %d", attempts, calls, want)
+		}
+		if !lastSeen {
+			t.Errorf("attempts=%d: IsLast was false for Do's final call", attempts)
+		}
+	}
+}

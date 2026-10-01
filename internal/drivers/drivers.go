@@ -24,6 +24,17 @@ type Tester interface {
 	Run(context.Context, name.Reference) (*RunResult, error)
 }
 
+// Diagnoser is optionally implemented by drivers that can run diagnostics in
+// the environment they provisioned (e.g. on an EC2 host) after a failure, as
+// configured in their own driver config. It is called before Teardown,
+// whether Setup or a test failed, so the environment still exists.
+// Implementations write human-readable output to w and must tolerate a
+// partially completed Setup. ctx carries the overall time budget;
+// implementations must return when it's done.
+type Diagnoser interface {
+	Diagnose(ctx context.Context, w io.Writer) error
+}
+
 // Timeouts holds parsed driver lifecycle timeouts. Zero means no
 // driver-level deadline for that phase.
 type Timeouts struct {

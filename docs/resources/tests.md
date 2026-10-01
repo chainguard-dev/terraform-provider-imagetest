@@ -157,6 +157,7 @@ Optional:
 - `instance_profile_name` (String) IAM instance profile name. If not specified, one is created with ECR read-only permissions.
 - `instance_type` (String) The EC2 instance type (default: t3.medium).
 - `mount_all_gpus` (Boolean, Deprecated) Deprecated: use gpus = 'all' instead.
+- `on_failure` (List of String) Commands to run on the instance when setup or a test fails, before teardown, for diagnostic collection. Unlike a test's `on_failure`, which runs inside the test container, these run on the instance itself, in `shell` with `env` like `setup_commands`, and also when setup fails. Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.
 - `region` (String) The AWS region (default: us-west-2).
 - `root_volume_size` (Number) Root volume size in GB (default: 50).
 - `setup_commands` (List of String) Commands to run on the instance before tests.

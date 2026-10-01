@@ -182,6 +182,7 @@ type EC2DriverResourceModel struct {
 	GPUs                types.String                      `tfsdk:"gpus"`
 	MountAllGPUs        types.Bool                        `tfsdk:"mount_all_gpus"` // Deprecated: use gpus = "all" instead
 	ExistingInstance    *EC2ExistingInstanceResourceModel `tfsdk:"existing_instance"`
+	OnFailure           []string                          `tfsdk:"on_failure"`
 	Timeouts            *DriverTimeoutsResourceModel      `tfsdk:"timeouts"`
 }
 
@@ -584,6 +585,8 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 				SSHKey: driversCfg.EC2.ExistingInstance.SSHKey.ValueString(),
 			}
 		}
+
+		driverCfg.OnFailure = driversCfg.EC2.OnFailure
 
 		// Capture setup commands
 		for _, cmd := range driversCfg.EC2.SetupCommands {
@@ -1017,6 +1020,15 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 					Required:    true,
 				},
 			},
+		},
+		"on_failure": schema.ListAttribute{
+			Description: "Commands to run on the instance when setup or a test fails, before teardown, for diagnostic collection. " +
+				"Unlike a test's `on_failure`, which runs inside the test container, these run on the instance itself, in `shell` with `env` like `setup_commands`, and also when setup fails. " +
+				"Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. " +
+				"Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. " +
+				"With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.",
+			ElementType: types.StringType,
+			Optional:    true,
 		},
 		"timeouts": driverTimeoutsSchema(),
 	},

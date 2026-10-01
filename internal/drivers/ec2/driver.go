@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -475,10 +477,7 @@ func (d *driver) runSetupCommands(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	cmds := []string{cmdStdOpts}
-	for k, v := range d.cfg.Env {
-		cmds = append(cmds, fmt.Sprintf("export %s=%s", k, shellquote.Join(v)))
-	}
+	cmds := append([]string{cmdStdOpts}, envExports(d.cfg.Env)...)
 	cmds = append(cmds, d.cfg.SetupCommands...)
 
 	stdout := new(bytes.Buffer)
@@ -497,6 +496,17 @@ func (d *driver) runSetupCommands(ctx context.Context) error {
 
 	log.Info("setup commands complete")
 	return nil
+}
+
+// envExports returns `export` lines for env, sorted by name so the order is
+// stable. Values are quoted, so no export depends on another.
+func envExports(env map[string]string) []string {
+	keys := slices.Sorted(maps.Keys(env))
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		lines = append(lines, fmt.Sprintf("export %s=%s", k, shellquote.Join(env[k])))
+	}
+	return lines
 }
 
 // setupFailureTailLines is the number of trailing lines of stdout/stderr

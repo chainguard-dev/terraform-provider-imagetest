@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -161,5 +162,16 @@ func TestSanitizeAWSTagValue(t *testing.T) {
 				t.Errorf("sanitizeAWSTagValue(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEnvExports(t *testing.T) {
+	if got := envExports(nil); len(got) != 0 {
+		t.Errorf("envExports(nil) = %q, want none", got)
+	}
+	got := envExports(map[string]string{"B": "two words", "A": "1", "C": `it's $HOME`})
+	want := []string{"export A=1", "export B='two words'", `export C='it'\''s $HOME'`}
+	if !slices.Equal(got, want) {
+		t.Errorf("envExports = %q, want %q", got, want)
 	}
 }
