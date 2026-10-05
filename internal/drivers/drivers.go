@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -104,7 +105,10 @@ func NewRunArtifactResult(ctx context.Context, rc io.ReadCloser) (*RunArtifactRe
 	mw := io.MultiWriter(af, h)
 
 	if _, err := io.Copy(mw, rc); err != nil {
-		return nil, err
+		// The file is only kept for the caller to report; a partial one
+		// whose path is never returned would just be left behind.
+		_ = af.Close()
+		return nil, errors.Join(err, os.Remove(af.Name()))
 	}
 
 	u := url.URL{
