@@ -90,6 +90,8 @@ func WithRegistry(registry string) DriverOpts {
 	}
 }
 
+// WithWriteKubeconfig writes the cluster's kubeconfig to path on the host
+// during Setup. The driver owns the file: Teardown removes it.
 func WithWriteKubeconfig(path string) DriverOpts {
 	return func(k *driver) error {
 		k.kubeconfigWritePath = path
