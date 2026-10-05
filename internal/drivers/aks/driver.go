@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -360,13 +360,11 @@ func (k *driver) Setup(ctx context.Context) error {
 		k.nodePoolName = defaultPoolName
 	}
 
-	cfg, err := os.Create(filepath.Join(os.TempDir(), k.clusterName))
+	err := k.createKubeconfig()
 	if err != nil {
-		return fmt.Errorf("failed creating temp dir: %w", err)
+		return err
 	}
-
-	log.Infof("Using kubeconfig: %s", cfg.Name())
-	k.kubeconfig = cfg.Name()
+	log.Infof("Using kubeconfig: %s", k.kubeconfig)
 
 	if existingCluster {
 		log.Infof("Using existing AKS cluster.")
@@ -946,6 +944,35 @@ func (k *driver) attachACRs(ctx context.Context) error {
 	return nil
 }
 
+// createKubeconfig creates the private (0600) temp file writeKubeConfig
+// stores the cluster's admin credentials in, and registers its removal on
+// the teardown stack. The file is kept along with the cluster when
+// IMAGETEST_AKS_SKIP_TEARDOWN is set, like teardownCluster does.
+func (k *driver) createKubeconfig() error {
+	cfg, err := os.CreateTemp("", k.clusterName+"-kubeconfig-*")
+	if err != nil {
+		return fmt.Errorf("creating kubeconfig file: %w", err)
+	}
+	k.kubeconfig = cfg.Name()
+
+	if err := k.stack.Add(func(ctx context.Context) error {
+		if os.Getenv("IMAGETEST_AKS_SKIP_TEARDOWN") == "true" {
+			return nil
+		}
+		if err := os.Remove(k.kubeconfig); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("removing kubeconfig: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return errors.Join(err, cfg.Close(), os.Remove(cfg.Name()))
+	}
+
+	if err := cfg.Close(); err != nil {
+		return fmt.Errorf("closing kubeconfig file: %w", err)
+	}
+	return nil
+}
+
 func (k *driver) writeKubeConfig(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 	log.Infof("Preparing kubeconfig: %s", k.kubeconfig)
@@ -960,7 +987,7 @@ func (k *driver) writeKubeConfig(ctx context.Context) error {
 		return fmt.Errorf("no kubeconfigs retrieved")
 	}
 
-	if err = os.WriteFile(k.kubeconfig, creds.Kubeconfigs[0].Value, 0o644); err != nil {
+	if err = os.WriteFile(k.kubeconfig, creds.Kubeconfigs[0].Value, 0o600); err != nil {
 		return fmt.Errorf("unable to write kubeconfig: %s %v", k.kubeconfig, err)
 	}
 
