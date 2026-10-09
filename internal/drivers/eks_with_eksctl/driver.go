@@ -532,6 +532,19 @@ func (k *driver) Setup(ctx context.Context) error {
 	return nil
 }
 
+var _ drivers.LocalFiler = &driver{}
+
+// LocalFiles implements drivers.LocalFiler.
+func (k *driver) LocalFiles() []drivers.LocalFile {
+	if k.kubeconfig == "" {
+		return nil
+	}
+	return []drivers.LocalFile{{
+		Path:        k.kubeconfig,
+		Description: "kubeconfig for EKS cluster " + k.clusterName,
+	}}
+}
+
 // createKubeconfig creates the private (0600) temp file eksctl writes the
 // cluster's kubeconfig to. Teardown removes it.
 func (k *driver) createKubeconfig() error {

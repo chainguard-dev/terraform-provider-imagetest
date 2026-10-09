@@ -292,3 +292,31 @@ func TestCreateKubeconfig(t *testing.T) {
 		})
 	}
 }
+
+// TestLocalFiles checks the kubeconfig is reported as a host file teardown
+// removes, so the provider can name it at the end of a run that kept it.
+func TestLocalFiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		kubeconfig string
+		want       []drivers.LocalFile
+	}{{
+		name: "nothing is reported before Setup creates the kubeconfig",
+	}, {
+		name:       "the kubeconfig is reported with its cluster",
+		kubeconfig: "/tmp/imagetest-abc-kubeconfig-123",
+		want: []drivers.LocalFile{{
+			Path:        "/tmp/imagetest-abc-kubeconfig-123",
+			Description: "kubeconfig for EKS cluster imagetest-abc",
+		}},
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			k := &driver{clusterName: "imagetest-abc", kubeconfig: tc.kubeconfig}
+			if got := k.LocalFiles(); !slices.Equal(got, tc.want) {
+				t.Errorf("LocalFiles() with kubeconfig=%q: got %+v, want %+v", tc.kubeconfig, got, tc.want)
+			}
+		})
+	}
+}

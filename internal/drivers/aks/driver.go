@@ -944,6 +944,19 @@ func (k *driver) attachACRs(ctx context.Context) error {
 	return nil
 }
 
+var _ drivers.LocalFiler = &driver{}
+
+// LocalFiles implements drivers.LocalFiler.
+func (k *driver) LocalFiles() []drivers.LocalFile {
+	if k.kubeconfig == "" {
+		return nil
+	}
+	return []drivers.LocalFile{{
+		Path:        k.kubeconfig,
+		Description: "admin kubeconfig for AKS cluster " + k.clusterName,
+	}}
+}
+
 // createKubeconfig creates the private (0600) temp file writeKubeConfig
 // stores the cluster's admin credentials in, and registers its removal on
 // the teardown stack. The file is kept along with the cluster when

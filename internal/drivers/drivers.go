@@ -36,6 +36,22 @@ type Diagnoser interface {
 	Diagnose(ctx context.Context, w io.Writer) error
 }
 
+// LocalFiler is optionally implemented by drivers that create files on the
+// host whose removal is part of Teardown, such as a kubeconfig. After the
+// teardown step, whether it ran or was skipped, the provider reports the
+// ones still on disk, so a run kept for debugging says where they are.
+type LocalFiler interface {
+	// LocalFiles returns the files created so far; an entry with an empty
+	// Path is ignored.
+	LocalFiles() []LocalFile
+}
+
+// LocalFile is a host file a driver created.
+type LocalFile struct {
+	Path        string
+	Description string // e.g. "kubeconfig for EKS cluster <name>"
+}
+
 // Timeouts holds parsed driver lifecycle timeouts. Zero means no
 // driver-level deadline for that phase.
 type Timeouts struct {
