@@ -245,7 +245,10 @@ jobs:
 
       - run: go mod download
 
-      - run: go test -v -cover ./internal/provider/
+      # The drivers and pterraform packages are not reached through the
+      # provider tests above. pterraform's tests need terraform and docker,
+      # which this job already sets up.
+      - run: go test -v -cover ./internal/provider/ ./internal/drivers/... ./internal/harness/pterraform/
         timeout-minutes: 10
         env:
           TF_ACC: "1"
