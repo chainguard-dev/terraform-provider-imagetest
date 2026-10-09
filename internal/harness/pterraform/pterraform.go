@@ -34,6 +34,7 @@ type pterraform struct {
 	work string
 
 	tf    *tfexec.Terraform
+	env   map[string]string
 	stack *harness.Stack
 
 	runner sandbox.Runner
@@ -51,25 +52,15 @@ func New(ctx context.Context, source fs.FS, opts ...Option) (*pterraform, error)
 		}
 	}
 
-	if p.work == "" {
-		path, err := os.MkdirTemp("", "pterraform")
-		if err != nil {
-			return nil, err
-		}
-		p.work = path
-	} else {
+	// Without a workspace, Create makes a temp working directory: only it
+	// registers the directory's removal, and a harness that is never
+	// created (e.g. skipped) is never destroyed either.
+	if p.work != "" {
 		// Ensure the working directory exists
 		if err := os.MkdirAll(p.work, 0o755); err != nil {
 			return nil, err
 		}
 	}
-
-	tf, err := tfexec.NewTerraform(p.work, "terraform")
-	if err != nil {
-		return nil, fmt.Errorf("failed to find a terraform executable on $PATH: %w", err)
-	}
-	p.tf = tf
-	p.tf.SetStdout(io.Discard)
 
 	// Use the host variables but ignore any host TF_VAR_
 	envs := make(map[string]string)
@@ -95,15 +86,38 @@ func New(ctx context.Context, source fs.FS, opts ...Option) (*pterraform, error)
 		delete(envs, prohibited)
 	}
 
-	if err := p.tf.SetEnv(envs); err != nil {
-		return nil, fmt.Errorf("setting environment variables: %w", err)
-	}
+	p.env = envs
 
 	return p, nil
 }
 
 // Create implements harness.Harness.
 func (p *pterraform) Create(ctx context.Context) error {
+	if p.work == "" {
+		path, err := os.MkdirTemp("", "pterraform")
+		if err != nil {
+			return err
+		}
+		p.work = path
+	}
+
+	if err := p.stack.Add(func(ctx context.Context) error {
+		return os.RemoveAll(p.work)
+	}); err != nil {
+		return fmt.Errorf("adding working directory removal to stack: %w", err)
+	}
+
+	tf, err := tfexec.NewTerraform(p.work, "terraform")
+	if err != nil {
+		return fmt.Errorf("failed to find a terraform executable on $PATH: %w", err)
+	}
+	p.tf = tf
+	p.tf.SetStdout(io.Discard)
+
+	if err := p.tf.SetEnv(p.env); err != nil {
+		return fmt.Errorf("setting environment variables: %w", err)
+	}
+
 	// create a list of known skips for terraform related files
 	skips := []func(fs.DirEntry) bool{
 		// skip the .terraform directory
@@ -215,12 +229,6 @@ func (p *pterraform) Create(ctx context.Context) error {
 	initopts := []tfexec.InitOption{
 		tfexec.Upgrade(true),
 		tfexec.Reconfigure(true),
-	}
-
-	if err := p.stack.Add(func(ctx context.Context) error {
-		return os.RemoveAll(p.work)
-	}); err != nil {
-		return fmt.Errorf("adding terraform destroy to stack: %w", err)
 	}
 
 	if err := p.tf.Init(ctx, initopts...); err != nil {

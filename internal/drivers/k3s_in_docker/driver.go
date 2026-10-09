@@ -3,7 +3,9 @@ package k3sindocker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -45,7 +47,7 @@ type driver struct {
 	Hooks         *K3sHooks         // Run commands at various lifecycle events
 	SandboxEnvs   map[string]string // Additional environment variables to set in the sandbox
 
-	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host
+	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host, and removed on Teardown
 
 	name     string
 	stack    *harness.Stack
@@ -388,7 +390,16 @@ configs:
 func (k *driver) Teardown(ctx context.Context) error {
 	ctx, cancel := k.timeouts.TeardownContext(ctx)
 	defer cancel()
-	return k.stack.Teardown(ctx)
+	err := k.stack.Teardown(ctx)
+
+	// The kubeconfig only points at the cluster just torn down; it holds
+	// that cluster's admin credentials and is of no use once it is gone.
+	if k.kubeconfigWritePath != "" {
+		if rerr := os.Remove(k.kubeconfigWritePath); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("removing kubeconfig: %w", rerr))
+		}
+	}
+	return err
 }
 
 func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -329,12 +330,6 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 			opts = append(opts, k3sindocker.WithRegistry(extraRepo.RegistryStr()))
 		}
 
-		tf, err := os.CreateTemp("", "imagetest-k3s-in-docker")
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, k3sindocker.WithWriteKubeconfig(tf.Name()))
-
 		if cfg.Image.ValueString() != "" {
 			opts = append(opts, k3sindocker.WithImageRef(cfg.Image.ValueString()))
 		}
@@ -431,7 +426,24 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 		opts = append(opts, k3sindocker.WithTimeouts(timeouts))
 
-		return k3sindocker.NewDriver(id, opts...)
+		// Reserve a unique, private (0600) path for the kubeconfig the
+		// driver writes during Setup. From here on the driver owns it and
+		// removes it on Teardown; only a failure to build the driver leaves
+		// it to us.
+		tf, err := os.CreateTemp("", "imagetest-k3s-in-docker")
+		if err != nil {
+			return nil, err
+		}
+		if err := tf.Close(); err != nil {
+			return nil, errors.Join(err, os.Remove(tf.Name()))
+		}
+		opts = append(opts, k3sindocker.WithWriteKubeconfig(tf.Name()))
+
+		dr, err := k3sindocker.NewDriver(id, opts...)
+		if err != nil {
+			return nil, errors.Join(err, os.Remove(tf.Name()))
+		}
+		return dr, nil
 
 	case DriverDockerInDocker:
 		cfg := driversCfg.DockerInDocker

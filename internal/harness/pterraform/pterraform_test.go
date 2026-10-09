@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -159,4 +160,65 @@ func sourceFs(t *testing.T, content string) fs.FS {
 	}
 
 	return os.DirFS(dir)
+}
+
+// TestPterraformWorkdirCleanup checks that the temp working directory never
+// outlives the harness: a harness that is constructed but never created (the
+// provider discards skipped harnesses that way) must not leave one behind,
+// and Destroy must remove it after Create, even a failed Create.
+func TestPterraformWorkdirCleanup(t *testing.T) {
+	tests := []struct {
+		name          string
+		create        bool
+		wantCreateErr bool
+	}{{
+		name: "harness never created leaves no workdir",
+	}, {
+		// No "connection" output, so Create fails after the apply, once
+		// the working directory holds terraform state.
+		name:          "destroy after failed create removes the workdir",
+		create:        true,
+		wantCreateErr: true,
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.create {
+				if _, err := exec.LookPath("terraform"); err != nil {
+					t.Skipf("terraform not on $PATH: %v", err)
+				}
+			}
+			src := sourceFs(t, `output "unrelated" { value = "x" }`)
+			tmp := t.TempDir()
+			t.Setenv("TMPDIR", tmp)
+			ctx := t.Context()
+
+			p, err := New(ctx, src)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if tc.create {
+				err := p.Create(ctx)
+				t.Logf("Create: err=%v", err)
+				if (err != nil) != tc.wantCreateErr {
+					t.Fatalf("Create: got err=%v, want error=%t", err, tc.wantCreateErr)
+				}
+				if err := p.Destroy(ctx); err != nil {
+					t.Errorf("Destroy: %v", err)
+				}
+			}
+
+			entries, err := os.ReadDir(tmp)
+			if err != nil {
+				t.Fatalf("reading TMPDIR %s: %v", tmp, err)
+			}
+			var left []string
+			for _, e := range entries {
+				left = append(left, e.Name())
+			}
+			if len(left) > 0 {
+				t.Errorf("create=%t: TMPDIR has leftover entries %v, want none", tc.create, left)
+			}
+		})
+	}
 }
