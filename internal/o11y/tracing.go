@@ -2,6 +2,7 @@ package o11y
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"go.opentelemetry.io/otel"
@@ -11,6 +12,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -30,13 +32,17 @@ var loggerProvider *sdklog.LoggerProvider
 
 // Setup configures the global OTel TracerProvider and LoggerProvider. This is
 // a no-op when no OTLP endpoint is configured.
-func Setup(ctx context.Context) error {
+func Setup(ctx context.Context, version string) error {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" &&
 		os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
 		return nil
 	}
 
-	res, err := resource.New(ctx, resource.WithFromEnv())
+	res, err := resource.New(ctx,
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(semconv.ServiceName("imagetest"), semconv.ServiceVersion(version)),
+		resource.WithFromEnv(),
+	)
 	if err != nil {
 		return err
 	}
@@ -45,18 +51,18 @@ func Setup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	logExp, err := otlploghttp.New(ctx)
+	if err != nil {
+		return errors.Join(err, traceExp.Shutdown(context.WithoutCancel(ctx)))
+	}
 	otel.SetTracerProvider(sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(traceExp),
+		sdktrace.WithBatcher(traceExp),
 		sdktrace.WithResource(res),
 	))
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
-	logExp, err := otlploghttp.New(ctx)
-	if err != nil {
-		return err
-	}
 	loggerProvider = sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewSimpleProcessor(logExp)),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
 		sdklog.WithResource(res),
 	)
 

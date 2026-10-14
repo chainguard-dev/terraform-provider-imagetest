@@ -386,7 +386,7 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		store.logsDirectory = v
 	}
 
-	if err := o11y.Setup(ctx); err != nil {
+	if err := o11y.Setup(ctx, p.version); err != nil {
 		resp.Diagnostics.AddError("failed to setup observability", err.Error())
 		return
 	}
