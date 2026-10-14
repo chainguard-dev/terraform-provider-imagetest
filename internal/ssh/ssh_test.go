@@ -1,6 +1,10 @@
 package ssh
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"golang.org/x/crypto/ssh"
+
 	"bytes"
 	"context"
 	"log"
@@ -179,4 +183,42 @@ func TestJoinHostPort(t *testing.T) {
 	s, err = joinHostPort("localhost", 33)
 	assert.NoError(t, err)
 	assert.Contains(t, []string{"127.0.0.1:33", "[::1]:33"}, s)
+}
+
+func TestHostKeyAlgorithms(t *testing.T) {
+	ed, err := NewED25519KeyPair()
+	require.NoError(t, err)
+	edPub, err := ed.Public.ToSSH()
+	require.NoError(t, err)
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	rsaPub, err := ssh.NewPublicKey(&rsaKey.PublicKey)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		keys []ssh.PublicKey
+		want []string
+	}{{
+		name: "no pinned keys keeps the default preference",
+		want: nil,
+	}, {
+		name: "ed25519 only",
+		keys: []ssh.PublicKey{edPub},
+		want: []string{ssh.KeyAlgoED25519},
+	}, {
+		name: "rsa expands to the sha2 algorithms",
+		keys: []ssh.PublicKey{rsaPub},
+		want: []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA},
+	}, {
+		name: "mixed keys keep order and drop duplicates",
+		keys: []ssh.PublicKey{edPub, rsaPub, edPub},
+		want: []string{ssh.KeyAlgoED25519, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA},
+	}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, hostKeyAlgorithms(tc.keys))
+		})
+	}
 }

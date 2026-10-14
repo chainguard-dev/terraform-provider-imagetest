@@ -48,11 +48,20 @@
 // For faster iteration, the driver can reuse an existing instance:
 //
 //	existing_instance = {
-//	  ip      = "1.2.3.4"
-//	  ssh_key = "/path/to/key.pem"
+//	  ip          = "1.2.3.4"
+//	  ssh_key     = "/path/to/key.pem"
+//	  known_hosts = "/path/to/known_hosts" # optional
 //	}
 //
-// In this mode, no AWS resources are created or destroyed. The driver still
+// In this mode, no AWS resources are created or destroyed.
+//
+// With known_hosts set, every SSH connection (docker over SSH, setup
+// commands, on_failure diagnostics) verifies the instance's host key against
+// that file and fails on a mismatch. The file is in OpenSSH known_hosts
+// format, as written by `ssh-keyscan -t ed25519 <ip>`; the entry must name
+// the IP as given (or [ip]:port). Without it, host keys are not checked and
+// registry credentials sent with each pull are exposed to an impersonated
+// host. The driver still
 // builds its EC2 and IAM clients from the ambient AWS configuration, but
 // never calls them.
 //

@@ -58,6 +58,12 @@ type Config struct {
 type ExistingInstance struct {
 	IP     string // required - instance IP address
 	SSHKey string // required - path to private key file
+
+	// KnownHosts is an optional path to an OpenSSH known_hosts file holding
+	// the instance's host key. When set, every SSH connection verifies the
+	// host key against it and fails on a mismatch. When empty, host keys are
+	// not checked.
+	KnownHosts string
 }
 
 func (c *Config) applyDefaults() {

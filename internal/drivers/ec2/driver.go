@@ -55,8 +55,9 @@ type driver struct {
 	instance *instance
 
 	// Runtime state for existing instance mode
-	existingSigner ssh.Signer
-	existingIP     string
+	existingSigner   ssh.Signer
+	existingIP       string
+	existingHostKeys []ssh.PublicKey // pinned host keys; empty means unchecked
 }
 
 func NewDriver(cfg Config, ec2Client *ec2.Client, iamClient *iam.Client) (*driver, error) {
@@ -96,6 +97,15 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 	}
 	d.existingSigner = signer
 	d.existingIP = d.cfg.ExistingInstance.IP
+
+	if path := d.cfg.ExistingInstance.KnownHosts; path != "" {
+		keys, err := loadKnownHosts(path, d.existingIP, d.cfg.SSHPort)
+		if err != nil {
+			return fmt.Errorf("loading known_hosts: %w", err)
+		}
+		d.existingHostKeys = keys
+		log.Info("host key pinned", "known_hosts", path, "keys", len(keys))
+	}
 
 	// Run setup commands if any
 	if err := d.runSetupCommands(ctx); err != nil {
@@ -359,6 +369,25 @@ func (d *driver) sshSigner() (ssh.Signer, error) {
 	return d.key.private.ToSSH()
 }
 
+// sshConnect opens an SSH connection to the instance. With a pinned host
+// key the connection fails unless the instance presents one of those keys.
+func (d *driver) sshConnect() (*ssh.Client, error) {
+	signer, err := d.sshSigner()
+	if err != nil {
+		return nil, fmt.Errorf("getting SSH signer: %w", err)
+	}
+	return issh.Connect(d.instanceIP(), uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer, d.existingHostKeys...)
+}
+
+// knownHostsPath returns the known_hosts file to pin the host key with, or
+// "" when host keys are not checked.
+func (d *driver) knownHostsPath() string {
+	if d.cfg.ExistingInstance != nil {
+		return d.cfg.ExistingInstance.KnownHosts
+	}
+	return ""
+}
+
 // sshKeyPath returns the path to the SSH key file.
 func (d *driver) sshKeyPath() string {
 	if d.cfg.ExistingInstance != nil {
@@ -376,11 +405,6 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 		return nil
 	}
 
-	signer, err := d.sshSigner()
-	if err != nil {
-		return fmt.Errorf("getting SSH signer: %w", err)
-	}
-
 	// Wait for cloud-init with retry logic to handle reboots
 	// Cloud-init may reboot the instance (e.g., after driver install), which drops SSH
 	log.Info("waiting for cloud-init to complete (may involve reboot)")
@@ -395,7 +419,7 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 	return wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		attempt++
 
-		conn, err := issh.Connect(d.instanceIP(), uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer)
+		conn, err := d.sshConnect()
 		if err != nil {
 			log.Info("SSH not ready, retrying", "attempt", attempt, "error", err)
 			return false, nil // retry
@@ -436,13 +460,7 @@ func (d *driver) collectGPUInfo(ctx context.Context) {
 
 	log := clog.FromContext(ctx)
 
-	signer, err := d.sshSigner()
-	if err != nil {
-		log.Warn("failed to get SSH signer for GPU info", "error", err)
-		return
-	}
-
-	conn, err := issh.Connect(d.instanceIP(), uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer)
+	conn, err := d.sshConnect()
 	if err != nil {
 		log.Warn("SSH connection failed for GPU info", "error", err)
 		return
@@ -484,12 +502,7 @@ func (d *driver) runSetupCommands(ctx context.Context) error {
 
 	log := clog.FromContext(ctx)
 
-	signer, err := d.sshSigner()
-	if err != nil {
-		return fmt.Errorf("getting SSH signer: %w", err)
-	}
-
-	conn, err := issh.Connect(d.instanceIP(), uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer)
+	conn, err := d.sshConnect()
 	if err != nil {
 		return fmt.Errorf("SSH connection failed: %w", err)
 	}

@@ -190,8 +190,9 @@ type EC2DriverResourceModel struct {
 }
 
 type EC2ExistingInstanceResourceModel struct {
-	IP     types.String `tfsdk:"ip"`
-	SSHKey types.String `tfsdk:"ssh_key"`
+	IP         types.String `tfsdk:"ip"`
+	SSHKey     types.String `tfsdk:"ssh_key"`
+	KnownHosts types.String `tfsdk:"known_hosts"`
 }
 
 func parseTimeoutsModel(m *DriverTimeoutsResourceModel) (drivers.Timeouts, error) {
@@ -595,8 +596,9 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		if driversCfg.EC2.ExistingInstance != nil {
 			log.Info("using existing instance mode")
 			driverCfg.ExistingInstance = &mc2.ExistingInstance{
-				IP:     driversCfg.EC2.ExistingInstance.IP.ValueString(),
-				SSHKey: driversCfg.EC2.ExistingInstance.SSHKey.ValueString(),
+				IP:         driversCfg.EC2.ExistingInstance.IP.ValueString(),
+				SSHKey:     driversCfg.EC2.ExistingInstance.SSHKey.ValueString(),
+				KnownHosts: driversCfg.EC2.ExistingInstance.KnownHosts.ValueString(),
 			}
 
 			// The existing instance holds no registry credentials, so the
@@ -1051,6 +1053,10 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 				"ssh_key": schema.StringAttribute{
 					Description: "Path to the SSH private key file.",
 					Required:    true,
+				},
+				"known_hosts": schema.StringAttribute{
+					Description: "Path to an OpenSSH known_hosts file with the instance's host key (as written by `ssh-keyscan -t ed25519 <ip>`). When set, every SSH connection verifies the host key against it and fails on a mismatch. When unset, host keys are not checked.",
+					Optional:    true,
 				},
 			},
 		},

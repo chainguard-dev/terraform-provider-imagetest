@@ -45,15 +45,7 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 	host := net.JoinHostPort(d.instanceIP(), strconv.Itoa(int(d.cfg.SSHPort)))
 	url := fmt.Sprintf("ssh://%s", host)
 
-	opts := []string{
-		"-o", "StrictHostKeyChecking=no",
-		"-o", fmt.Sprintf("ServerAliveInterval=%d", sshKeepaliveInterval),
-		"-o", fmt.Sprintf("ServerAliveCountMax=%d", sshKeepaliveCountMax),
-		"-i", d.sshKeyPath(),
-		"-l", d.cfg.SSHUser,
-	}
-
-	helper, err := connhelper.GetConnectionHelperWithSSHOpts(url, opts)
+	helper, err := connhelper.GetConnectionHelperWithSSHOpts(url, d.sshOpts())
 	if err != nil {
 		return nil, fmt.Errorf("creating SSH connection helper: %w", err)
 	}
@@ -71,6 +63,25 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 
 	log.Info("created Docker SSH client", "target", url)
 	return cli, nil
+}
+
+// sshOpts returns the OpenSSH options for the docker dial-stdio connection.
+// With a known_hosts file the host key is verified against it and a mismatch
+// aborts the connection; without one, host keys are not checked.
+func (d *driver) sshOpts() []string {
+	hostKey := []string{"-o", "StrictHostKeyChecking=no"}
+	if path := d.knownHostsPath(); path != "" {
+		hostKey = []string{
+			"-o", "UserKnownHostsFile=" + path,
+			"-o", "StrictHostKeyChecking=yes",
+		}
+	}
+	return append(hostKey,
+		"-o", fmt.Sprintf("ServerAliveInterval=%d", sshKeepaliveInterval),
+		"-o", fmt.Sprintf("ServerAliveCountMax=%d", sshKeepaliveCountMax),
+		"-i", d.sshKeyPath(),
+		"-l", d.cfg.SSHUser,
+	)
 }
 
 // waitDocker pings the Docker daemon over SSH until it responds. The first

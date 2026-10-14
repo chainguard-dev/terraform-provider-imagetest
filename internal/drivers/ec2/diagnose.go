@@ -44,12 +44,7 @@ func (d *driver) Diagnose(ctx context.Context, w io.Writer) error {
 		return errors.New("instance was not created or never became reachable")
 	}
 
-	signer, err := d.sshSigner()
-	if err != nil {
-		return fmt.Errorf("getting SSH signer: %w", err)
-	}
-
-	conn, err := issh.Connect(ip, uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer)
+	conn, err := d.sshConnect()
 	if err != nil {
 		return fmt.Errorf("connecting to instance: %w", err)
 	}
