@@ -9,6 +9,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -18,6 +19,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	kresource "k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -209,11 +214,8 @@ func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateReq
 	)
 }
 
-func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpdateRequest, harness harness.Harness) diag.Diagnostics {
-	var (
-		data  BaseHarnessResourceModel
-		diags diag.Diagnostics
-	)
+func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpdateRequest, harness harness.Harness) (diags diag.Diagnostics) {
+	var data BaseHarnessResourceModel
 
 	diags.Append(framework.JoinDiagnostics(
 		req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory),
@@ -230,7 +232,7 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 		return diags
 	}
 
-	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
+	ctx, err := r.store.Logger(o11y.ExtractTraceContext(ctx), data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
 	}
@@ -247,6 +249,19 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 			fmt.Sprintf("%s reason: %s", data.Id.ValueString(), reason),
 		))
 	}
+
+	ctx, span := otel.Tracer("imagetest").Start(ctx, "imagetest.harness",
+		trace.WithAttributes(
+			attribute.String("tf.resource.id", data.Id.ValueString()),
+			attribute.String(o11y.AttrName, data.Name.ValueString()),
+		),
+	)
+	defer func() {
+		if diags.HasError() {
+			span.SetStatus(codes.Error, "harness setup failed")
+		}
+		span.End()
+	}()
 
 	// NOTE: This is technically different for create/update, but we reuse the
 	// create timeouts everywhere
