@@ -540,14 +540,18 @@ func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel,
 				attribute.String(o11y.AttrDriver, string(data.Driver)),
 			),
 		)
-		if d := t.maybeTeardown(teardownCtx, dr, ds.HasError()); d != nil {
-			teardownSpan.RecordError(fmt.Errorf("%s", d.Detail()))
-			teardownSpan.SetStatus(codes.Error, d.Detail())
-			ds = append(ds, d)
+		td, left := t.teardownAndReport(teardownCtx, dr, ds.HasError())
+		if td != nil {
+			teardownSpan.RecordError(fmt.Errorf("%s", td.Detail()))
+			teardownSpan.SetStatus(codes.Error, td.Detail())
+			ds = append(ds, td)
 		} else {
 			teardownSpan.SetStatus(codes.Ok, "")
 		}
 		teardownSpan.End()
+		if left != nil {
+			ds = append(ds, left)
+		}
 	}()
 
 	ctx, setupSpan := tracer.Start(ctx, "imagetest.setup",
@@ -780,6 +784,40 @@ func (t *TestsResource) maybeTeardown(ctx context.Context, d drivers.Tester, fai
 	}
 
 	return nil
+}
+
+// teardownAndReport runs the teardown step and then reports any of the
+// driver's host files it left behind. teardown is maybeTeardown's result;
+// left is the leftover-files warning, or nil.
+func (t *TestsResource) teardownAndReport(ctx context.Context, dr drivers.Tester, failed bool) (teardown, left diag.Diagnostic) {
+	teardown = t.maybeTeardown(ctx, dr, failed)
+	return teardown, leftoverFiles(dr)
+}
+
+// leftoverFiles reports the driver's host files that are still on disk after
+// the teardown step: kept on purpose because teardown was skipped, or left by
+// a teardown that did not finish. It is a warning, so it is printed with the
+// run's other diagnostics at the end, where it is easy to find.
+func leftoverFiles(dr drivers.Tester) diag.Diagnostic {
+	lf, ok := dr.(drivers.LocalFiler)
+	if !ok {
+		return nil
+	}
+	var left []string
+	for _, f := range lf.LocalFiles() {
+		if f.Path == "" {
+			continue
+		}
+		if _, err := os.Lstat(f.Path); err == nil {
+			left = append(left, f.Description+": "+f.Path)
+		}
+	}
+	if len(left) == 0 {
+		return nil
+	}
+	return diag.NewWarningDiagnostic("files left on disk",
+		"Teardown did not remove these files. They may hold credentials for the test environment; remove them when you are done:\n  "+
+			strings.Join(left, "\n  "))
 }
 
 type TestsImagesParsed struct {

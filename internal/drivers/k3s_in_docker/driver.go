@@ -387,6 +387,19 @@ configs:
 	return nil
 }
 
+var _ drivers.LocalFiler = &driver{}
+
+// LocalFiles implements drivers.LocalFiler.
+func (k *driver) LocalFiles() []drivers.LocalFile {
+	if k.kubeconfigWritePath == "" {
+		return nil
+	}
+	return []drivers.LocalFile{{
+		Path:        k.kubeconfigWritePath,
+		Description: "kubeconfig for k3s_in_docker cluster " + k.name,
+	}}
+}
+
 func (k *driver) Teardown(ctx context.Context) error {
 	ctx, cancel := k.timeouts.TeardownContext(ctx)
 	defer cancel()

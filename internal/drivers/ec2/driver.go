@@ -278,6 +278,21 @@ func (d *driver) create(ctx context.Context, r resource) error {
 	return nil
 }
 
+var _ drivers.LocalFiler = &driver{}
+
+// LocalFiles implements drivers.LocalFiler. It reports only the private key
+// this driver generated for its key pair; in existing-instance mode there is
+// no key pair and the user's own SSH key is never reported.
+func (d *driver) LocalFiles() []drivers.LocalFile {
+	if d.key == nil || d.key.path == "" {
+		return nil
+	}
+	return []drivers.LocalFile{{
+		Path:        d.key.path,
+		Description: "SSH private key for EC2 key pair " + d.key.name,
+	}}
+}
+
 func (d *driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 

@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -485,12 +485,10 @@ func (k *driver) Setup(ctx context.Context) error {
 		k.clusterName = uid
 	}
 
-	cfg, err := os.Create(filepath.Join(os.TempDir(), k.clusterName))
-	if err != nil {
-		return fmt.Errorf("creating temp dir: %w", err)
+	if err := k.createKubeconfig(); err != nil {
+		return err
 	}
-	log.Infof("Using kubeconfig: %s", cfg.Name())
-	k.kubeconfig = cfg.Name()
+	log.Infof("Using kubeconfig: %s", k.kubeconfig)
 
 	usingExistingCluster := false
 	if _, ok := os.LookupEnv("IMAGETEST_EKS_CLUSTER"); ok {
@@ -513,7 +511,7 @@ func (k *driver) Setup(ctx context.Context) error {
 	span.AddEvent("eks.nodegroup.created")
 
 	if k.podIdentityAssociations != nil {
-		if err = k.createPodIdentityAssociation(ctx); err != nil {
+		if err := k.createPodIdentityAssociation(ctx); err != nil {
 			return fmt.Errorf("creating pod identity association: %w", err)
 		}
 		span.AddEvent("eks.identity.configured")
@@ -531,6 +529,44 @@ func (k *driver) Setup(ctx context.Context) error {
 	}
 	k.kcli = kcli
 
+	return nil
+}
+
+var _ drivers.LocalFiler = &driver{}
+
+// LocalFiles implements drivers.LocalFiler.
+func (k *driver) LocalFiles() []drivers.LocalFile {
+	if k.kubeconfig == "" {
+		return nil
+	}
+	return []drivers.LocalFile{{
+		Path:        k.kubeconfig,
+		Description: "kubeconfig for EKS cluster " + k.clusterName,
+	}}
+}
+
+// createKubeconfig creates the private (0600) temp file eksctl writes the
+// cluster's kubeconfig to. Teardown removes it.
+func (k *driver) createKubeconfig() error {
+	cfg, err := os.CreateTemp("", k.clusterName+"-kubeconfig-*")
+	if err != nil {
+		return fmt.Errorf("creating kubeconfig file: %w", err)
+	}
+	if err := cfg.Close(); err != nil {
+		return errors.Join(fmt.Errorf("closing kubeconfig file: %w", err), os.Remove(cfg.Name()))
+	}
+	k.kubeconfig = cfg.Name()
+	return nil
+}
+
+// removeKubeconfig removes the file createKubeconfig made, if any.
+func (k *driver) removeKubeconfig() error {
+	if k.kubeconfig == "" {
+		return nil
+	}
+	if err := os.Remove(k.kubeconfig); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("removing kubeconfig: %w", err)
+	}
 	return nil
 }
 
@@ -593,8 +629,9 @@ func (k *driver) teardownCommands() [][]string {
 // teardownTimeoutDefault), detached from the caller's cancellation. Failures
 // are logged at error level, including the tail of the eksctl output, since
 // callers may downgrade the returned error to a warning and a failed teardown
-// means AWS resources have leaked.
-func (k *driver) Teardown(ctx context.Context) error {
+// means AWS resources have leaked. The kubeconfig is removed afterwards
+// either way, unless IMAGETEST_EKS_SKIP_TEARDOWN keeps the cluster.
+func (k *driver) Teardown(ctx context.Context) (err error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), k.teardownTimeout())
 	defer cancel()
 
@@ -604,6 +641,9 @@ func (k *driver) Teardown(ctx context.Context) error {
 		log.Info("Skipping EKS teardown due to IMAGETEST_EKS_SKIP_TEARDOWN=true")
 		return nil
 	}
+
+	// Every eksctl call gets the kubeconfig (KUBECONFIG), so it goes last.
+	defer func() { err = errors.Join(err, k.removeKubeconfig()) }()
 
 	cmds := k.teardownCommands()
 	var errs []error
