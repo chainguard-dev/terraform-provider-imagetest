@@ -10,6 +10,8 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -94,8 +96,12 @@ func TestLegacyResourceTracing(t *testing.T) {
 					if ds := plan.Set(ctx, data); ds.HasError() {
 						t.Fatal(ds)
 					}
-					if ds := base.do(ctx, framework.CreateOrUpdateRequest{Plan: plan}, host.NewHost()); ds.HasError() {
-						t.Fatal(ds)
+					var harnessDiags diag.Diagnostics
+					harnessCtx, endHarness := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &harnessDiags)
+					harnessDiags = base.do(harnessCtx, framework.CreateOrUpdateRequest{Plan: plan}, host.NewHost())
+					endHarness()
+					if harnessDiags.HasError() {
+						t.Fatal(harnessDiags)
 					}
 
 					step := func(phase string) FeatureStepModel {
@@ -127,7 +133,7 @@ func TestLegacyResourceTracing(t *testing.T) {
 					}
 					wantCount := tc.wantSteps + 3
 					if tc.skipped {
-						wantCount = 0
+						wantCount = 1
 					}
 					if len(spans) != wantCount {
 						t.Fatalf("got %d spans, want %d", len(spans), wantCount)
@@ -172,5 +178,96 @@ func TestLegacyResourceTracing(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestHarnessConstructionTracing(t *testing.T) {
+	for _, kind := range []string{"docker", "k3s"} {
+		for _, operation := range []string{"create", "update"} {
+			t.Run(kind+"/"+operation, func(t *testing.T) {
+				t.Setenv("TRACEPARENT", legacyTraceparent)
+				recorder := tracetest.NewSpanRecorder()
+				tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+				previous := otel.GetTracerProvider()
+				otel.SetTracerProvider(tp)
+				t.Cleanup(func() {
+					otel.SetTracerProvider(previous)
+					if err := tp.Shutdown(context.WithoutCancel(t.Context())); err != nil {
+						t.Error(err)
+					}
+				})
+				base := BaseHarnessResourceModel{Id: types.StringValue("harness-id"), Name: types.StringValue("harness"), Inventory: InventoryDataSourceModel{Seed: types.StringValue(t.TempDir())}, Timeouts: timeouts.Value{Object: types.ObjectNull(map[string]attr.Type{"create": types.StringType})}}
+				store := new(ProviderStore)
+				var r resource.Resource
+				var data any
+				if kind == "docker" {
+					r = &HarnessDockerResource{store: store}
+					data = HarnessDockerResourceModel{BaseHarnessResourceModel: base}
+				} else {
+					r = &HarnessK3sResource{store: store}
+					data = HarnessK3sResourceModel{BaseHarnessResourceModel: base}
+				}
+				schemaResponse := new(resource.SchemaResponse)
+				r.Schema(t.Context(), resource.SchemaRequest{}, schemaResponse)
+				plan := tfsdk.Plan{Schema: schemaResponse.Schema}
+				if ds := plan.Set(t.Context(), data); ds.HasError() {
+					t.Fatal(ds)
+				}
+				// Cancel before construction so the real APKO path fails without fetching packages or starting Docker.
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				var diagnostics diag.Diagnostics
+				if operation == "create" {
+					response := resource.CreateResponse{State: tfsdk.State{Schema: plan.Schema}}
+					r.Create(ctx, resource.CreateRequest{Plan: plan}, &response)
+					diagnostics = response.Diagnostics
+				} else {
+					response := resource.UpdateResponse{State: tfsdk.State{Schema: plan.Schema}}
+					r.Update(ctx, resource.UpdateRequest{Plan: plan}, &response)
+					diagnostics = response.Diagnostics
+				}
+				if !diagnostics.HasError() {
+					t.Fatal("expected canceled construction to fail")
+				}
+				if len(recorder.Started()) != len(recorder.Ended()) {
+					t.Fatal("unclosed construction spans")
+				}
+				var root sdktrace.ReadOnlySpan
+				for _, s := range recorder.Ended() {
+					if s.Name() == "imagetest.harness" {
+						root = s
+					}
+				}
+				if root == nil {
+					t.Fatal("missing harness span on construction failure")
+				}
+				parent := propagation.TraceContext{}.Extract(t.Context(), propagation.MapCarrier{"traceparent": legacyTraceparent})
+				if root.Parent().SpanID() != trace.SpanContextFromContext(parent).SpanID() || root.SpanContext().TraceID() != trace.SpanContextFromContext(parent).TraceID() {
+					t.Fatal("harness did not inherit incoming context")
+				}
+				if root.Status().Code != codes.Error {
+					t.Fatalf("harness status: %v", root.Status())
+				}
+				attrs := attribute.NewSet(root.Attributes()...)
+				if id, _ := attrs.Value("tf.resource.id"); id.AsString() != "harness-id" {
+					t.Fatalf("resource ID: %v", id)
+				}
+				var foundBuild bool
+				for _, s := range recorder.Ended() {
+					if s.InstrumentationScope().Name == "apko" && s.Name() == "New" {
+						foundBuild = true
+						if s.SpanContext().TraceID() != root.SpanContext().TraceID() {
+							t.Errorf("build span %s is in a disconnected trace", s.Name())
+						}
+						if s.Parent().SpanID() != root.SpanContext().SpanID() {
+							t.Errorf("build span %s has parent %s, want harness %s", s.Name(), s.Parent().SpanID(), root.SpanContext().SpanID())
+						}
+					}
+				}
+				if !foundBuild {
+					t.Fatalf("no APKO spans: %v", recorder.Ended())
+				}
+			})
+		}
 	}
 }

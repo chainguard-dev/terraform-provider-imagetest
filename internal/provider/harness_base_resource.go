@@ -190,6 +190,18 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 	}
 }
 
+func traceHarness(ctx context.Context, id, name string, diags *diag.Diagnostics) (context.Context, func()) {
+	ctx, span := otel.Tracer("imagetest").Start(o11y.ExtractTraceContext(ctx), "imagetest.harness",
+		trace.WithAttributes(attribute.String("tf.resource.id", id), attribute.String(o11y.AttrName, name)),
+	)
+	return ctx, func() {
+		if diags.HasError() {
+			span.SetStatus(codes.Error, "harness setup failed")
+		}
+		span.End()
+	}
+}
+
 func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateRequest, harness harness.Harness) diag.Diagnostics {
 	return r.do(
 		ctx,
@@ -232,7 +244,7 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 		return diags
 	}
 
-	ctx, err := r.store.Logger(o11y.ExtractTraceContext(ctx), data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
+	ctx, err := r.store.Logger(ctx, data.Inventory, "harness_id", data.Id.ValueString(), "harness_name", data.Name.ValueString())
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to initialize logger(s)", err.Error())}
 	}
@@ -249,19 +261,6 @@ func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpda
 			fmt.Sprintf("%s reason: %s", data.Id.ValueString(), reason),
 		))
 	}
-
-	ctx, span := otel.Tracer("imagetest").Start(ctx, "imagetest.harness",
-		trace.WithAttributes(
-			attribute.String("tf.resource.id", data.Id.ValueString()),
-			attribute.String(o11y.AttrName, data.Name.ValueString()),
-		),
-	)
-	defer func() {
-		if diags.HasError() {
-			span.SetStatus(codes.Error, "harness setup failed")
-		}
-		span.End()
-	}()
 
 	// NOTE: This is technically different for create/update, but we reuse the
 	// create timeouts everywhere

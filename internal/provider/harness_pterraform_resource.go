@@ -46,6 +46,9 @@ func (r *HarnessPterraformResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
 	harness, diags := r.harness(ctx, &data)
@@ -66,6 +69,9 @@ func (r *HarnessPterraformResource) Update(ctx context.Context, req resource.Upd
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
