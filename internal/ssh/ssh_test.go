@@ -1,12 +1,10 @@
 package ssh
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"golang.org/x/crypto/ssh"
-
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"log"
 	"log/slog"
 	"testing"
@@ -15,6 +13,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh/internal/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
