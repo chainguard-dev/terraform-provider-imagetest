@@ -20,6 +20,7 @@ import (
 	"github.com/docker/cli/cli/connhelper"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/uuid"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -213,7 +214,9 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	}
 	hostConfig.DeviceRequests = d.deviceRequests()
 
-	containerName := d.name + "-test"
+	// One name per Run: the container stays until Teardown, and a resource
+	// with several tests (or retries) runs them all on this driver.
+	containerName := fmt.Sprintf("%s-test-%s", d.name, uuid.New().String()[:8])
 	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:        ref.String(),

@@ -60,8 +60,10 @@
 // provider from the resource's images map) into the instance's Docker daemon
 // before any test container starts. The pull is authenticated with the
 // caller's registry credentials, sent to the daemon per request, so a shared
-// instance never holds credentials of its own. Teardown removes the test
-// containers; the instance itself is left untouched.
+// instance never holds credentials of its own. Pulled images stay in the
+// daemon's cache for later runs; pruning them is the host operator's job.
+// Teardown removes the test containers; the instance itself is left
+// untouched.
 package ec2
 
 import "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
