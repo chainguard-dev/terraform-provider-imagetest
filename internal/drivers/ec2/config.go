@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 // Config configures the EC2 driver.
@@ -34,6 +35,13 @@ type Config struct {
 	VolumeMounts []string
 	DeviceMounts []string
 	GPUs         string // "all", "0", "1", "2", etc. Empty means no GPUs.
+
+	// PrePullImages are image references the driver pulls into the
+	// instance's Docker daemon during Setup, before any test container
+	// starts. The pull uses the caller's registry credentials, sent to the
+	// daemon per request, so the instance never stores them. Existing
+	// instance mode only.
+	PrePullImages []string
 
 	// Commands run on the instance on failure, see Diagnose.
 	OnFailure []string
@@ -84,9 +92,17 @@ func (c *Config) validate() error {
 		if c.ExistingInstance.SSHKey == "" {
 			return fmt.Errorf("existing_instance.ssh_key is required")
 		}
+		for _, ref := range c.PrePullImages {
+			if _, err := name.ParseReference(ref); err != nil {
+				return fmt.Errorf("pre-pull image %q: %w", ref, err)
+			}
+		}
 		return nil
 	}
 
+	if len(c.PrePullImages) > 0 {
+		return fmt.Errorf("pre-pull images are only supported with existing_instance")
+	}
 	if c.VPCID == "" {
 		return fmt.Errorf("vpc_id is required")
 	}

@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -173,5 +174,85 @@ func TestEnvExports(t *testing.T) {
 	want := []string{"export A=1", "export B='two words'", `export C='it'\''s $HOME'`}
 	if !slices.Equal(got, want) {
 		t.Errorf("envExports = %q, want %q", got, want)
+	}
+}
+
+func TestValidatePrePullImages(t *testing.T) {
+	existing := &ExistingInstance{IP: "192.0.2.10", SSHKey: "/tmp/key"}
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{{
+		name: "digest refs accepted in existing instance mode",
+		cfg: Config{
+			ExistingInstance: existing,
+			PrePullImages:    []string{"cgr.dev/chainguard/wolfi-base@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43"},
+		},
+	}, {
+		name: "unparseable ref rejected",
+		cfg: Config{
+			ExistingInstance: existing,
+			PrePullImages:    []string{"not a ref"},
+		},
+		wantErr: "pre-pull image",
+	}, {
+		name: "pre-pull rejected without existing instance",
+		cfg: Config{
+			VPCID:         "vpc-123",
+			AMI:           "ami-123",
+			PrePullImages: []string{"cgr.dev/chainguard/wolfi-base:latest"},
+		},
+		wantErr: "only supported with existing_instance",
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := tc.cfg
+			cfg.applyDefaults()
+			err := cfg.validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validate() = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestTeardownExistingInstanceRunsStack checks that Teardown in existing
+// instance mode runs the stack, which holds the test containers' removal,
+// and that IMAGETEST_SKIP_TEARDOWN leaves them in place.
+func TestTeardownExistingInstanceRunsStack(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		t.Run(fmt.Sprintf("skip_teardown=%t", skip), func(t *testing.T) {
+			d, err := NewDriver(Config{
+				ExistingInstance: &ExistingInstance{IP: "192.0.2.10", SSHKey: "/tmp/key"},
+				SkipTeardown:     skip,
+			}, nil, nil)
+			if err != nil {
+				t.Fatalf("NewDriver: %v", err)
+			}
+			d.existingIP = d.cfg.ExistingInstance.IP
+
+			called := false
+			if err := d.stack.Add(func(context.Context) error {
+				called = true
+				return nil
+			}); err != nil {
+				t.Fatalf("stack.Add: %v", err)
+			}
+
+			if err := d.Teardown(t.Context()); err != nil {
+				t.Fatalf("Teardown: %v", err)
+			}
+			if called == skip {
+				t.Errorf("stack teardown ran = %t, want %t", called, !skip)
+			}
+		})
 	}
 }

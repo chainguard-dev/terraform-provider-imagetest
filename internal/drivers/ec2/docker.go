@@ -155,6 +155,49 @@ func (d *driver) pullImage(ctx context.Context, cli *client.Client, ref name.Ref
 	return nil
 }
 
+// prePullImages pulls cfg.PrePullImages into the instance's Docker daemon.
+// Each pull is authenticated with the caller's keychain, like the test image
+// pull in Run, so the instance never needs registry credentials of its own.
+// References are pulled as given (by digest when the caller resolved one) and
+// never with a platform override: the daemon selects its own platform from a
+// multi-arch index.
+func (d *driver) prePullImages(ctx context.Context) error {
+	if len(d.cfg.PrePullImages) == 0 {
+		return nil
+	}
+
+	log := clog.FromContext(ctx)
+
+	refs := make([]name.Reference, 0, len(d.cfg.PrePullImages))
+	for _, s := range d.cfg.PrePullImages {
+		ref, err := name.ParseReference(s)
+		if err != nil {
+			return fmt.Errorf("parsing pre-pull image %q: %w", s, err)
+		}
+		refs = append(refs, ref)
+	}
+
+	cli, err := d.dockerClient(ctx)
+	if err != nil {
+		return fmt.Errorf("creating docker client: %w", err)
+	}
+	defer cli.Close()
+
+	if err := d.waitDocker(ctx, cli); err != nil {
+		return err
+	}
+
+	for _, ref := range refs {
+		log.Info("pre-pulling image", "image", ref.String())
+		if err := d.pullImage(ctx, cli, ref); err != nil {
+			return fmt.Errorf("pre-pulling image %s: %w", ref.String(), err)
+		}
+	}
+
+	log.Info("pre-pull complete", "count", len(refs))
+	return nil
+}
+
 func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.Reference) (*drivers.RunResult, error) {
 	log := clog.FromContext(ctx)
 

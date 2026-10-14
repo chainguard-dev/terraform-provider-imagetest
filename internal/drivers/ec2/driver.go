@@ -102,6 +102,12 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 		return fmt.Errorf("running setup commands: %w", err)
 	}
 
+	// Pull the images under test into the instance's daemon so the tests
+	// find them locally. The instance holds no registry credentials.
+	if err := d.prePullImages(ctx); err != nil {
+		return fmt.Errorf("pre-pulling images: %w", err)
+	}
+
 	log.Info("existing instance ready", "ip", d.existingIP)
 	return nil
 }
@@ -282,8 +288,23 @@ func (d *driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
 	if d.cfg.ExistingInstance != nil {
-		log.Info("existing instance mode - nothing to teardown")
-		return nil
+		// No AWS resources exist in this mode, but the stack still holds
+		// the test containers' removal. The instance is shared and
+		// persistent, so leaving them behind accumulates.
+		if d.cfg.SkipTeardown {
+			log.Info("IMAGETEST_SKIP_TEARDOWN is set, leaving test containers on the existing instance",
+				"instance_ip", d.existingIP,
+				"ssh_key", d.sshKeyPath(),
+				"ssh_user", d.cfg.SSHUser,
+			)
+			log.Infof("to connect: ssh -i %s %s@%s", d.sshKeyPath(), d.cfg.SSHUser, d.existingIP)
+			return nil
+		}
+
+		log.Info("existing instance mode - removing test containers")
+		ctx, cancel := d.cfg.Timeouts.TeardownContext(ctx)
+		defer cancel()
+		return d.stack.Teardown(ctx)
 	}
 
 	if d.cfg.SkipTeardown {
