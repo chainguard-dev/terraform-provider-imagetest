@@ -45,6 +45,7 @@ Optional:
 - `ec2` (Attributes) The AWS EC2 driver. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
+- `ssh` (Attributes) The ssh driver. Runs tests on a host that already exists, over SSH. The host runs Docker; the driver pulls the images under test into its daemon with the caller's registry credentials before the tests start, runs each test container under a unique name, and removes the containers at teardown. It creates no infrastructure and builds no cloud clients. (see [below for nested schema](#nestedatt--drivers--ssh))
 
 <a id="nestedatt--drivers--aks"></a>
 ### Nested Schema for `drivers.aks`
@@ -149,10 +150,10 @@ Optional:
 
 Optional:
 
-- `ami` (String) The AMI ID to launch. Required unless using existing_instance.
+- `ami` (String) The AMI ID to launch. Required unless using existing_instance (deprecated).
 - `device_mounts` (List of String) Device mounts for the test container (format: src:dst).
 - `env` (Map of String) Environment variables for setup commands and container.
-- `existing_instance` (Attributes) Use an existing instance instead of creating new resources. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
+- `existing_instance` (Attributes, Deprecated) Deprecated: use the `ssh` driver, which runs tests on an existing host without AWS clients and requires a pinned host key. Use an existing instance instead of creating new resources. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
 - `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
 - `instance_profile_name` (String) IAM instance profile name. If not specified, one is created with ECR read-only permissions.
 - `instance_type` (String) The EC2 instance type (default: t3.medium).
@@ -168,7 +169,7 @@ Optional:
 - `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--ec2--timeouts))
 - `user_data` (String) Cloud-init user data (will be base64 encoded).
 - `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
-- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance.
+- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance (deprecated).
 
 <a id="nestedatt--drivers--ec2--existing_instance"></a>
 ### Nested Schema for `drivers.ec2.existing_instance`
@@ -279,6 +280,38 @@ Optional:
 
 <a id="nestedatt--drivers--k3s_in_docker--timeouts"></a>
 ### Nested Schema for `drivers.k3s_in_docker.timeouts`
+
+Optional:
+
+- `setup` (String) Maximum time for driver setup (e.g., cluster creation). If unset, setup is bounded only by the resource-level timeout.
+- `teardown` (String) Maximum time for driver teardown (e.g., cluster deletion). If unset, the driver uses a built-in default.
+
+
+
+<a id="nestedatt--drivers--ssh"></a>
+### Nested Schema for `drivers.ssh`
+
+Required:
+
+- `host` (String) Address of the host: a hostname, IPv4 or IPv6 address.
+- `known_hosts` (String) Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and every image pull sends the caller's registry credentials over the tunnel.
+- `ssh_key` (String) Path to the SSH private key file.
+
+Optional:
+
+- `device_mounts` (List of String) Device mounts for the test container (format: src:dst).
+- `env` (Map of String) Environment variables for setup commands and container.
+- `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
+- `on_failure` (List of String) Commands to run on the host when setup or a test fails, before teardown, for diagnostic collection. Unlike a test's `on_failure`, which runs inside the test container, these run on the host itself, in `shell` with `env` like `setup_commands`, and also when setup fails. Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.
+- `setup_commands` (List of String) Commands to run on the host before tests.
+- `shell` (String) Shell to use for commands (default: bash).
+- `ssh_port` (Number) SSH port for connecting to the host (default: 22).
+- `ssh_user` (String) SSH user for connecting to the host (default: ubuntu).
+- `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--ssh--timeouts))
+- `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
+
+<a id="nestedatt--drivers--ssh--timeouts"></a>
+### Nested Schema for `drivers.ssh.timeouts`
 
 Optional:
 

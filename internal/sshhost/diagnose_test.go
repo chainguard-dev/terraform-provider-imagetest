@@ -1,4 +1,4 @@
-package ec2
+package sshhost
 
 import (
 	"bytes"
@@ -99,21 +99,16 @@ func TestOnFailureScriptRealShell(t *testing.T) {
 func TestDiagnose(t *testing.T) {
 	t.Run("nothing configured, nothing to do", func(t *testing.T) {
 		var out bytes.Buffer
-		require.NoError(t, (&driver{}).Diagnose(t.Context(), &out))
+		require.NoError(t, (&Host{}).Diagnose(t.Context(), &out))
 		assert.Empty(t, out.String())
 	})
 
-	cmds := []string{"uptime"}
-	for name, d := range map[string]*driver{
-		"new instance never created":   {cfg: Config{OnFailure: cmds}},
-		"new instance never reachable": {cfg: Config{OnFailure: cmds}, instance: &instance{}},
-		// Setup fails reading the key before the signer is set.
-		"existing instance without key": {cfg: Config{OnFailure: cmds, ExistingInstance: &ExistingInstance{IP: "127.0.0.1", SSHKey: "/nope"}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := d.Diagnose(t.Context(), io.Discard)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "not created")
-		})
-	}
+	t.Run("unreachable host fails before writing anything", func(t *testing.T) {
+		h := &Host{Addr: "127.0.0.1", Port: closedPort(t), User: "nobody", Shell: "bash", OnFailure: []string{"uptime"}}
+		var out bytes.Buffer
+		err := h.Diagnose(t.Context(), &out)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "connecting to host")
+		assert.Empty(t, out.String())
+	})
 }

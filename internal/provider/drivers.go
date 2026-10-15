@@ -22,6 +22,7 @@ import (
 	mc2 "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ec2"
 	ekswitheksctl "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/eks_with_eksctl"
 	k3sindocker "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/k3s_in_docker"
+	sshdriver "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers/ssh"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -36,6 +37,7 @@ const (
 	DriverDockerInDocker DriverResourceModel = "docker_in_docker"
 	DriverEKSWithEksctl  DriverResourceModel = "eks_with_eksctl"
 	DriverEC2            DriverResourceModel = "ec2"
+	DriverSSH            DriverResourceModel = "ssh"
 )
 
 type TestsDriversResourceModel struct {
@@ -44,6 +46,7 @@ type TestsDriversResourceModel struct {
 	DockerInDocker *DockerInDockerDriverResourceModel `tfsdk:"docker_in_docker"`
 	EKSWithEksctl  *EKSWithEksctlDriverResourceModel  `tfsdk:"eks_with_eksctl"`
 	EC2            *EC2DriverResourceModel            `tfsdk:"ec2"`
+	SSH            *SSHDriverResourceModel            `tfsdk:"ssh"`
 }
 
 type AKSDriverResourceModel struct {
@@ -193,6 +196,22 @@ type EC2ExistingInstanceResourceModel struct {
 	IP         types.String `tfsdk:"ip"`
 	SSHKey     types.String `tfsdk:"ssh_key"`
 	KnownHosts types.String `tfsdk:"known_hosts"`
+}
+
+type SSHDriverResourceModel struct {
+	Host          types.String                 `tfsdk:"host"`
+	SSHPort       types.Int64                  `tfsdk:"ssh_port"`
+	SSHUser       types.String                 `tfsdk:"ssh_user"`
+	SSHKey        types.String                 `tfsdk:"ssh_key"`
+	KnownHosts    types.String                 `tfsdk:"known_hosts"`
+	Shell         types.String                 `tfsdk:"shell"`
+	SetupCommands []types.String               `tfsdk:"setup_commands"`
+	Env           types.Map                    `tfsdk:"env"`
+	VolumeMounts  []types.String               `tfsdk:"volume_mounts"`
+	DeviceMounts  []types.String               `tfsdk:"device_mounts"`
+	GPUs          types.String                 `tfsdk:"gpus"`
+	OnFailure     []string                     `tfsdk:"on_failure"`
+	Timeouts      *DriverTimeoutsResourceModel `tfsdk:"timeouts"`
 }
 
 func parseTimeoutsModel(m *DriverTimeoutsResourceModel) (drivers.Timeouts, error) {
@@ -576,10 +595,14 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			InstanceProfileName: driversCfg.EC2.InstanceProfileName.ValueString(),
 			SubnetCIDR:          driversCfg.EC2.SubnetCIDR.ValueString(),
 			SSHUser:             driversCfg.EC2.SSHUser.ValueString(),
-			SSHPort:             int32(driversCfg.EC2.SSHPort.ValueInt64()),
 			Shell:               driversCfg.EC2.Shell.ValueString(),
 			UserData:            driversCfg.EC2.UserData.ValueString(),
 			GPUs:                driversCfg.EC2.GPUs.ValueString(),
+		}
+
+		var err error
+		if driverCfg.SSHPort, err = portFromModel("ec2.ssh_port", driversCfg.EC2.SSHPort); err != nil {
+			return nil, err
 		}
 
 		// Handle deprecated mount_all_gpus field
@@ -660,9 +683,82 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 
 		return mc2.NewDriver(driverCfg, ec2Client, iamClient)
 
+	case DriverSSH:
+		cfg := driversCfg.SSH
+		if cfg == nil {
+			return nil, fmt.Errorf("the ssh driver was specified, but no configuration was provided")
+		}
+
+		driverCfg := sshdriver.Config{
+			Host:       cfg.Host.ValueString(),
+			SSHUser:    cfg.SSHUser.ValueString(),
+			SSHKey:     cfg.SSHKey.ValueString(),
+			KnownHosts: cfg.KnownHosts.ValueString(),
+			Shell:      cfg.Shell.ValueString(),
+			GPUs:       cfg.GPUs.ValueString(),
+			OnFailure:  cfg.OnFailure,
+			Env:        make(map[string]string),
+		}
+
+		var err error
+		if driverCfg.SSHPort, err = portFromModel("ssh.ssh_port", cfg.SSHPort); err != nil {
+			return nil, err
+		}
+
+		if v, ok := os.LookupEnv("IMAGETEST_SKIP_TEARDOWN"); ok && v != "" {
+			driverCfg.SkipTeardown = true
+		}
+
+		// The host holds no registry credentials, so the driver pulls the
+		// images under test with ours before the tests run.
+		imgs, err := data.Images.Resolve()
+		if err != nil {
+			return nil, fmt.Errorf("resolving images for pre-pull: %w", err)
+		}
+		driverCfg.PrePullImages = prePullRefs(imgs)
+
+		for _, cmd := range cfg.SetupCommands {
+			driverCfg.SetupCommands = append(driverCfg.SetupCommands, cmd.ValueString())
+		}
+		for k, v := range cfg.Env.Elements() {
+			if v.IsNull() || v.IsUnknown() {
+				continue
+			}
+			if strVal, ok := v.(types.String); ok {
+				driverCfg.Env[k] = strVal.ValueString()
+			}
+		}
+		for _, mount := range cfg.VolumeMounts {
+			driverCfg.VolumeMounts = append(driverCfg.VolumeMounts, mount.ValueString())
+		}
+		for _, mount := range cfg.DeviceMounts {
+			driverCfg.DeviceMounts = append(driverCfg.DeviceMounts, mount.ValueString())
+		}
+
+		driverCfg.Timeouts, err = parseTimeoutsModel(cfg.Timeouts)
+		if err != nil {
+			return nil, fmt.Errorf("ssh: %w", err)
+		}
+
+		return sshdriver.NewDriver(driverCfg)
+
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", data.Driver)
 	}
+}
+
+// portFromModel narrows a port attribute to int32. Null keeps 0, the
+// driver's default; anything outside the TCP range is rejected here rather
+// than wrapped by the conversion.
+func portFromModel(attr string, v types.Int64) (int32, error) {
+	if v.IsNull() || v.IsUnknown() {
+		return 0, nil
+	}
+	p := v.ValueInt64()
+	if p < 1 || p > 65535 {
+		return 0, fmt.Errorf("%s: %d is out of range (1-65535)", attr, p)
+	}
+	return int32(p), nil
 }
 
 // prePullRefs returns the resolved image references in a stable order, keyed
@@ -961,8 +1057,77 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 				},
 			},
 			"ec2": driverResourceSchemaEC2,
+			"ssh": driverResourceSchemaSSH,
 		},
 	}
+}
+
+var driverResourceSchemaSSH = schema.SingleNestedAttribute{
+	Description: "The ssh driver. Runs tests on a host that already exists, over SSH. " +
+		"The host runs Docker; the driver pulls the images under test into its daemon with the caller's registry credentials before the tests start, runs each test container under a unique name, and removes the containers at teardown. " +
+		"It creates no infrastructure and builds no cloud clients.",
+	Optional: true,
+	Attributes: map[string]schema.Attribute{
+		"host": schema.StringAttribute{
+			Description: "Address of the host: a hostname, IPv4 or IPv6 address.",
+			Required:    true,
+		},
+		"ssh_port": schema.Int64Attribute{
+			Description: "SSH port for connecting to the host (default: 22).",
+			Optional:    true,
+		},
+		"ssh_user": schema.StringAttribute{
+			Description: "SSH user for connecting to the host (default: ubuntu).",
+			Optional:    true,
+		},
+		"ssh_key": schema.StringAttribute{
+			Description: "Path to the SSH private key file.",
+			Required:    true,
+		},
+		"known_hosts": schema.StringAttribute{
+			Description: "Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. " +
+				"Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and every image pull sends the caller's registry credentials over the tunnel.",
+			Required: true,
+		},
+		"shell": schema.StringAttribute{
+			Description: "Shell to use for commands (default: bash).",
+			Optional:    true,
+		},
+		"setup_commands": schema.ListAttribute{
+			Description: "Commands to run on the host before tests.",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"env": schema.MapAttribute{
+			Description: "Environment variables for setup commands and container.",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"volume_mounts": schema.ListAttribute{
+			Description: "Volume mounts for the test container (format: src:dst).",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"device_mounts": schema.ListAttribute{
+			Description: "Device mounts for the test container (format: src:dst).",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"gpus": schema.StringAttribute{
+			Description: "GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.",
+			Optional:    true,
+		},
+		"on_failure": schema.ListAttribute{
+			Description: "Commands to run on the host when setup or a test fails, before teardown, for diagnostic collection. " +
+				"Unlike a test's `on_failure`, which runs inside the test container, these run on the host itself, in `shell` with `env` like `setup_commands`, and also when setup fails. " +
+				"Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. " +
+				"Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. " +
+				"With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.",
+			ElementType: types.StringType,
+			Optional:    true,
+		},
+		"timeouts": driverTimeoutsSchema(),
+	},
 }
 
 var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
@@ -970,7 +1135,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 	Optional:    true,
 	Attributes: map[string]schema.Attribute{
 		"vpc_id": schema.StringAttribute{
-			Description: "The VPC ID to create resources in. Required unless using existing_instance.",
+			Description: "The VPC ID to create resources in. Required unless using existing_instance (deprecated).",
 			Optional:    true,
 		},
 		"region": schema.StringAttribute{
@@ -978,7 +1143,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			Optional:    true,
 		},
 		"ami": schema.StringAttribute{
-			Description: "The AMI ID to launch. Required unless using existing_instance.",
+			Description: "The AMI ID to launch. Required unless using existing_instance (deprecated).",
 			Optional:    true,
 		},
 		"instance_type": schema.StringAttribute{
@@ -1043,8 +1208,9 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			DeprecationMessage: "Use gpus = 'all' instead.",
 		},
 		"existing_instance": schema.SingleNestedAttribute{
-			Description: "Use an existing instance instead of creating new resources.",
-			Optional:    true,
+			Description:        "Deprecated: use the `ssh` driver, which runs tests on an existing host without AWS clients and requires a pinned host key. Use an existing instance instead of creating new resources.",
+			DeprecationMessage: "Use the ssh driver instead.",
+			Optional:           true,
 			Attributes: map[string]schema.Attribute{
 				"ip": schema.StringAttribute{
 					Description: "IP address of the existing instance.",

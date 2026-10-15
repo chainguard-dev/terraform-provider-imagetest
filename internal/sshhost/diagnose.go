@@ -1,4 +1,4 @@
-package ec2
+package sshhost
 
 import (
 	"context"
@@ -20,49 +20,32 @@ const onFailureCommandTimeout = time.Minute
 // errOnFailureTimeout reports that a command was stopped by its timeout.
 var errOnFailureTimeout = fmt.Errorf("timed out after %s", onFailureCommandTimeout)
 
-// remoteExec runs one on_failure command on the instance.
+// remoteExec runs one on_failure command on the host.
 type remoteExec func(stdout, stderr io.Writer, cmd string) error
 
-// Diagnose implements drivers.Diagnoser by running the configured on_failure
-// commands on the instance.
-func (d *driver) Diagnose(ctx context.Context, w io.Writer) error {
-	if len(d.cfg.OnFailure) == 0 {
+// Diagnose runs OnFailure on the host and writes the output to w, in the
+// format of a test's on_failure log. It implements the host side of
+// drivers.Diagnoser; the driver decides whether the host exists yet.
+func (h *Host) Diagnose(ctx context.Context, w io.Writer) error {
+	if len(h.OnFailure) == 0 {
 		return nil
 	}
 
-	// Setup may have failed before the instance or the SSH key existed.
-	var ip string
-	switch {
-	case d.cfg.ExistingInstance != nil:
-		if d.existingSigner != nil {
-			ip = d.existingIP
-		}
-	case d.instance != nil:
-		ip = d.instance.publicIP
-	}
-	if ip == "" {
-		return errors.New("instance was not created or never became reachable")
-	}
-
-	conn, err := d.sshConnect()
-	if err != nil {
-		return fmt.Errorf("connecting to instance: %w", err)
-	}
-	defer conn.Close()
-
-	// Enforce the overall budget by closing the connection: that unblocks a
-	// running session, whose Wait returns only after its output is copied, so
+	// The budget is enforced by closing the connection when ctx ends, so
 	// nothing is written to w after this returns.
-	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	defer stop()
+	conn, done, err := h.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("connecting to host: %w", err)
+	}
+	defer done()
 
 	runOnFailure(ctx, func(stdout, stderr io.Writer, cmd string) error {
-		err := issh.ExecIn(conn, d.cfg.Shell, stdout, stderr, onFailureScript(d.cfg.Shell, d.cfg.Env, cmd)...)
+		err := issh.ExecIn(conn, h.Shell, stdout, stderr, onFailureScript(h.Shell, h.Env, cmd)...)
 		if exitErr, ok := errors.AsType[*ssh.ExitError](err); ok && exitErr.ExitStatus() == 124 {
 			return errOnFailureTimeout
 		}
 		return err
-	}, d.cfg.OnFailure, w)
+	}, h.OnFailure, w)
 	return nil
 }
 

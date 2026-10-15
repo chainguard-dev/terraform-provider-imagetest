@@ -1,4 +1,4 @@
-package ec2
+package sshhost
 
 import (
 	"slices"
@@ -37,6 +37,24 @@ func TestParseKnownHosts(t *testing.T) {
 		host:     "192.0.2.10",
 		port:     22,
 		wantKeys: 1,
+	}, {
+		name:    "bracketed host with port 22 does not match, as in OpenSSH",
+		data:    "[192.0.2.10]:22 " + testHostKeyLine + "\n",
+		host:    "192.0.2.10",
+		port:    22,
+		wantErr: "no entry for 192.0.2.10",
+	}, {
+		name:    "bare host does not match on a non-default port, as in OpenSSH",
+		data:    "192.0.2.10 " + testHostKeyLine + "\n",
+		host:    "192.0.2.10",
+		port:    2222,
+		wantErr: "no entry for [192.0.2.10]:2222",
+	}, {
+		name:    "certificate authority entry is rejected",
+		data:    "@cert-authority 192.0.2.10 " + testHostKeyLine + "\n",
+		host:    "192.0.2.10",
+		port:    22,
+		wantErr: "certificate authority",
 	}, {
 		name:    "entry for another host only",
 		data:    "192.0.2.99 " + testHostKeyLine + "\n",
@@ -110,15 +128,9 @@ func TestSSHOpts(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d, err := NewDriver(Config{
-				ExistingInstance: &ExistingInstance{IP: "192.0.2.10", SSHKey: "/tmp/key", KnownHosts: tc.knownHosts},
-			}, nil, nil)
-			if err != nil {
-				t.Fatalf("NewDriver: %v", err)
-			}
-			d.existingIP = d.cfg.ExistingInstance.IP
+			h := &Host{Addr: "192.0.2.10", Port: 22, User: "ubuntu", KeyPath: "/tmp/key", KnownHosts: tc.knownHosts}
 
-			opts := d.sshOpts()
+			opts := h.sshOpts()
 			for _, w := range tc.want {
 				if !slices.Contains(opts, w) {
 					t.Errorf("sshOpts() = %v, missing %q", opts, w)
@@ -131,6 +143,9 @@ func TestSSHOpts(t *testing.T) {
 			}
 			if !slices.Contains(opts, "-i") || !slices.Contains(opts, "/tmp/key") {
 				t.Errorf("sshOpts() = %v, missing identity file", opts)
+			}
+			if !slices.Contains(opts, "-l") || !slices.Contains(opts, "ubuntu") {
+				t.Errorf("sshOpts() = %v, missing login user", opts)
 			}
 		})
 	}
