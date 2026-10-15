@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
@@ -84,7 +84,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
@@ -161,7 +161,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
@@ -219,7 +219,7 @@ jobs:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
 
-      - uses: chainguard-dev/actions/setup-registry@805da2efdffdc42b8afd8880e575a48b471ef544 # v1.6.37
+      - uses: chainguard-dev/actions/setup-registry@84b1be4c638f12d4256ddddef17af98853b6d0d9 # v1.6.40
         with:
           port: 5005
           disk: true
@@ -286,7 +286,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit # TODO(harden-runner): switch to block once Docker/k3s internal DNS (127.0.0.11:53) is supported
           allowed-endpoints: >
@@ -335,7 +335,7 @@ jobs:
           terraform_version: "1.14.*"
           terraform_wrapper: false
 
-      - uses: chainguard-dev/actions/setup-registry@805da2efdffdc42b8afd8880e575a48b471ef544 # v1.6.37
+      - uses: chainguard-dev/actions/setup-registry@84b1be4c638f12d4256ddddef17af98853b6d0d9 # v1.6.40
         with:
           port: 5005
           disk: true
@@ -360,7 +360,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           # No allowed-endpoints list, unlike the sibling jobs: AWS is
           # emulated by a local container (floci on localhost:4566), so this
