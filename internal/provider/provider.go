@@ -4,7 +4,9 @@ import (
 	"context"
 	"maps"
 	"os"
+	"time"
 
+	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -386,11 +388,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		store.logsDirectory = v
 	}
 
-	if err := o11y.Setup(ctx); err != nil {
-		resp.Diagnostics.AddError("failed to setup observability", err.Error())
-		return
-	}
-
 	// Store any "global" provider configuration in the store
 	store.providerResourceData = data
 
@@ -442,4 +439,13 @@ func mergeResourceSchemas(schemas ...map[string]rschema.Attribute) map[string]rs
 	}
 
 	return result
+}
+
+// Terraform may stop the provider immediately after the apply response.
+func flushTelemetry(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := o11y.Flush(ctx); err != nil {
+		clog.WarnContext(ctx, "otel flush", "error", err)
+	}
 }

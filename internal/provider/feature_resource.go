@@ -281,6 +281,8 @@ func (r *FeatureResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds diag.Diagnostics) {
+	defer flushTelemetry(ctx)
+
 	if data.Skipped.ValueString() != "" {
 		ds.AddWarning(
 			fmt.Sprintf("skipping feature %s [%s]", data.Name.ValueString(), data.Id.ValueString()),

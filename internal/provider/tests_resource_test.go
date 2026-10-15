@@ -10,13 +10,19 @@ import (
 	"os"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestAccTestsResource(t *testing.T) {
@@ -777,5 +783,28 @@ func TestIsLocalRegistry(t *testing.T) {
 					got, tt.want, registry.Name())
 			}
 		})
+	}
+}
+
+func TestTestsResourceFlushOnFailure(t *testing.T) {
+	t.Setenv("IMAGETEST_SKIP_ALL", "")
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		if err := tp.Shutdown(context.WithoutCancel(t.Context())); err != nil {
+			t.Error(err)
+		}
+	})
+	r := &TestsResource{repo: name.MustParseReference("example.com/tests:latest").Context(), entrypointLayers: make(map[string][]v1.Layer)}
+	ds := r.do(t.Context(), &TestsResourceModel{Name: types.StringValue("suite"), Timeout: types.StringValue("1m"), Driver: "invalid"})
+	if !ds.HasError() {
+		t.Fatal("expected invalid driver diagnostic")
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 2 || spans[0].Name != "imagetest.build" || spans[1].Name != "imagetest.suite" {
+		t.Fatalf("spans exported before return: %v", spans)
 	}
 }

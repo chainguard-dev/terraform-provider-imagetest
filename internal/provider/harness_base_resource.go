@@ -199,6 +199,7 @@ func traceHarness(ctx context.Context, id, name string, diags *diag.Diagnostics)
 			span.SetStatus(codes.Error, "harness setup failed")
 		}
 		span.End()
+		flushTelemetry(ctx)
 	}
 }
 

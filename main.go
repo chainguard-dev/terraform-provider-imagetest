@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -16,8 +15,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"go.opentelemetry.io/otel"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
@@ -34,6 +31,9 @@ import (
 // to appropriate values for the compiled binary.
 var version string = "dev"
 
+// Lifecycle errors can occur without a Terraform RPC logging context.
+var stderrLog = log.New(os.Stderr, "", log.LstdFlags)
+
 // goreleaser can pass other information to the main package, such as the specific commit
 // https://goreleaser.com/cookbooks/using-main.version/
 
@@ -42,44 +42,29 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")
 	flag.Parse()
 
-	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/chainguard-dev/imagetest",
-		Debug:   debug,
-	}
-
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	ctx = setupLog(ctx)
 
-	err := providerserver.Serve(ctx, provider.New(version), opts)
-
-	if shutdownErr := shutdownOTel(); shutdownErr != nil {
-		log.Printf("otel shutdown: %v", shutdownErr)
+	if err := o11y.Setup(ctx, version); err != nil {
+		stderrLog.Printf("otel setup, continuing without telemetry: %v", err)
 	}
+	err := providerserver.Serve(ctx, provider.New(version), providerserver.ServeOpts{
+		Address: "registry.terraform.io/chainguard-dev/imagetest", Debug: debug,
+	})
 
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-}
-
-func shutdownOTel() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// go-plugin kills the process after two seconds. Test and harness runs flush before
+	// replying; this shorter final drain leaves time for the process to exit.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-
-	var errs []error
-	if tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok {
-		if err := tp.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("tracer provider: %w", err))
-		}
+	if err := o11y.Shutdown(shutdownCtx); err != nil {
+		stderrLog.Printf("otel shutdown: %v", err)
 	}
-	if lp := o11y.LoggerProvider(); lp != nil {
-		if err := lp.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("logger provider: %w", err))
-		}
+	if err != nil {
+		stderrLog.Fatal(err)
 	}
-	return errors.Join(errs...)
 }
 
 // setupLog sets up the default logging configuration.

@@ -350,6 +350,8 @@ func (t *TestsResource) Update(ctx context.Context, req resource.UpdateRequest, 
 }
 
 func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds diag.Diagnostics) {
+	defer flushTelemetry(ctx)
+
 	// lightly sanitize the name, this likely needs some revision
 	id := strings.ReplaceAll(fmt.Sprintf("%s-%s-%s", data.Name.ValueString(), data.Driver, uuid.New().String()[:4]), " ", "_")
 	data.Id = types.StringValue(id)
