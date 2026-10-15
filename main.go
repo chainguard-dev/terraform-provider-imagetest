@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -16,8 +15,8 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"go.opentelemetry.io/otel"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6/tf6server"
 )
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
@@ -34,6 +33,9 @@ import (
 // to appropriate values for the compiled binary.
 var version string = "dev"
 
+// Lifecycle errors can occur without a Terraform RPC logging context.
+var stderrLog = log.New(os.Stderr, "", log.LstdFlags)
+
 // goreleaser can pass other information to the main package, such as the specific commit
 // https://goreleaser.com/cookbooks/using-main.version/
 
@@ -42,44 +44,52 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")
 	flag.Parse()
 
-	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/chainguard-dev/imagetest",
-		Debug:   debug,
-	}
-
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
 	ctx = setupLog(ctx)
 
-	err := providerserver.Serve(ctx, provider.New(version), opts)
-
-	if shutdownErr := shutdownOTel(); shutdownErr != nil {
-		log.Printf("otel shutdown: %v", shutdownErr)
+	if err := o11y.Setup(ctx, version); err != nil {
+		stderrLog.Fatal(err)
 	}
-
-	if err != nil {
-		log.Fatal(err.Error())
+	if err := serve(debug); err != nil {
+		stderrLog.Fatal(err.Error())
 	}
 }
 
-func shutdownOTel() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func serve(debug bool) error {
+	var opts []tf6server.ServeOpt
+	if debug {
+		opts = append(opts, tf6server.WithManagedDebug())
+	}
+	err := tf6server.Serve("registry.terraform.io/chainguard-dev/imagetest", func() tfprotov6.ProviderServer {
+		return &telemetryServer{ProviderServer: providerserver.NewProtocol6(provider.New(version)())()}
+	}, opts...)
 
-	var errs []error
-	if tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok {
-		if err := tp.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("tracer provider: %w", err))
-		}
+	// go-plugin kills the process after two seconds. Resource changes flush before
+	// replying; this shorter final drain leaves time for the process to exit.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := o11y.Shutdown(ctx); err != nil {
+		stderrLog.Printf("otel shutdown: %v", err)
 	}
-	if lp := o11y.LoggerProvider(); lp != nil {
-		if err := lp.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("logger provider: %w", err))
+	return err
+}
+
+type telemetryServer struct{ tfprotov6.ProviderServer }
+
+func (s *telemetryServer) ApplyResourceChange(ctx context.Context, req *tfprotov6.ApplyResourceChangeRequest) (*tfprotov6.ApplyResourceChangeResponse, error) {
+	defer func() {
+		// Terraform may close the plugin immediately after this response, including
+		// after a canceled apply. Drain completed spans/logs while it is still waiting.
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := o11y.Flush(flushCtx); err != nil {
+			stderrLog.Printf("otel flush: %v", err)
 		}
-	}
-	return errors.Join(errs...)
+	}()
+	return s.ProviderServer.ApplyResourceChange(ctx, req)
 }
 
 // setupLog sets up the default logging configuration.
