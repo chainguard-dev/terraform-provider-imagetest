@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -596,6 +598,15 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 				IP:     driversCfg.EC2.ExistingInstance.IP.ValueString(),
 				SSHKey: driversCfg.EC2.ExistingInstance.SSHKey.ValueString(),
 			}
+
+			// The existing instance holds no registry credentials, so the
+			// driver pulls the images under test with ours before the
+			// tests run.
+			imgs, err := data.Images.Resolve()
+			if err != nil {
+				return nil, fmt.Errorf("resolving images for pre-pull: %w", err)
+			}
+			driverCfg.PrePullImages = prePullRefs(imgs)
 		}
 
 		driverCfg.OnFailure = driversCfg.EC2.OnFailure
@@ -650,6 +661,16 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", data.Driver)
 	}
+}
+
+// prePullRefs returns the resolved image references in a stable order, keyed
+// by the images map key, for the driver to pull ahead of the tests.
+func prePullRefs(imgs map[string]TestsImagesParsed) []string {
+	refs := make([]string, 0, len(imgs))
+	for _, k := range slices.Sorted(maps.Keys(imgs)) {
+		refs = append(refs, imgs[k].Ref)
+	}
+	return refs
 }
 
 func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {

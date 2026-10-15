@@ -11,6 +11,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -23,6 +24,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -284,6 +289,20 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds
 		return ds
 	}
 
+	ctx, span := otel.Tracer("imagetest").Start(o11y.ExtractTraceContext(ctx), "imagetest.feature",
+		trace.WithAttributes(
+			attribute.String("tf.resource.id", data.Id.ValueString()),
+			attribute.String(o11y.AttrName, data.Name.ValueString()),
+			attribute.String("harness.id", data.Harness.Id.ValueString()),
+		),
+	)
+	defer func() {
+		if ds.HasError() {
+			span.SetStatus(codes.Error, "feature failed")
+		}
+		span.End()
+	}()
+
 	timeout, diags := data.Timeouts.Create(ctx, defaultFeatureCreateTimeout)
 	if diags.HasError() {
 		ds.Append(diags...)
@@ -343,6 +362,7 @@ func (r *FeatureResource) do(ctx context.Context, data FeatureResourceModel) (ds
 	log.Info(ctx, "testing feature against harness")
 
 	if err = feat.Test(ctx); err != nil {
+		span.SetStatus(codes.Error, "feature failed")
 		if data.WarnOnFailure.ValueBool() {
 			ds.AddWarning(
 				fmt.Sprintf("failed to test feature: %s", feat.Name),
@@ -377,7 +397,22 @@ func (r *FeatureResource) Update(ctx context.Context, req resource.UpdateRequest
 }
 
 func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data FeatureStepModel, level features.Level) error {
+	phase := "assessment"
+	switch level {
+	case features.Before:
+		phase = "before"
+	case features.After:
+		phase = "after"
+	}
 	fn := features.StepFn(func(ctx context.Context) error {
+		ctx, span := otel.Tracer("imagetest").Start(ctx, "imagetest.step",
+			trace.WithAttributes(
+				attribute.String(o11y.AttrName, data.Name.ValueString()),
+				attribute.String("test.phase", phase),
+			),
+		)
+		defer span.End()
+
 		ctx = log.With(ctx,
 			"step_name", data.Name.ValueString(),
 			"cmd", data.Cmd.ValueString(),
@@ -401,6 +436,8 @@ func (r *FeatureResource) step(feat *features.Feature, h harness.Harness, data F
 		)
 
 		if err != nil {
+			// Run errors can contain the command and its output.
+			span.SetStatus(codes.Error, "step failed")
 			if rerr, ok := err.(*harness.RunError); ok {
 				log.Warn(ctx, "feature step failed with non-zero exit code",
 					"exit_code", rerr.ExitCode,
@@ -486,7 +523,12 @@ If you are regularly skipping the harness teardown, its recommended you run the 
 			}
 		}
 
+		ctx, span := otel.Tracer("imagetest").Start(ctx, "imagetest.teardown",
+			trace.WithAttributes(attribute.String("harness.id", data.Harness.Id.ValueString())),
+		)
+		defer span.End()
 		if err := h.Destroy(ctx); err != nil {
+			span.SetStatus(codes.Error, "harness teardown failed")
 			return []diag.Diagnostic{diag.NewWarningDiagnostic("failed to destroy harness", err.Error())}
 		}
 	}

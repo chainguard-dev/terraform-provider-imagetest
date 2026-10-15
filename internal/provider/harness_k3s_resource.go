@@ -83,6 +83,9 @@ func (r *HarnessK3sResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
 	harness, diags := r.harness(ctx, &data)
@@ -100,6 +103,9 @@ func (r *HarnessK3sResource) Update(ctx context.Context, req resource.UpdateRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 

@@ -36,6 +36,9 @@ func (r *ContainerVolumeResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
 	harness, diags := r.harness(ctx, &data)
@@ -56,6 +59,9 @@ func (r *ContainerVolumeResource) Update(ctx context.Context, req resource.Updat
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 

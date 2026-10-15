@@ -9,6 +9,7 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/log"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -18,6 +19,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	kresource "k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -185,6 +190,18 @@ func (r *BaseHarnessResource) ModifyPlan(ctx context.Context, req resource.Modif
 	}
 }
 
+func traceHarness(ctx context.Context, id, name string, diags *diag.Diagnostics) (context.Context, func()) {
+	ctx, span := otel.Tracer("imagetest").Start(o11y.ExtractTraceContext(ctx), "imagetest.harness",
+		trace.WithAttributes(attribute.String("tf.resource.id", id), attribute.String(o11y.AttrName, name)),
+	)
+	return ctx, func() {
+		if diags.HasError() {
+			span.SetStatus(codes.Error, "harness setup failed")
+		}
+		span.End()
+	}
+}
+
 func (r *BaseHarnessResource) create(ctx context.Context, req resource.CreateRequest, harness harness.Harness) diag.Diagnostics {
 	return r.do(
 		ctx,
@@ -209,11 +226,8 @@ func (r *BaseHarnessResource) update(ctx context.Context, req resource.UpdateReq
 	)
 }
 
-func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpdateRequest, harness harness.Harness) diag.Diagnostics {
-	var (
-		data  BaseHarnessResourceModel
-		diags diag.Diagnostics
-	)
+func (r *BaseHarnessResource) do(ctx context.Context, req framework.CreateOrUpdateRequest, harness harness.Harness) (diags diag.Diagnostics) {
+	var data BaseHarnessResourceModel
 
 	diags.Append(framework.JoinDiagnostics(
 		req.Plan.GetAttribute(ctx, path.Root("inventory"), &data.Inventory),
