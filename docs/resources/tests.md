@@ -178,6 +178,10 @@ Required:
 - `ip` (String) IP address of the existing instance.
 - `ssh_key` (String) Path to the SSH private key file.
 
+Optional:
+
+- `known_hosts` (String) Path to an OpenSSH known_hosts file with the instance's host key (as written by `ssh-keyscan -t ed25519 <ip>`). When set, every SSH connection verifies the host key against it and fails on a mismatch. When unset, host keys are not checked.
+
 
 <a id="nestedatt--drivers--ec2--timeouts"></a>
 ### Nested Schema for `drivers.ec2.timeouts`

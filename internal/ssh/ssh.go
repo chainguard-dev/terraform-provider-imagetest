@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -81,6 +82,11 @@ func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys
 			return ErrHostKeyInvalid
 		},
 		Timeout: sshDefaultTimeout,
+		// Only negotiate the algorithms of the pinned keys. Otherwise the
+		// client's default preference picks whichever of the server's host
+		// keys sorts first (ECDSA before ed25519), and a correctly pinned key
+		// of another type never gets presented.
+		HostKeyAlgorithms: hostKeyAlgorithms(hostKeys),
 	}
 	// Parse the host + port combination to a ssh.Dial-compatible 'addr' (host+
 	// port string).
@@ -97,6 +103,30 @@ func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys
 	// infrastructure doesn't reap a mostly-idle long-lived session.
 	go keepAlive(client, keepaliveInterval)
 	return client, nil
+}
+
+// hostKeyAlgorithms returns the host key algorithms the client should
+// negotiate for the given pinned keys, in order and without duplicates. An
+// RSA key is usable under the SHA-2 signature algorithms as well as the
+// legacy one. With no pinned keys it returns nil, which keeps the client's
+// default preference list.
+func hostKeyAlgorithms(hostKeys []ssh.PublicKey) []string {
+	var algos []string
+	for _, k := range hostKeys {
+		var candidates []string
+		switch k.Type() {
+		case ssh.KeyAlgoRSA:
+			candidates = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+		default:
+			candidates = []string{k.Type()}
+		}
+		for _, a := range candidates {
+			if !slices.Contains(algos, a) {
+				algos = append(algos, a)
+			}
+		}
+	}
+	return algos
 }
 
 // keepAlive periodically sends a keepalive@openssh.com global request on client
