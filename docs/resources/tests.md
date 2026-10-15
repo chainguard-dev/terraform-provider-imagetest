@@ -152,7 +152,7 @@ Optional:
 - `ami` (String) The AMI ID to launch. Required unless using existing_instance.
 - `device_mounts` (List of String) Device mounts for the test container (format: src:dst).
 - `env` (Map of String) Environment variables for setup commands and container.
-- `existing_instance` (Attributes) Use an existing instance instead of creating new resources. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
+- `existing_instance` (Attributes) Use an existing instance instead of creating new resources. No AWS resources are created or destroyed. Setup runs `setup_commands` over SSH, logs GPU info when nvidia-smi is present (non-fatal), and pre-pulls the resolved `images` into the instance's Docker daemon with the caller's registry credentials, so the instance holds none of its own. Teardown removes the test containers and leaves the instance and its image cache untouched. The provider still loads the ambient AWS configuration to build EC2 and IAM clients, although this mode never calls them; a broken local AWS profile fails the resource before any SSH connection. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
 - `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
 - `instance_profile_name` (String) IAM instance profile name. If not specified, one is created with ECR read-only permissions.
 - `instance_type` (String) The EC2 instance type (default: t3.medium).

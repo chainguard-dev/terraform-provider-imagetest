@@ -53,26 +53,35 @@
 //	  known_hosts = "/path/to/known_hosts" # optional
 //	}
 //
-// In this mode, no AWS resources are created or destroyed.
+// In this mode, no AWS resources are created or destroyed. Setup runs over
+// SSH in this order:
+//  1. Setup commands, if any
+//  2. GPU info collection: nvidia-smi output is logged when present; a
+//     missing nvidia-smi or a failed command is a warning, never an error
+//  3. Pre-pull of the images under test (Config.PrePullImages, filled by the
+//     provider from the resource's images map) into the instance's Docker
+//     daemon, so the tests find them locally
+//
+// The pre-pull is authenticated with the caller's registry credentials, sent
+// to the daemon per request, so a shared instance never holds credentials of
+// its own. Pulled images stay in the daemon's cache for later runs; pruning
+// them is the host operator's job. Teardown removes the test containers; the
+// instance itself is left untouched.
 //
 // With known_hosts set, every SSH connection (docker over SSH, setup
-// commands, on_failure diagnostics) verifies the instance's host key against
-// that file and fails on a mismatch. The file is in OpenSSH known_hosts
-// format, as written by `ssh-keyscan -t ed25519 <ip>`; the entry must name
-// the IP as given (or [ip]:port). Without it, host keys are not checked and
-// registry credentials sent with each pull are exposed to an impersonated
-// host. The driver still
-// builds its EC2 and IAM clients from the ambient AWS configuration, but
-// never calls them.
+// commands, GPU info, on_failure diagnostics) verifies the instance's host
+// key against that file and fails on a mismatch. The file is in OpenSSH
+// known_hosts format, as written by `ssh-keyscan -t ed25519 <ip>`; the entry
+// must name the IP as given (or [ip]:port). Without it, host keys are not
+// checked and registry credentials sent with each pull are exposed to an
+// impersonated host.
 //
-// Setup pulls the images under test (Config.PrePullImages, filled by the
-// provider from the resource's images map) into the instance's Docker daemon
-// before any test container starts. The pull is authenticated with the
-// caller's registry credentials, sent to the daemon per request, so a shared
-// instance never holds credentials of its own. Pulled images stay in the
-// daemon's cache for later runs; pruning them is the host operator's job.
-// Teardown removes the test containers; the instance itself is left
-// untouched.
+// The provider still builds the driver's EC2 and IAM clients from the
+// ambient AWS configuration (environment, shared config and credentials
+// files, instance metadata) before Setup, even though this mode never calls
+// them. In CI that configuration is present anyway. For a local run, a
+// broken AWS profile fails the resource before any SSH connection is made;
+// unset AWS_PROFILE or fix the profile rather than looking at the instance.
 package ec2
 
 import "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"

@@ -3,6 +3,7 @@ package ec2
 import (
 	"context"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -255,4 +256,34 @@ func TestTeardownExistingInstanceRunsStack(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCollectGPUInfoExistingInstanceNonFatal checks that GPU info collection
+// in existing instance mode returns normally when the SSH connection fails,
+// so a host without reachable SSH, or without nvidia-smi, cannot fail Setup.
+func TestCollectGPUInfoExistingInstanceNonFatal(t *testing.T) {
+	// Reserve a port and release it, so the connection is refused.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("Addr: %T, want *net.TCPAddr", l.Addr())
+	}
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	d, err := NewDriver(Config{
+		ExistingInstance: &ExistingInstance{IP: "127.0.0.1", SSHKey: "/tmp/key"},
+		SSHPort:          int32(addr.Port),
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewDriver: %v", err)
+	}
+	d.existingIP = d.cfg.ExistingInstance.IP
+
+	// Must not panic or hang; failures are logged, never returned.
+	d.collectGPUInfo(t.Context())
 }

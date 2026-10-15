@@ -112,6 +112,8 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 		return fmt.Errorf("running setup commands: %w", err)
 	}
 
+	d.collectGPUInfo(ctx)
+
 	// Pull the images under test into the instance's daemon so the tests
 	// find them locally. The instance holds no registry credentials.
 	if err := d.prePullImages(ctx); err != nil {

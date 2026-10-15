@@ -1043,8 +1043,10 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			DeprecationMessage: "Use gpus = 'all' instead.",
 		},
 		"existing_instance": schema.SingleNestedAttribute{
-			Description: "Use an existing instance instead of creating new resources.",
-			Optional:    true,
+			Description: "Use an existing instance instead of creating new resources. " +
+				"No AWS resources are created or destroyed. Setup runs `setup_commands` over SSH, logs GPU info when nvidia-smi is present (non-fatal), and pre-pulls the resolved `images` into the instance's Docker daemon with the caller's registry credentials, so the instance holds none of its own. Teardown removes the test containers and leaves the instance and its image cache untouched. " +
+				"The provider still loads the ambient AWS configuration to build EC2 and IAM clients, although this mode never calls them; a broken local AWS profile fails the resource before any SSH connection.",
+			Optional: true,
 			Attributes: map[string]schema.Attribute{
 				"ip": schema.StringAttribute{
 					Description: "IP address of the existing instance.",
