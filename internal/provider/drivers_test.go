@@ -2,6 +2,7 @@ package provider
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -66,5 +67,30 @@ func TestLoadDriverK3sInDockerKubeconfigCleanup(t *testing.T) {
 				t.Errorf("cfg=%+v: TMPDIR has leftover entries %v, want none (LoadDriver err=%v)", tc.cfg, left, err)
 			}
 		})
+	}
+}
+
+// TestPrePullRefs checks that the driver receives the resolved references
+// in a stable order, so logs and pulls are reproducible run to run.
+func TestPrePullRefs(t *testing.T) {
+	imgs, err := TestsImageResource{
+		"b-image": "cgr.dev/chainguard/wolfi-base@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43",
+		"a-image": "cgr.dev/chainguard/busybox:latest@sha256:f7d9063f22547e726221275158930e5033be3c6d8340c6867afb7d0d779fad8d",
+	}.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	got := prePullRefs(imgs)
+	want := []string{
+		"cgr.dev/chainguard/busybox:latest@sha256:f7d9063f22547e726221275158930e5033be3c6d8340c6867afb7d0d779fad8d",
+		"cgr.dev/chainguard/wolfi-base@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("prePullRefs() = %v, want %v", got, want)
+	}
+
+	if got := prePullRefs(nil); len(got) != 0 {
+		t.Errorf("prePullRefs(nil) = %v, want empty", got)
 	}
 }
