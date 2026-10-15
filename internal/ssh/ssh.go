@@ -118,11 +118,9 @@ func ConnectContext(ctx context.Context, host string, port uint16, user string, 
 		return nil, fmt.Errorf("%w: %w", ErrSSHFailedDial, err)
 	}
 	// The handshake is bounded by closing the socket when ctx ends; its reads
-	// and writes then fail. The deadline is a second guard for the same span.
+	// and writes then fail. The context is the only timer, so a timed-out
+	// handshake always reports ctx.Err() and never a socket deadline error.
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
 	c, chans, reqs, err := ssh.NewClientConn(conn, target, config)
 	if !stop() {
 		// ctx ended during the handshake: report that rather than the
@@ -134,7 +132,6 @@ func ConnectContext(ctx context.Context, host string, port uint16, user string, 
 		_ = conn.Close()
 		return nil, fmt.Errorf("%w: %w", ErrSSHFailedDial, err)
 	}
-	_ = conn.SetDeadline(time.Time{})
 	client := ssh.NewClient(c, chans, reqs)
 
 	// Keep the connection alive during idle stretches so intermediate network
