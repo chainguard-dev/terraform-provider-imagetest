@@ -1,4 +1,4 @@
-package ec2
+package sshhost
 
 import (
 	"errors"
@@ -10,12 +10,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// loadKnownHosts reads an OpenSSH known_hosts file and returns the public
+// LoadKnownHosts reads an OpenSSH known_hosts file and returns the public
 // keys it records for host, matched as the bare host or as [host]:port.
 // Hashed entries are not matched. An entry marked @revoked is ignored. It is
 // an error for the file to hold no key for the host, so a file for the wrong
 // host fails before any connection is attempted.
-func loadKnownHosts(path, host string, port int32) ([]ssh.PublicKey, error) {
+func LoadKnownHosts(path, host string, port int32) ([]ssh.PublicKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

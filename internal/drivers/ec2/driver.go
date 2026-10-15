@@ -5,10 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
+	"io"
 	"math/rand/v2"
 	"os"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -22,10 +21,9 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	issh "github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sshhost"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
-	"github.com/kballard/go-shellquote"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/crypto/ssh"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -54,10 +52,10 @@ type driver struct {
 	profile  *instanceProfile
 	instance *instance
 
-	// Runtime state for existing instance mode
-	existingSigner   ssh.Signer
-	existingIP       string
-	existingHostKeys []ssh.PublicKey // pinned host keys; empty means unchecked
+	// host is the instance as a Docker host over SSH. It is set once the
+	// instance is reachable: after launch, or at Setup in existing instance
+	// mode, and stays nil when Setup fails before that.
+	host *sshhost.Host
 }
 
 func NewDriver(cfg Config, ec2Client *ec2.Client, iamClient *iam.Client) (*driver, error) {
@@ -86,40 +84,58 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 	d.name = "imagetest-ec2-" + uuid.New().String()[:8]
 	log.Info("using existing instance", "name", d.name, "ip", d.cfg.ExistingInstance.IP)
 
-	keyData, err := os.ReadFile(d.cfg.ExistingInstance.SSHKey)
+	signer, err := sshhost.ReadKey(d.cfg.ExistingInstance.SSHKey)
 	if err != nil {
-		return fmt.Errorf("reading SSH key %s: %w", d.cfg.ExistingInstance.SSHKey, err)
+		return err
 	}
 
-	signer, err := issh.ParseKey(keyData, nil)
-	if err != nil {
-		return fmt.Errorf("parsing SSH key: %w", err)
-	}
-	d.existingSigner = signer
-	d.existingIP = d.cfg.ExistingInstance.IP
-
+	var hostKeys []ssh.PublicKey
 	if path := d.cfg.ExistingInstance.KnownHosts; path != "" {
-		keys, err := loadKnownHosts(path, d.existingIP, d.cfg.SSHPort)
+		hostKeys, err = sshhost.LoadKnownHosts(path, d.cfg.ExistingInstance.IP, d.cfg.SSHPort)
 		if err != nil {
 			return fmt.Errorf("loading known_hosts: %w", err)
 		}
-		d.existingHostKeys = keys
-		log.Info("host key pinned", "known_hosts", path, "keys", len(keys))
+		log.Info("host key pinned", "known_hosts", path, "keys", len(hostKeys))
 	}
+	d.host = d.newHost(d.cfg.ExistingInstance.IP, d.cfg.ExistingInstance.SSHKey, signer)
+	d.host.KnownHosts = d.cfg.ExistingInstance.KnownHosts
+	d.host.HostKeys = hostKeys
 
 	// Run setup commands if any
-	if err := d.runSetupCommands(ctx); err != nil {
+	if err := d.host.RunSetupCommands(ctx); err != nil {
 		return fmt.Errorf("running setup commands: %w", err)
 	}
 
 	// Pull the images under test into the instance's daemon so the tests
 	// find them locally. The instance holds no registry credentials.
-	if err := d.prePullImages(ctx); err != nil {
+	if err := d.host.PrePullImages(ctx, d.cfg.PrePullImages); err != nil {
 		return fmt.Errorf("pre-pulling images: %w", err)
 	}
 
-	log.Info("existing instance ready", "ip", d.existingIP)
+	log.Info("existing instance ready", "ip", d.host.Addr)
 	return nil
+}
+
+// newHost returns the instance at addr as a Docker host over SSH, with the
+// driver's shell, env, setup and container settings.
+func (d *driver) newHost(addr, keyPath string, signer ssh.Signer) *sshhost.Host {
+	return &sshhost.Host{
+		Name:          d.name,
+		Driver:        "ec2",
+		Addr:          addr,
+		Port:          d.cfg.SSHPort,
+		User:          d.cfg.SSHUser,
+		KeyPath:       keyPath,
+		Signer:        signer,
+		Shell:         d.cfg.Shell,
+		Env:           d.cfg.Env,
+		SetupCommands: d.cfg.SetupCommands,
+		OnFailure:     d.cfg.OnFailure,
+		GPUs:          d.cfg.GPUs,
+		VolumeMounts:  d.cfg.VolumeMounts,
+		DeviceMounts:  d.cfg.DeviceMounts,
+		Stack:         d.stack,
+	}
 }
 
 func (d *driver) setupNewInstance(ctx context.Context) error {
@@ -172,14 +188,20 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	}
 	span.AddEvent("ec2.instance.running")
 
+	signer, err := d.key.private.ToSSH()
+	if err != nil {
+		return fmt.Errorf("getting SSH signer: %w", err)
+	}
+	d.host = d.newHost(d.instance.publicIP, d.key.path, signer)
+
 	if err := d.prepareInstance(ctx); err != nil {
 		return fmt.Errorf("preparing instance: %w", err)
 	}
 	span.AddEvent("ec2.cloudinit.complete")
 
-	d.collectGPUInfo(ctx)
+	d.host.CollectGPUInfo(ctx)
 
-	if err := d.runSetupCommands(ctx); err != nil {
+	if err := d.host.RunSetupCommands(ctx); err != nil {
 		return fmt.Errorf("running setup commands: %w", err)
 	}
 	span.AddEvent("ec2.setup.complete")
@@ -332,66 +354,41 @@ func (d *driver) Teardown(ctx context.Context) error {
 }
 
 func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
-	log := clog.FromContext(ctx)
-
-	cli, err := d.dockerClient(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("creating docker client: %w", err)
+	if d.host == nil {
+		return nil, errors.New("instance is not set up")
 	}
-	defer cli.Close()
-
-	if err := d.waitDocker(ctx, cli); err != nil {
-		return nil, err
-	}
-
-	log.Info("pulling image", "image", ref.String())
-	if err := d.pullImage(ctx, cli, ref); err != nil {
-		return nil, fmt.Errorf("pulling image: %w", err)
-	}
-
-	log.Info("running container", "image", ref.String())
-	return d.runContainer(ctx, cli, ref)
+	return d.host.Run(ctx, ref)
 }
 
-// instanceIP returns the IP address to connect to.
+// Diagnose implements drivers.Diagnoser by running the configured on_failure
+// commands on the instance.
+func (d *driver) Diagnose(ctx context.Context, w io.Writer) error {
+	if len(d.cfg.OnFailure) == 0 {
+		return nil
+	}
+	// Setup may have failed before the instance or the SSH key existed.
+	if d.host == nil {
+		return errors.New("instance was not created or never became reachable")
+	}
+	return d.host.Diagnose(ctx, w)
+}
+
+// instanceIP returns the IP address to connect to, or "" before the
+// instance is reachable.
 func (d *driver) instanceIP() string {
-	if d.cfg.ExistingInstance != nil {
-		return d.existingIP
+	if d.host == nil {
+		return ""
 	}
-	return d.instance.publicIP
+	return d.host.Addr
 }
 
-// sshSigner returns the SSH signer for authentication.
-func (d *driver) sshSigner() (ssh.Signer, error) {
-	if d.cfg.ExistingInstance != nil {
-		return d.existingSigner, nil
-	}
-	return d.key.private.ToSSH()
-}
-
-// sshConnect opens an SSH connection to the instance. With a pinned host
-// key the connection fails unless the instance presents one of those keys.
-func (d *driver) sshConnect() (*ssh.Client, error) {
-	signer, err := d.sshSigner()
-	if err != nil {
-		return nil, fmt.Errorf("getting SSH signer: %w", err)
-	}
-	return issh.Connect(d.instanceIP(), uint16(d.cfg.SSHPort), d.cfg.SSHUser, signer, d.existingHostKeys...)
-}
-
-// knownHostsPath returns the known_hosts file to pin the host key with, or
-// "" when host keys are not checked.
-func (d *driver) knownHostsPath() string {
-	if d.cfg.ExistingInstance != nil {
-		return d.cfg.ExistingInstance.KnownHosts
-	}
-	return ""
-}
-
-// sshKeyPath returns the path to the SSH key file.
+// sshKeyPath returns the path to the SSH key file, or "" before it exists.
 func (d *driver) sshKeyPath() string {
 	if d.cfg.ExistingInstance != nil {
 		return d.cfg.ExistingInstance.SSHKey
+	}
+	if d.key == nil {
+		return ""
 	}
 	return d.key.path
 }
@@ -419,7 +416,7 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 	return wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		attempt++
 
-		conn, err := d.sshConnect()
+		conn, err := d.host.Connect()
 		if err != nil {
 			log.Info("SSH not ready, retrying", "attempt", attempt, "error", err)
 			return false, nil // retry
@@ -446,122 +443,6 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 		log.Info("cloud-init complete")
 		return true, nil
 	})
-}
-
-// collectGPUInfo connects via SSH and logs GPU and NVIDIA driver information
-// if nvidia-smi is available on the instance. This is non-fatal; failures are
-// logged as warnings.
-func (d *driver) collectGPUInfo(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	ctx, span := otel.Tracer("imagetest").Start(ctx, "ec2.gpu_info")
-	defer span.End()
-
-	log := clog.FromContext(ctx)
-
-	conn, err := d.sshConnect()
-	if err != nil {
-		log.Warn("SSH connection failed for GPU info", "error", err)
-		return
-	}
-	defer conn.Close()
-
-	// Check if nvidia-smi is available
-	checkBuf := new(bytes.Buffer)
-	if err := issh.ExecIn(conn, issh.ShellBash, checkBuf, new(bytes.Buffer), "command -v nvidia-smi"); err != nil {
-		log.Info("nvidia-smi not found, skipping GPU info collection")
-		return
-	}
-
-	stdout := new(bytes.Buffer)
-	stderr := new(bytes.Buffer)
-
-	// Query all useful GPU properties in a single nvidia-smi call
-	cmds := []string{
-		"nvidia-smi --query-gpu=name,driver_version,vbios_version,pci.bus_id,memory.total,memory.free,compute_cap,gpu_serial,uuid --format=csv",
-		"echo '=== nvidia kernel module ==='",
-		"cat /sys/module/nvidia/version 2>/dev/null || echo 'nvidia kernel module not loaded'",
-		"echo '=== cuda version ==='",
-		"nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1",
-		"nvcc --version 2>/dev/null || echo 'nvcc not installed'",
-	}
-
-	if err := issh.ExecIn(conn, issh.ShellBash, stdout, stderr, cmds...); err != nil {
-		log.Warn("failed to collect GPU info", "error", err, "stderr", stderr.String())
-		return
-	}
-
-	log.Info("GPU info", "output", stdout.String())
-}
-
-func (d *driver) runSetupCommands(ctx context.Context) error {
-	if len(d.cfg.SetupCommands) == 0 {
-		return nil
-	}
-
-	log := clog.FromContext(ctx)
-
-	conn, err := d.sshConnect()
-	if err != nil {
-		return fmt.Errorf("SSH connection failed: %w", err)
-	}
-	defer conn.Close()
-
-	cmds := append([]string{cmdStdOpts}, envExports(d.cfg.Env)...)
-	cmds = append(cmds, d.cfg.SetupCommands...)
-
-	stdout := new(bytes.Buffer)
-	stderr := new(bytes.Buffer)
-
-	log.Info("running setup commands", "count", len(d.cfg.SetupCommands))
-	if err := issh.ExecIn(conn, d.cfg.Shell, stdout, stderr, cmds...); err != nil {
-		log.Error("setup commands failed", "stdout", stdout.String(), "stderr", stderr.String())
-		return fmt.Errorf(
-			"setup commands failed: %w\n--- stdout (last %d lines) ---\n%s\n--- stderr (last %d lines) ---\n%s",
-			err,
-			setupFailureTailLines, tailLines(stdout.String(), setupFailureTailLines),
-			setupFailureTailLines, tailLines(stderr.String(), setupFailureTailLines),
-		)
-	}
-
-	log.Info("setup commands complete")
-	return nil
-}
-
-// envExports returns `export` lines for env, sorted by name so the order is
-// stable. Values are quoted, so no export depends on another.
-func envExports(env map[string]string) []string {
-	keys := slices.Sorted(maps.Keys(env))
-	lines := make([]string, 0, len(keys))
-	for _, k := range keys {
-		lines = append(lines, fmt.Sprintf("export %s=%s", k, shellquote.Join(env[k])))
-	}
-	return lines
-}
-
-// setupFailureTailLines is the number of trailing lines of stdout/stderr
-// included in the error returned by runSetupCommands. Keeps long-running
-// setup_commands' captured output bounded while still showing the failing
-// context.
-const setupFailureTailLines = 200
-
-// tailLines returns the last n lines of s (newline-separated). If s has
-// at most n lines, it's returned unchanged. The truncation marker reports
-// the original count so consumers know how much was dropped.
-func tailLines(s string, n int) string {
-	if s == "" {
-		return "(empty)"
-	}
-	trimmed := strings.TrimRight(s, "\n")
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) <= n {
-		return trimmed
-	}
-	return fmt.Sprintf("(...truncated to last %d of %d lines...)\n%s",
-		n, len(lines),
-		strings.Join(lines[len(lines)-n:], "\n"),
-	)
 }
 
 // sanitizeAWSTagValue sanitizes a string to be a valid AWS tag value.

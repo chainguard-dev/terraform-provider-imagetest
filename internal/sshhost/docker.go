@@ -1,4 +1,4 @@
-package ec2
+package sshhost
 
 import (
 	"archive/tar"
@@ -39,13 +39,13 @@ const (
 	sshKeepaliveCountMax = 8
 )
 
-func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
+func (h *Host) dockerClient(ctx context.Context) (*client.Client, error) {
 	log := clog.FromContext(ctx)
 
-	host := net.JoinHostPort(d.instanceIP(), strconv.Itoa(int(d.cfg.SSHPort)))
+	host := net.JoinHostPort(h.Addr, strconv.Itoa(int(h.Port)))
 	url := fmt.Sprintf("ssh://%s", host)
 
-	helper, err := connhelper.GetConnectionHelperWithSSHOpts(url, d.sshOpts())
+	helper, err := connhelper.GetConnectionHelperWithSSHOpts(url, h.sshOpts())
 	if err != nil {
 		return nil, fmt.Errorf("creating SSH connection helper: %w", err)
 	}
@@ -68,9 +68,9 @@ func (d *driver) dockerClient(ctx context.Context) (*client.Client, error) {
 // sshOpts returns the OpenSSH options for the docker dial-stdio connection.
 // With a known_hosts file the host key is verified against it and a mismatch
 // aborts the connection; without one, host keys are not checked.
-func (d *driver) sshOpts() []string {
+func (h *Host) sshOpts() []string {
 	hostKey := []string{"-o", "StrictHostKeyChecking=no"}
-	if path := d.knownHostsPath(); path != "" {
+	if path := h.KnownHosts; path != "" {
 		hostKey = []string{
 			"-o", "UserKnownHostsFile=" + path,
 			"-o", "StrictHostKeyChecking=yes",
@@ -79,8 +79,8 @@ func (d *driver) sshOpts() []string {
 	return append(hostKey,
 		"-o", fmt.Sprintf("ServerAliveInterval=%d", sshKeepaliveInterval),
 		"-o", fmt.Sprintf("ServerAliveCountMax=%d", sshKeepaliveCountMax),
-		"-i", d.sshKeyPath(),
-		"-l", d.cfg.SSHUser,
+		"-i", h.KeyPath,
+		"-l", h.User,
 	)
 }
 
@@ -88,7 +88,7 @@ func (d *driver) sshOpts() []string {
 // connection after provisioning is fragile: sshd may be restarting after an
 // apt install (needrestart, unattended-upgrades) or the daemon may still be
 // coming up, so a single failed ping is not conclusive.
-func (d *driver) waitDocker(ctx context.Context, cli *client.Client) error {
+func (h *Host) waitDocker(ctx context.Context, cli *client.Client) error {
 	log := clog.FromContext(ctx)
 	log.Info("verifying Docker connection")
 
@@ -113,14 +113,14 @@ func (d *driver) waitDocker(ctx context.Context, cli *client.Client) error {
 		if lastErr != nil {
 			err = lastErr
 		}
-		return fmt.Errorf("docker is not accessible on the instance (ensure Docker is installed and running via user_data or setup_commands): %w", err)
+		return fmt.Errorf("docker is not accessible on the host (ensure Docker is installed and running via user_data or setup_commands): %w", err)
 	}
 
 	log.Info("Docker connection verified", "attempts", attempt)
 	return nil
 }
 
-func (d *driver) pullImage(ctx context.Context, cli *client.Client, ref name.Reference) error {
+func (h *Host) pullImage(ctx context.Context, cli *client.Client, ref name.Reference) error {
 	auth, err := authn.DefaultKeychain.Resolve(ref.Context().Registry)
 	if err != nil {
 		return fmt.Errorf("resolving registry auth: %w", err)
@@ -167,21 +167,21 @@ func (d *driver) pullImage(ctx context.Context, cli *client.Client, ref name.Ref
 	return nil
 }
 
-// prePullImages pulls cfg.PrePullImages into the instance's Docker daemon.
-// Each pull is authenticated with the caller's keychain, like the test image
-// pull in Run, so the instance never needs registry credentials of its own.
-// References are pulled as given (by digest when the caller resolved one) and
-// never with a platform override: the daemon selects its own platform from a
-// multi-arch index.
-func (d *driver) prePullImages(ctx context.Context) error {
-	if len(d.cfg.PrePullImages) == 0 {
+// PrePullImages pulls images into the host's Docker daemon. Each pull is
+// authenticated with the caller's keychain, like the test image pull in Run,
+// so the host never needs registry credentials of its own. References are
+// pulled as given (by digest when the caller resolved one) and never with a
+// platform override: the daemon selects its own platform from a multi-arch
+// index.
+func (h *Host) PrePullImages(ctx context.Context, images []string) error {
+	if len(images) == 0 {
 		return nil
 	}
 
 	log := clog.FromContext(ctx)
 
-	refs := make([]name.Reference, 0, len(d.cfg.PrePullImages))
-	for _, s := range d.cfg.PrePullImages {
+	refs := make([]name.Reference, 0, len(images))
+	for _, s := range images {
 		ref, err := name.ParseReference(s)
 		if err != nil {
 			return fmt.Errorf("parsing pre-pull image %q: %w", s, err)
@@ -189,19 +189,19 @@ func (d *driver) prePullImages(ctx context.Context) error {
 		refs = append(refs, ref)
 	}
 
-	cli, err := d.dockerClient(ctx)
+	cli, err := h.dockerClient(ctx)
 	if err != nil {
 		return fmt.Errorf("creating docker client: %w", err)
 	}
 	defer cli.Close()
 
-	if err := d.waitDocker(ctx, cli); err != nil {
+	if err := h.waitDocker(ctx, cli); err != nil {
 		return err
 	}
 
 	for _, ref := range refs {
 		log.Info("pre-pulling image", "image", ref.String())
-		if err := d.pullImage(ctx, cli, ref); err != nil {
+		if err := h.pullImage(ctx, cli, ref); err != nil {
 			return fmt.Errorf("pre-pulling image %s: %w", ref.String(), err)
 		}
 	}
@@ -210,24 +210,24 @@ func (d *driver) prePullImages(ctx context.Context) error {
 	return nil
 }
 
-func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.Reference) (*drivers.RunResult, error) {
+func (h *Host) runContainer(ctx context.Context, cli *client.Client, ref name.Reference) (*drivers.RunResult, error) {
 	log := clog.FromContext(ctx)
 
-	env := make([]string, 0, len(d.cfg.Env))
-	for k, v := range d.cfg.Env {
+	env := make([]string, 0, len(h.Env))
+	for k, v := range h.Env {
 		env = append(env, k+"="+v)
 	}
 
 	hostConfig := &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
-		Mounts:        d.mounts(ctx),
-		Devices:       d.deviceMappings(ctx),
+		Mounts:        h.mounts(ctx),
+		Devices:       h.deviceMappings(ctx),
 	}
-	hostConfig.DeviceRequests = d.deviceRequests()
+	hostConfig.DeviceRequests = h.deviceRequests()
 
 	// One name per Run: the container stays until Teardown, and a resource
 	// with several tests (or retries) runs them all on this driver.
-	containerName := fmt.Sprintf("%s-test-%s", d.name, uuid.New().String()[:8])
+	containerName := fmt.Sprintf("%s-test-%s", h.Name, uuid.New().String()[:8])
 	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image:        ref.String(),
@@ -253,7 +253,7 @@ func (d *driver) runContainer(ctx context.Context, cli *client.Client, ref name.
 	log.Info("created container", "id", resp.ID)
 
 	// Register cleanup immediately so container is removed even if we fail below
-	if err := d.stack.Add(func(ctx context.Context) error {
+	if err := h.Stack.Add(func(ctx context.Context) error {
 		log.Info("removing container", "id", resp.ID)
 		_, err := cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
 		return err
@@ -432,14 +432,14 @@ type artifactReader struct {
 func (a *artifactReader) Read(p []byte) (int, error) { return a.tr.Read(p) }
 func (a *artifactReader) Close() error               { return a.rc.Close() }
 
-func (d *driver) mounts(ctx context.Context) []mount.Mount {
-	if len(d.cfg.VolumeMounts) == 0 {
+func (h *Host) mounts(ctx context.Context) []mount.Mount {
+	if len(h.VolumeMounts) == 0 {
 		return nil
 	}
 
 	log := clog.FromContext(ctx)
-	mounts := make([]mount.Mount, 0, len(d.cfg.VolumeMounts))
-	for _, vol := range d.cfg.VolumeMounts {
+	mounts := make([]mount.Mount, 0, len(h.VolumeMounts))
+	for _, vol := range h.VolumeMounts {
 		src, dst, ok := strings.Cut(vol, ":")
 		if !ok {
 			log.Warn("ignoring malformed volume mount (expected src:dst)", "mount", vol)
@@ -454,14 +454,14 @@ func (d *driver) mounts(ctx context.Context) []mount.Mount {
 	return mounts
 }
 
-func (d *driver) deviceMappings(ctx context.Context) []container.DeviceMapping {
-	if len(d.cfg.DeviceMounts) == 0 {
+func (h *Host) deviceMappings(ctx context.Context) []container.DeviceMapping {
+	if len(h.DeviceMounts) == 0 {
 		return nil
 	}
 
 	log := clog.FromContext(ctx)
-	devices := make([]container.DeviceMapping, 0, len(d.cfg.DeviceMounts))
-	for _, dev := range d.cfg.DeviceMounts {
+	devices := make([]container.DeviceMapping, 0, len(h.DeviceMounts))
+	for _, dev := range h.DeviceMounts {
 		src, dst, ok := strings.Cut(dev, ":")
 		if !ok {
 			log.Warn("ignoring malformed device mount (expected src:dst)", "device", dev)
@@ -475,14 +475,14 @@ func (d *driver) deviceMappings(ctx context.Context) []container.DeviceMapping {
 	return devices
 }
 
-func (d *driver) deviceRequests() []container.DeviceRequest {
-	if d.cfg.GPUs == "" {
+func (h *Host) deviceRequests() []container.DeviceRequest {
+	if h.GPUs == "" {
 		return nil
 	}
 
 	count := -1 // "all" GPUs
-	if d.cfg.GPUs != "all" {
-		if n, err := strconv.Atoi(d.cfg.GPUs); err == nil {
+	if h.GPUs != "all" {
+		if n, err := strconv.Atoi(h.GPUs); err == nil {
 			count = n
 		}
 	}

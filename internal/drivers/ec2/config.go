@@ -50,11 +50,15 @@ type Config struct {
 	SkipTeardown bool
 	Timeouts     drivers.Timeouts
 
-	// Use existing instance (skips resource creation)
+	// Use existing instance (skips resource creation). This mode is
+	// deprecated in favor of the ssh driver, which runs tests on a host
+	// that already exists without building AWS clients. It is kept for one
+	// release and then removed.
 	ExistingInstance *ExistingInstance
 }
 
 // ExistingInstance configures the driver to use a pre-existing instance.
+// Deprecated in favor of the ssh driver, see Config.ExistingInstance.
 type ExistingInstance struct {
 	IP     string // required - instance IP address
 	SSHKey string // required - path to private key file

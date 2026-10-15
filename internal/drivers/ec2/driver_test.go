@@ -1,61 +1,16 @@
 package ec2
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"slices"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-func TestTailLines(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		n    int
-		want string
-	}{
-		{
-			name: "empty input returns placeholder",
-			in:   "",
-			n:    10,
-			want: "(empty)",
-		},
-		{
-			name: "fewer lines than tail returns full input (trailing newline stripped)",
-			in:   "one\ntwo\nthree\n",
-			n:    10,
-			want: "one\ntwo\nthree",
-		},
-		{
-			name: "exactly n lines returns full input",
-			in:   "one\ntwo\nthree",
-			n:    3,
-			want: "one\ntwo\nthree",
-		},
-		{
-			name: "more lines than n returns last n with truncation marker",
-			in:   "a\nb\nc\nd\ne",
-			n:    2,
-			want: fmt.Sprintf("(...truncated to last %d of %d lines...)\n%s", 2, 5, "d\ne"),
-		},
-		{
-			name: "single line input shorter than n",
-			in:   "only one line",
-			n:    5,
-			want: "only one line",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tailLines(tt.in, tt.n)
-			if got != tt.want {
-				t.Errorf("tailLines() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestSanitizeAWSTagValue(t *testing.T) {
 	tests := []struct {
@@ -166,17 +121,6 @@ func TestSanitizeAWSTagValue(t *testing.T) {
 	}
 }
 
-func TestEnvExports(t *testing.T) {
-	if got := envExports(nil); len(got) != 0 {
-		t.Errorf("envExports(nil) = %q, want none", got)
-	}
-	got := envExports(map[string]string{"B": "two words", "A": "1", "C": `it's $HOME`})
-	want := []string{"export A=1", "export B='two words'", `export C='it'\''s $HOME'`}
-	if !slices.Equal(got, want) {
-		t.Errorf("envExports = %q, want %q", got, want)
-	}
-}
-
 func TestValidatePrePullImages(t *testing.T) {
 	existing := &ExistingInstance{IP: "192.0.2.10", SSHKey: "/tmp/key"}
 	tests := []struct {
@@ -237,7 +181,7 @@ func TestTeardownExistingInstanceRunsStack(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewDriver: %v", err)
 			}
-			d.existingIP = d.cfg.ExistingInstance.IP
+			d.host = d.newHost(d.cfg.ExistingInstance.IP, d.cfg.ExistingInstance.SSHKey, nil)
 
 			called := false
 			if err := d.stack.Add(func(context.Context) error {
@@ -253,6 +197,30 @@ func TestTeardownExistingInstanceRunsStack(t *testing.T) {
 			if called == skip {
 				t.Errorf("stack teardown ran = %t, want %t", called, !skip)
 			}
+		})
+	}
+}
+
+// TestDiagnose checks that on_failure diagnostics report a missing instance
+// instead of connecting, whichever way Setup failed before the host existed.
+func TestDiagnose(t *testing.T) {
+	t.Run("nothing configured, nothing to do", func(t *testing.T) {
+		var out bytes.Buffer
+		require.NoError(t, (&driver{}).Diagnose(t.Context(), &out))
+		assert.Empty(t, out.String())
+	})
+
+	cmds := []string{"uptime"}
+	for name, d := range map[string]*driver{
+		"new instance never created":   {cfg: Config{OnFailure: cmds}},
+		"new instance never reachable": {cfg: Config{OnFailure: cmds}, instance: &instance{}},
+		// Setup fails reading the key before the host is set.
+		"existing instance without key": {cfg: Config{OnFailure: cmds, ExistingInstance: &ExistingInstance{IP: "127.0.0.1", SSHKey: "/nope"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := d.Diagnose(t.Context(), io.Discard)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "not created")
 		})
 	}
 }

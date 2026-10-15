@@ -10,7 +10,7 @@
 # >> Overview
 #
 #   stdopts.sh defines the standard Bash session configuration and some helper
-#   functions. These are prefixed to all ec2 driver commands.
+#   functions. These are prefixed to all setup commands run over SSH.
 
 # Exit on the first non-zero exit we hit, failures terminate pipelines.
 set -eo pipefail
