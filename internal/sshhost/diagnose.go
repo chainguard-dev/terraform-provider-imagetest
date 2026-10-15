@@ -31,17 +31,13 @@ func (h *Host) Diagnose(ctx context.Context, w io.Writer) error {
 		return nil
 	}
 
-	conn, err := h.Connect()
+	// The budget is enforced by closing the connection when ctx ends, so
+	// nothing is written to w after this returns.
+	conn, done, err := h.connect(ctx)
 	if err != nil {
 		return fmt.Errorf("connecting to host: %w", err)
 	}
-	defer conn.Close()
-
-	// Enforce the overall budget by closing the connection: that unblocks a
-	// running session, whose Wait returns only after its output is copied, so
-	// nothing is written to w after this returns.
-	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	defer stop()
+	defer done()
 
 	runOnFailure(ctx, func(stdout, stderr io.Writer, cmd string) error {
 		err := issh.ExecIn(conn, h.Shell, stdout, stderr, onFailureScript(h.Shell, h.Env, cmd)...)

@@ -104,13 +104,19 @@ func (h *Host) waitDocker(ctx context.Context, cli *client.Client) error {
 		attempt++
 		if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 			lastErr = err
+			// OpenSSH refused the host key. Retrying cannot change that, and
+			// the real error would otherwise be buried under two minutes of
+			// "not reachable yet".
+			if strings.Contains(err.Error(), "Host key verification failed") {
+				return false, fmt.Errorf("host key verification failed for the docker tunnel (check known_hosts): %w", err)
+			}
 			log.Warn("Docker not reachable yet, retrying", "attempt", attempt, "error", err)
 			return false, nil
 		}
 		return true, nil
 	})
 	if err != nil {
-		if lastErr != nil {
+		if wait.Interrupted(err) && lastErr != nil {
 			err = lastErr
 		}
 		return fmt.Errorf("docker is not accessible on the host (ensure Docker is installed and running via user_data or setup_commands): %w", err)
@@ -233,6 +239,7 @@ func (h *Host) runContainer(ctx context.Context, cli *client.Client, ref name.Re
 			Image:        ref.String(),
 			User:         "0:0",
 			Env:          env,
+			Labels:       h.Labels(),
 			AttachStdout: true,
 			AttachStderr: true,
 			Healthcheck: &v1.HealthcheckConfig{

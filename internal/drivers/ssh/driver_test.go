@@ -37,8 +37,11 @@ func TestValidate(t *testing.T) {
 		wantErr: "known_hosts is required",
 	}, {
 		name:    "port out of range",
-		mutate:  func(c *Config) { c.Port = 70000 },
-		wantErr: "port 70000 is out of range",
+		mutate:  func(c *Config) { c.SSHPort = 70000 },
+		wantErr: "ssh_port 70000 is out of range",
+	}, {
+		name:   "bracketed IPv6 host is accepted",
+		mutate: func(c *Config) { c.Host = "[2001:db8::1]" },
 	}, {
 		name: "digest refs accepted for pre-pull",
 		mutate: func(c *Config) {
@@ -65,11 +68,17 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestBracketedHostIsUnwrapped(t *testing.T) {
+	d, err := NewDriver(Config{Host: "[2001:db8::1]", SSHKey: "/tmp/key", KnownHosts: "/tmp/known_hosts"})
+	require.NoError(t, err)
+	assert.Equal(t, "2001:db8::1", d.cfg.Host)
+}
+
 func TestDefaults(t *testing.T) {
 	d, err := NewDriver(Config{Host: "192.0.2.10", SSHKey: "/tmp/key", KnownHosts: "/tmp/known_hosts"})
 	require.NoError(t, err)
-	assert.Equal(t, int32(22), d.cfg.Port)
-	assert.Equal(t, "ubuntu", d.cfg.User)
+	assert.Equal(t, int32(22), d.cfg.SSHPort)
+	assert.Equal(t, "ubuntu", d.cfg.SSHUser)
 	assert.Equal(t, "bash", d.cfg.Shell)
 	assert.NotNil(t, d.cfg.Env)
 }
@@ -115,7 +124,7 @@ func TestSetupFailsClosed(t *testing.T) {
 
 			err = d.Diagnose(t.Context(), io.Discard)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "never reached")
+			assert.Contains(t, err.Error(), "could not be loaded")
 
 			_, err = d.Run(t.Context(), nil)
 			require.Error(t, err)

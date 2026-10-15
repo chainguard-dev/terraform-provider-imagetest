@@ -26,7 +26,8 @@ import (
 
 // Host is a Docker host reached over SSH. Every connection, the Docker
 // tunnel and the Go client alike, authenticates with the same key and, when
-// HostKeys is set, accepts only those host keys.
+// HostKeys is set, accepts only those host keys. Set the paths, call Load,
+// then use it.
 type Host struct {
 	// Name prefixes the test containers' names, e.g. "imagetest-ec2-1a2b3c4d".
 	Name string
@@ -64,23 +65,63 @@ type Host struct {
 	Stack *harness.Stack
 }
 
-// ReadKey parses the private key file at path.
-func ReadKey(path string) (ssh.Signer, error) {
-	data, err := os.ReadFile(path)
+// Load fills Signer from KeyPath and HostKeys from KnownHosts, so the Go
+// client and the OpenSSH tunnel verify the same key and the same pin. It is
+// an error for KnownHosts to hold no key for Addr.
+func (h *Host) Load() error {
+	data, err := os.ReadFile(h.KeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading SSH key %s: %w", path, err)
+		return fmt.Errorf("reading SSH key %s: %w", h.KeyPath, err)
 	}
-	signer, err := issh.ParseKey(data, nil)
+	h.Signer, err = issh.ParseKey(data, nil)
 	if err != nil {
-		return nil, fmt.Errorf("parsing SSH key: %w", err)
+		return fmt.Errorf("parsing SSH key: %w", err)
 	}
-	return signer, nil
+	if h.KnownHosts != "" {
+		h.HostKeys, err = LoadKnownHosts(h.KnownHosts, h.Addr, h.Port)
+		if err != nil {
+			return fmt.Errorf("loading known_hosts: %w", err)
+		}
+	}
+	return nil
 }
 
 // Connect opens an SSH connection to the host. With pinned host keys the
-// connection fails unless the host presents one of them.
+// connection fails unless the host presents one of them. The dial and the
+// handshake have a fixed timeout; sessions on the connection do not, see
+// connect.
 func (h *Host) Connect() (*ssh.Client, error) {
 	return issh.Connect(h.Addr, uint16(h.Port), h.User, h.Signer, h.HostKeys...)
+}
+
+// connect is Connect bound to ctx: when ctx ends the connection is closed,
+// which unblocks a running session, whose Wait returns only after its output
+// is copied. The returned func releases the binding and closes the connection.
+func (h *Host) connect(ctx context.Context) (*ssh.Client, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	conn, err := h.Connect()
+	if err != nil {
+		return nil, nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	return conn, func() {
+		stop()
+		_ = conn.Close()
+	}, nil
+}
+
+// Labels returns the labels for a test container, the same keys the ec2
+// driver tags its AWS resources with, so a host operator can find and prune
+// what a run left behind: docker container prune --filter label=imagetest.
+func (h *Host) Labels() map[string]string {
+	return map[string]string{
+		"imagetest":           "true",
+		"imagetest:driver":    h.Driver,
+		"imagetest:test-name": h.Name,
+		"imagetest:expires":   time.Now().Add(2 * time.Hour).Format(time.RFC3339),
+	}
 }
 
 // Run pulls ref into the host's Docker daemon with the caller's registry
@@ -119,12 +160,12 @@ func (h *Host) CollectGPUInfo(ctx context.Context) {
 
 	log := clog.FromContext(ctx)
 
-	conn, err := h.Connect()
+	conn, done, err := h.connect(ctx)
 	if err != nil {
 		log.Warn("SSH connection failed for GPU info", "error", err)
 		return
 	}
-	defer conn.Close()
+	defer done()
 
 	// Check if nvidia-smi is available
 	checkBuf := new(bytes.Buffer)
@@ -163,11 +204,11 @@ func (h *Host) RunSetupCommands(ctx context.Context) error {
 
 	log := clog.FromContext(ctx)
 
-	conn, err := h.Connect()
+	conn, done, err := h.connect(ctx)
 	if err != nil {
 		return fmt.Errorf("SSH connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer done()
 
 	cmds := append([]string{cmdStdOpts}, envExports(h.Env)...)
 	cmds = append(cmds, h.SetupCommands...)
@@ -177,6 +218,9 @@ func (h *Host) RunSetupCommands(ctx context.Context) error {
 
 	log.Info("running setup commands", "count", len(h.SetupCommands))
 	if err := issh.ExecIn(conn, h.Shell, stdout, stderr, cmds...); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return fmt.Errorf("setup commands: %w", cerr)
+		}
 		log.Error("setup commands failed", "stdout", stdout.String(), "stderr", stderr.String())
 		return fmt.Errorf(
 			"setup commands failed: %w\n--- stdout (last %d lines) ---\n%s\n--- stderr (last %d lines) ---\n%s",

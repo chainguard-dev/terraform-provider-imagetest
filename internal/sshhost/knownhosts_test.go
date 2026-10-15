@@ -38,6 +38,18 @@ func TestParseKnownHosts(t *testing.T) {
 		port:     22,
 		wantKeys: 1,
 	}, {
+		name:    "bracketed host with port 22 does not match, as in OpenSSH",
+		data:    "[192.0.2.10]:22 " + testHostKeyLine + "\n",
+		host:    "192.0.2.10",
+		port:    22,
+		wantErr: "no entry for 192.0.2.10",
+	}, {
+		name:    "certificate authority entry is rejected",
+		data:    "@cert-authority 192.0.2.10 " + testHostKeyLine + "\n",
+		host:    "192.0.2.10",
+		port:    22,
+		wantErr: "certificate authority",
+	}, {
 		name:    "entry for another host only",
 		data:    "192.0.2.99 " + testHostKeyLine + "\n",
 		host:    "192.0.2.10",

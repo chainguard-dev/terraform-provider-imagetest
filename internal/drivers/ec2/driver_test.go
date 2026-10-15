@@ -181,7 +181,7 @@ func TestTeardownExistingInstanceRunsStack(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewDriver: %v", err)
 			}
-			d.host = d.newHost(d.cfg.ExistingInstance.IP, d.cfg.ExistingInstance.SSHKey, nil)
+			d.host = d.newHost(d.cfg.ExistingInstance.IP, d.cfg.ExistingInstance.SSHKey)
 
 			called := false
 			if err := d.stack.Add(func(context.Context) error {
@@ -212,8 +212,7 @@ func TestDiagnose(t *testing.T) {
 
 	cmds := []string{"uptime"}
 	for name, d := range map[string]*driver{
-		"new instance never created":   {cfg: Config{OnFailure: cmds}},
-		"new instance never reachable": {cfg: Config{OnFailure: cmds}, instance: &instance{}},
+		"new instance never created": {cfg: Config{OnFailure: cmds}},
 		// Setup fails reading the key before the host is set.
 		"existing instance without key": {cfg: Config{OnFailure: cmds, ExistingInstance: &ExistingInstance{IP: "127.0.0.1", SSHKey: "/nope"}}},
 	} {

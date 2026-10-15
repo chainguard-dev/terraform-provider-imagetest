@@ -72,6 +72,9 @@ func NewDriver(cfg Config, ec2Client *ec2.Client, iamClient *iam.Client) (*drive
 }
 
 func (d *driver) Setup(ctx context.Context) error {
+	ctx, cancel := d.cfg.Timeouts.SetupContext(ctx)
+	defer cancel()
+
 	if d.cfg.ExistingInstance != nil {
 		return d.setupExistingInstance(ctx)
 	}
@@ -84,22 +87,15 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 	d.name = "imagetest-ec2-" + uuid.New().String()[:8]
 	log.Info("using existing instance", "name", d.name, "ip", d.cfg.ExistingInstance.IP)
 
-	signer, err := sshhost.ReadKey(d.cfg.ExistingInstance.SSHKey)
-	if err != nil {
+	host := d.newHost(d.cfg.ExistingInstance.IP, d.cfg.ExistingInstance.SSHKey)
+	host.KnownHosts = d.cfg.ExistingInstance.KnownHosts
+	if err := host.Load(); err != nil {
 		return err
 	}
-
-	var hostKeys []ssh.PublicKey
-	if path := d.cfg.ExistingInstance.KnownHosts; path != "" {
-		hostKeys, err = sshhost.LoadKnownHosts(path, d.cfg.ExistingInstance.IP, d.cfg.SSHPort)
-		if err != nil {
-			return fmt.Errorf("loading known_hosts: %w", err)
-		}
-		log.Info("host key pinned", "known_hosts", path, "keys", len(hostKeys))
+	if host.KnownHosts != "" {
+		log.Info("host key pinned", "known_hosts", host.KnownHosts, "keys", len(host.HostKeys))
 	}
-	d.host = d.newHost(d.cfg.ExistingInstance.IP, d.cfg.ExistingInstance.SSHKey, signer)
-	d.host.KnownHosts = d.cfg.ExistingInstance.KnownHosts
-	d.host.HostKeys = hostKeys
+	d.host = host
 
 	// Run setup commands if any
 	if err := d.host.RunSetupCommands(ctx); err != nil {
@@ -117,8 +113,9 @@ func (d *driver) setupExistingInstance(ctx context.Context) error {
 }
 
 // newHost returns the instance at addr as a Docker host over SSH, with the
-// driver's shell, env, setup and container settings.
-func (d *driver) newHost(addr, keyPath string, signer ssh.Signer) *sshhost.Host {
+// driver's shell, env, setup and container settings. The caller loads the
+// key, or sets Signer for a key it already holds.
+func (d *driver) newHost(addr, keyPath string) *sshhost.Host {
 	return &sshhost.Host{
 		Name:          d.name,
 		Driver:        "ec2",
@@ -126,7 +123,6 @@ func (d *driver) newHost(addr, keyPath string, signer ssh.Signer) *sshhost.Host 
 		Port:          d.cfg.SSHPort,
 		User:          d.cfg.SSHUser,
 		KeyPath:       keyPath,
-		Signer:        signer,
 		Shell:         d.cfg.Shell,
 		Env:           d.cfg.Env,
 		SetupCommands: d.cfg.SetupCommands,
@@ -188,11 +184,12 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	}
 	span.AddEvent("ec2.instance.running")
 
+	d.host = d.newHost(d.instance.publicIP, d.key.path)
 	signer, err := d.key.private.ToSSH()
 	if err != nil {
 		return fmt.Errorf("getting SSH signer: %w", err)
 	}
-	d.host = d.newHost(d.instance.publicIP, d.key.path, signer)
+	d.host.Signer = signer
 
 	if err := d.prepareInstance(ctx); err != nil {
 		return fmt.Errorf("preparing instance: %w", err)

@@ -1,8 +1,12 @@
 package sshhost
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +33,73 @@ func closedPort(t *testing.T) int32 {
 func TestCollectGPUInfoNonFatal(t *testing.T) {
 	h := &Host{Driver: "test", Addr: "127.0.0.1", Port: closedPort(t), User: "nobody"}
 	h.CollectGPUInfo(t.Context())
+}
+
+// TestLoad checks that Load fails closed on a missing key or a known_hosts
+// file without the host, and leaves HostKeys empty when no file is given.
+func TestLoad(t *testing.T) {
+	dir := t.TempDir()
+	key := filepath.Join(dir, "key")
+	if err := os.WriteFile(key, []byte(testPrivateKey), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	known := filepath.Join(dir, "known_hosts")
+	if err := os.WriteFile(known, []byte("192.0.2.10 "+testHostKeyLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		h        Host
+		wantErr  string
+		wantKeys int
+	}{{
+		name: "key only, unchecked host key",
+		h:    Host{Addr: "192.0.2.10", Port: 22, KeyPath: key},
+	}, {
+		name:     "key and pinned host",
+		h:        Host{Addr: "192.0.2.10", Port: 22, KeyPath: key, KnownHosts: known},
+		wantKeys: 1,
+	}, {
+		name:    "missing key",
+		h:       Host{Addr: "192.0.2.10", Port: 22, KeyPath: filepath.Join(dir, "nope"), KnownHosts: known},
+		wantErr: "reading SSH key",
+	}, {
+		name:    "known_hosts for another host",
+		h:       Host{Addr: "192.0.2.99", Port: 22, KeyPath: key, KnownHosts: known},
+		wantErr: "no entry for 192.0.2.99",
+	}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.h.Load()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Load() = %v, want error containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() = %v", err)
+			}
+			if tc.h.Signer == nil {
+				t.Error("Signer not set")
+			}
+			if len(tc.h.HostKeys) != tc.wantKeys {
+				t.Errorf("HostKeys = %d, want %d", len(tc.h.HostKeys), tc.wantKeys)
+			}
+		})
+	}
+}
+
+// TestConnectHonorsContext checks that a connection bound to a finished
+// context is refused before dialing.
+func TestConnectHonorsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	h := &Host{Addr: "127.0.0.1", Port: closedPort(t), User: "nobody"}
+	if _, _, err := h.connect(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("connect() = %v, want context.Canceled", err)
+	}
 }
 
 // TestRunSetupCommandsNoneIsNoop checks that an empty command list opens no

@@ -200,8 +200,8 @@ type EC2ExistingInstanceResourceModel struct {
 
 type SSHDriverResourceModel struct {
 	Host          types.String                 `tfsdk:"host"`
-	Port          types.Int64                  `tfsdk:"port"`
-	User          types.String                 `tfsdk:"user"`
+	SSHPort       types.Int64                  `tfsdk:"ssh_port"`
+	SSHUser       types.String                 `tfsdk:"ssh_user"`
 	SSHKey        types.String                 `tfsdk:"ssh_key"`
 	KnownHosts    types.String                 `tfsdk:"known_hosts"`
 	Shell         types.String                 `tfsdk:"shell"`
@@ -595,10 +595,14 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			InstanceProfileName: driversCfg.EC2.InstanceProfileName.ValueString(),
 			SubnetCIDR:          driversCfg.EC2.SubnetCIDR.ValueString(),
 			SSHUser:             driversCfg.EC2.SSHUser.ValueString(),
-			SSHPort:             int32(driversCfg.EC2.SSHPort.ValueInt64()),
 			Shell:               driversCfg.EC2.Shell.ValueString(),
 			UserData:            driversCfg.EC2.UserData.ValueString(),
 			GPUs:                driversCfg.EC2.GPUs.ValueString(),
+		}
+
+		var err error
+		if driverCfg.SSHPort, err = portFromModel("ec2.ssh_port", driversCfg.EC2.SSHPort); err != nil {
+			return nil, err
 		}
 
 		// Handle deprecated mount_all_gpus field
@@ -687,14 +691,18 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 
 		driverCfg := sshdriver.Config{
 			Host:       cfg.Host.ValueString(),
-			Port:       int32(cfg.Port.ValueInt64()),
-			User:       cfg.User.ValueString(),
+			SSHUser:    cfg.SSHUser.ValueString(),
 			SSHKey:     cfg.SSHKey.ValueString(),
 			KnownHosts: cfg.KnownHosts.ValueString(),
 			Shell:      cfg.Shell.ValueString(),
 			GPUs:       cfg.GPUs.ValueString(),
 			OnFailure:  cfg.OnFailure,
 			Env:        make(map[string]string),
+		}
+
+		var err error
+		if driverCfg.SSHPort, err = portFromModel("ssh.ssh_port", cfg.SSHPort); err != nil {
+			return nil, err
 		}
 
 		if v, ok := os.LookupEnv("IMAGETEST_SKIP_TEARDOWN"); ok && v != "" {
@@ -727,17 +735,30 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			driverCfg.DeviceMounts = append(driverCfg.DeviceMounts, mount.ValueString())
 		}
 
-		timeouts, err := parseTimeoutsModel(cfg.Timeouts)
+		driverCfg.Timeouts, err = parseTimeoutsModel(cfg.Timeouts)
 		if err != nil {
 			return nil, fmt.Errorf("ssh: %w", err)
 		}
-		driverCfg.Timeouts = timeouts
 
 		return sshdriver.NewDriver(driverCfg)
 
 	default:
 		return nil, fmt.Errorf("no matching driver: %s", data.Driver)
 	}
+}
+
+// portFromModel narrows a port attribute to int32. Null keeps 0, the
+// driver's default; anything outside the TCP range is rejected here rather
+// than wrapped by the conversion.
+func portFromModel(attr string, v types.Int64) (int32, error) {
+	if v.IsNull() || v.IsUnknown() {
+		return 0, nil
+	}
+	p := v.ValueInt64()
+	if p < 1 || p > 65535 {
+		return 0, fmt.Errorf("%s: %d is out of range (1-65535)", attr, p)
+	}
+	return int32(p), nil
 }
 
 // prePullRefs returns the resolved image references in a stable order, keyed
@@ -1051,12 +1072,12 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 			Description: "Address of the host: a hostname, IPv4 or IPv6 address.",
 			Required:    true,
 		},
-		"port": schema.Int64Attribute{
-			Description: "SSH port (default: 22).",
+		"ssh_port": schema.Int64Attribute{
+			Description: "SSH port for connecting to the host (default: 22).",
 			Optional:    true,
 		},
-		"user": schema.StringAttribute{
-			Description: "SSH user (default: ubuntu).",
+		"ssh_user": schema.StringAttribute{
+			Description: "SSH user for connecting to the host (default: ubuntu).",
 			Optional:    true,
 		},
 		"ssh_key": schema.StringAttribute{
@@ -1114,7 +1135,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 	Optional:    true,
 	Attributes: map[string]schema.Attribute{
 		"vpc_id": schema.StringAttribute{
-			Description: "The VPC ID to create resources in. Required unless using existing_instance.",
+			Description: "The VPC ID to create resources in. Required unless using existing_instance (deprecated).",
 			Optional:    true,
 		},
 		"region": schema.StringAttribute{
@@ -1122,7 +1143,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			Optional:    true,
 		},
 		"ami": schema.StringAttribute{
-			Description: "The AMI ID to launch. Required unless using existing_instance.",
+			Description: "The AMI ID to launch. Required unless using existing_instance (deprecated).",
 			Optional:    true,
 		},
 		"instance_type": schema.StringAttribute{

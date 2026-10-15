@@ -150,7 +150,7 @@ Optional:
 
 Optional:
 
-- `ami` (String) The AMI ID to launch. Required unless using existing_instance.
+- `ami` (String) The AMI ID to launch. Required unless using existing_instance (deprecated).
 - `device_mounts` (List of String) Device mounts for the test container (format: src:dst).
 - `env` (Map of String) Environment variables for setup commands and container.
 - `existing_instance` (Attributes, Deprecated) Deprecated: use the `ssh` driver, which runs tests on an existing host without AWS clients and requires a pinned host key. Use an existing instance instead of creating new resources. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
@@ -169,7 +169,7 @@ Optional:
 - `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--ec2--timeouts))
 - `user_data` (String) Cloud-init user data (will be base64 encoded).
 - `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
-- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance.
+- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance (deprecated).
 
 <a id="nestedatt--drivers--ec2--existing_instance"></a>
 ### Nested Schema for `drivers.ec2.existing_instance`
@@ -303,11 +303,11 @@ Optional:
 - `env` (Map of String) Environment variables for setup commands and container.
 - `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
 - `on_failure` (List of String) Commands to run on the host when setup or a test fails, before teardown, for diagnostic collection. Unlike a test's `on_failure`, which runs inside the test container, these run on the host itself, in `shell` with `env` like `setup_commands`, and also when setup fails. Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.
-- `port` (Number) SSH port (default: 22).
 - `setup_commands` (List of String) Commands to run on the host before tests.
 - `shell` (String) Shell to use for commands (default: bash).
+- `ssh_port` (Number) SSH port for connecting to the host (default: 22).
+- `ssh_user` (String) SSH user for connecting to the host (default: ubuntu).
 - `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--ssh--timeouts))
-- `user` (String) SSH user (default: ubuntu).
 - `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
 
 <a id="nestedatt--drivers--ssh--timeouts"></a>

@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -18,9 +19,9 @@ type Config struct {
 	KnownHosts string
 
 	// Optional with defaults
-	Port  int32  // default: 22
-	User  string // default: ubuntu
-	Shell string // default: bash
+	SSHPort int32  // default: 22
+	SSHUser string // default: ubuntu
+	Shell   string // default: bash
 
 	// Host-side execution
 	SetupCommands []string
@@ -40,17 +41,20 @@ type Config struct {
 	OnFailure []string
 
 	// Operational
-	SkipTeardown bool
+	SkipTeardown bool // IMAGETEST_SKIP_TEARDOWN: leave the test containers on the host
 	Timeouts     drivers.Timeouts
 }
 
 func (c *Config) applyDefaults() {
-	if c.Port == 0 {
-		c.Port = 22
+	if c.SSHPort == 0 {
+		c.SSHPort = 22
 	}
-	if c.User == "" {
-		c.User = "ubuntu"
+	if c.SSHUser == "" {
+		c.SSHUser = "ubuntu"
 	}
+	// An IPv6 address may be given in brackets, as in a URL. The driver
+	// brackets it itself where needed.
+	c.Host = strings.TrimSuffix(strings.TrimPrefix(c.Host, "["), "]")
 	if c.Shell == "" {
 		c.Shell = "bash"
 	}
@@ -69,8 +73,8 @@ func (c *Config) validate() error {
 	if c.KnownHosts == "" {
 		return fmt.Errorf("known_hosts is required")
 	}
-	if c.Port < 1 || c.Port > 65535 {
-		return fmt.Errorf("port %d is out of range", c.Port)
+	if c.SSHPort < 1 || c.SSHPort > 65535 {
+		return fmt.Errorf("ssh_port %d is out of range", c.SSHPort)
 	}
 	for _, ref := range c.PrePullImages {
 		if _, err := name.ParseReference(ref); err != nil {
