@@ -1085,7 +1085,7 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 			Required:    true,
 		},
 		"known_hosts": schema.StringAttribute{
-			Description: "Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -t ed25519 <host>`; the entry must name `host` as given (or `[host]:port`). " +
+			Description: "Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. " +
 				"Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and every image pull sends the caller's registry credentials over the tunnel.",
 			Required: true,
 		},

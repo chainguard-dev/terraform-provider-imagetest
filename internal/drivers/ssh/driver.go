@@ -102,7 +102,7 @@ func (d *driver) Setup(ctx context.Context) error {
 			"ssh_key", d.cfg.SSHKey,
 			"ssh_user", d.cfg.SSHUser,
 		)
-		log.Infof("to connect: ssh -i %s %s@%s", d.cfg.SSHKey, d.cfg.SSHUser, d.cfg.Host)
+		log.Infof("to connect: ssh -i %s -p %d %s@%s", d.cfg.SSHKey, d.cfg.SSHPort, d.cfg.SSHUser, d.cfg.Host)
 	}
 	return nil
 }

@@ -18,9 +18,9 @@
 //     tunnel. Every SSH connection, the Docker tunnel and the Go client
 //     alike, accepts only the keys the file records for the host and fails
 //     on a mismatch. The file is in OpenSSH known_hosts format, as written
-//     by `ssh-keyscan -t ed25519 <host>`; the entry must name the host as
-//     given (or [host]:port). A host rebuild changes the key, so a rebuild
-//     also updates the pinned file.
+//     by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name the
+//     host as given, as [host]:port when the port is not 22. A host rebuild
+//     changes the key, so a rebuild also updates the pinned file.
 //  2. Opens one SSH connection, so a wrong key or a wrong pin fails here
 //     with a clear error.
 //  3. Runs setup_commands, if any, in one session.

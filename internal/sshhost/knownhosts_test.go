@@ -44,6 +44,12 @@ func TestParseKnownHosts(t *testing.T) {
 		port:    22,
 		wantErr: "no entry for 192.0.2.10",
 	}, {
+		name:    "bare host does not match on a non-default port, as in OpenSSH",
+		data:    "192.0.2.10 " + testHostKeyLine + "\n",
+		host:    "192.0.2.10",
+		port:    2222,
+		wantErr: "no entry for [192.0.2.10]:2222",
+	}, {
 		name:    "certificate authority entry is rejected",
 		data:    "@cert-authority 192.0.2.10 " + testHostKeyLine + "\n",
 		host:    "192.0.2.10",
