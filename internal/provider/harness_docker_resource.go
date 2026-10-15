@@ -70,6 +70,9 @@ func (r *HarnessDockerResource) Create(ctx context.Context, req resource.CreateR
 
 	log.Info(ctx, "creating docker harness", "id", data.Id.ValueString())
 
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
 	harness, diags := r.harness(ctx, &data)
@@ -92,6 +95,9 @@ func (r *HarnessDockerResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	log.Info(ctx, "updating docker harness", "id", data.Id.ValueString())
+
+	ctx, end := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &resp.Diagnostics)
+	defer end()
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
