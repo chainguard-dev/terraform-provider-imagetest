@@ -15,8 +15,6 @@ import (
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/o11y"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6/tf6server"
 )
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
@@ -51,45 +49,22 @@ func main() {
 	ctx = setupLog(ctx)
 
 	if err := o11y.Setup(ctx, version); err != nil {
-		stderrLog.Fatal(err)
+		stderrLog.Printf("otel setup, continuing without telemetry: %v", err)
 	}
-	if err := serve(debug); err != nil {
-		stderrLog.Fatal(err.Error())
-	}
-}
+	err := providerserver.Serve(ctx, provider.New(version), providerserver.ServeOpts{
+		Address: "registry.terraform.io/chainguard-dev/imagetest", Debug: debug,
+	})
 
-func serve(debug bool) error {
-	var opts []tf6server.ServeOpt
-	if debug {
-		opts = append(opts, tf6server.WithManagedDebug())
-	}
-	err := tf6server.Serve("registry.terraform.io/chainguard-dev/imagetest", func() tfprotov6.ProviderServer {
-		return &telemetryServer{ProviderServer: providerserver.NewProtocol6(provider.New(version)())()}
-	}, opts...)
-
-	// go-plugin kills the process after two seconds. Resource changes flush before
+	// go-plugin kills the process after two seconds. Test and harness runs flush before
 	// replying; this shorter final drain leaves time for the process to exit.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := o11y.Shutdown(ctx); err != nil {
+	if err := o11y.Shutdown(shutdownCtx); err != nil {
 		stderrLog.Printf("otel shutdown: %v", err)
 	}
-	return err
-}
-
-type telemetryServer struct{ tfprotov6.ProviderServer }
-
-func (s *telemetryServer) ApplyResourceChange(ctx context.Context, req *tfprotov6.ApplyResourceChangeRequest) (*tfprotov6.ApplyResourceChangeResponse, error) {
-	defer func() {
-		// Terraform may close the plugin immediately after this response, including
-		// after a canceled apply. Drain completed spans/logs while it is still waiting.
-		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		if err := o11y.Flush(flushCtx); err != nil {
-			stderrLog.Printf("otel flush: %v", err)
-		}
-	}()
-	return s.ProviderServer.ApplyResourceChange(ctx, req)
+	if err != nil {
+		stderrLog.Fatal(err)
+	}
 }
 
 // setupLog sets up the default logging configuration.

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness/host"
@@ -57,7 +58,8 @@ func TestLegacyResourceTracing(t *testing.T) {
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					recorder := tracetest.NewSpanRecorder()
-					tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+					exporter := tracetest.NewInMemoryExporter()
+					tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder), sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
 					previous := otel.GetTracerProvider()
 					otel.SetTracerProvider(tp)
 					t.Cleanup(func() {
@@ -100,6 +102,9 @@ func TestLegacyResourceTracing(t *testing.T) {
 					harnessCtx, endHarness := traceHarness(ctx, data.Id.ValueString(), data.Name.ValueString(), &harnessDiags)
 					harnessDiags = base.do(harnessCtx, framework.CreateOrUpdateRequest{Plan: plan}, host.NewHost())
 					endHarness()
+					if got, want := len(exporter.GetSpans()), len(recorder.Ended()); got != want {
+						t.Fatalf("harness flushed %d spans, want %d", got, want)
+					}
 					if harnessDiags.HasError() {
 						t.Fatal(harnessDiags)
 					}
@@ -128,6 +133,9 @@ func TestLegacyResourceTracing(t *testing.T) {
 						t.Fatalf("unexpected diagnostics: %v", ds)
 					}
 					spans := recorder.Ended()
+					if got := len(exporter.GetSpans()); got != len(spans) {
+						t.Fatalf("feature flushed %d spans, want %d", got, len(spans))
+					}
 					if len(spans) != len(recorder.Started()) {
 						t.Fatal("unclosed spans")
 					}
@@ -187,7 +195,8 @@ func TestHarnessConstructionTracing(t *testing.T) {
 			t.Run(kind+"/"+operation, func(t *testing.T) {
 				t.Setenv("TRACEPARENT", legacyTraceparent)
 				recorder := tracetest.NewSpanRecorder()
-				tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+				exporter := tracetest.NewInMemoryExporter()
+				tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder), sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
 				previous := otel.GetTracerProvider()
 				otel.SetTracerProvider(tp)
 				t.Cleanup(func() {
@@ -228,6 +237,9 @@ func TestHarnessConstructionTracing(t *testing.T) {
 				}
 				if !diagnostics.HasError() {
 					t.Fatal("expected canceled construction to fail")
+				}
+				if got, want := len(exporter.GetSpans()), len(recorder.Ended()); got != want {
+					t.Fatalf("construction flushed %d spans, want %d", got, want)
 				}
 				if len(recorder.Started()) != len(recorder.Ended()) {
 					t.Fatal("unclosed construction spans")
