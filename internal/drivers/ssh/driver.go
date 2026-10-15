@@ -71,7 +71,7 @@ func (d *driver) Setup(ctx context.Context) error {
 
 	// One connection up front, so a wrong key or a wrong pin fails here
 	// and not inside the Docker tunnel's OpenSSH process.
-	conn, err := d.host.Connect()
+	conn, err := d.host.Connect(ctx)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", d.cfg.Host, err)
 	}

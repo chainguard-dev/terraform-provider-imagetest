@@ -413,7 +413,7 @@ func (d *driver) prepareInstance(ctx context.Context) error {
 	return wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		attempt++
 
-		conn, err := d.host.Connect()
+		conn, err := d.host.Connect(ctx)
 		if err != nil {
 			log.Info("SSH not ready, retrying", "attempt", attempt, "error", err)
 			return false, nil // retry

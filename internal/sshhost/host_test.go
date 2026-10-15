@@ -91,8 +91,8 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-// TestConnectHonorsContext checks that a connection bound to a finished
-// context is refused before dialing.
+// TestConnectHonorsContext checks that a connection attempt under a finished
+// context fails with that context's error.
 func TestConnectHonorsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

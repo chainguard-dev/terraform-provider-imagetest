@@ -15,6 +15,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// sshDefaultTimeout bounds the TCP dial and the SSH handshake when the
+// caller's context has no earlier deadline. x/crypto/ssh's own Timeout covers
+// only the dial: a host that accepts the connection and then never sends its
+// banner would otherwise block forever.
 const sshDefaultTimeout = 3 * time.Second
 
 // keepaliveInterval is how often Connect sends an SSH-level keepalive request on
@@ -41,6 +45,16 @@ var (
 )
 
 // Connect establishes an SSH (tcp/22) connection to 'host' on TCP port 'port'.
+// It is ConnectContext with a background context: the dial and the handshake
+// are bounded by sshDefaultTimeout.
+func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys ...ssh.PublicKey) (*ssh.Client, error) {
+	return ConnectContext(context.Background(), host, port, user, keypair, hostKeys...)
+}
+
+// ConnectContext establishes an SSH connection to 'host' on TCP port 'port'.
+// The TCP dial and the SSH handshake end when ctx does, or after
+// sshDefaultTimeout if that is sooner. ctx does not bound the established
+// connection; callers that need that close the client when ctx ends.
 //
 // 'host' can be any of: hostname, ipv4 address or ipv6 address. If 'host' is
 // an empty string, ipv4 loopback is used.
@@ -52,7 +66,7 @@ var (
 // Any values provided to 'hostKeys' will be used to compare against the host
 // key offered by 'host' when a connection is attempted. If no 'hostKeys' value
 // is provided, all host keys will be accepted.
-func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys ...ssh.PublicKey) (*ssh.Client, error) {
+func ConnectContext(ctx context.Context, host string, port uint16, user string, keypair ssh.Signer, hostKeys ...ssh.PublicKey) (*ssh.Client, error) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
@@ -81,7 +95,6 @@ func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys
 			}
 			return ErrHostKeyInvalid
 		},
-		Timeout: sshDefaultTimeout,
 		// Only negotiate the algorithms of the pinned keys. Otherwise the
 		// client's default preference picks whichever of the server's host
 		// keys sorts first (ECDSA before ed25519), and a correctly pinned key
@@ -94,11 +107,36 @@ func Connect(host string, port uint16, user string, keypair ssh.Signer, hostKeys
 	if err != nil {
 		return nil, err
 	}
-	// Dial the SSH connection.
-	client, err := ssh.Dial("tcp", target, config)
+
+	// One deadline for the dial and the handshake together.
+	ctx, cancel := context.WithTimeout(ctx, sshDefaultTimeout)
+	defer cancel()
+
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", target)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSSHFailedDial, err)
 	}
+	// The handshake is bounded by closing the socket when ctx ends; its reads
+	// and writes then fail. The deadline is a second guard for the same span.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	c, chans, reqs, err := ssh.NewClientConn(conn, target, config)
+	if !stop() {
+		// ctx ended during the handshake: report that rather than the
+		// closed-socket error it caused.
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: ssh handshake: %w", ErrSSHFailedDial, ctx.Err())
+	}
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: %w", ErrSSHFailedDial, err)
+	}
+	_ = conn.SetDeadline(time.Time{})
+	client := ssh.NewClient(c, chans, reqs)
+
 	// Keep the connection alive during idle stretches so intermediate network
 	// infrastructure doesn't reap a mostly-idle long-lived session.
 	go keepAlive(client, keepaliveInterval)

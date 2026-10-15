@@ -88,20 +88,18 @@ func (h *Host) Load() error {
 
 // Connect opens an SSH connection to the host. With pinned host keys the
 // connection fails unless the host presents one of them. The dial and the
-// handshake have a fixed timeout; sessions on the connection do not, see
+// handshake end when ctx does; sessions on the connection do not, see
 // connect.
-func (h *Host) Connect() (*ssh.Client, error) {
-	return issh.Connect(h.Addr, uint16(h.Port), h.User, h.Signer, h.HostKeys...)
+func (h *Host) Connect(ctx context.Context) (*ssh.Client, error) {
+	return issh.ConnectContext(ctx, h.Addr, uint16(h.Port), h.User, h.Signer, h.HostKeys...)
 }
 
-// connect is Connect bound to ctx: when ctx ends the connection is closed,
-// which unblocks a running session, whose Wait returns only after its output
-// is copied. The returned func releases the binding and closes the connection.
+// connect is Connect with the established connection also bound to ctx: when
+// ctx ends the connection is closed, which unblocks a running session, whose
+// Wait returns only after its output is copied. The returned func releases
+// the binding and closes the connection.
 func (h *Host) connect(ctx context.Context) (*ssh.Client, func(), error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	conn, err := h.Connect()
+	conn, err := h.Connect(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

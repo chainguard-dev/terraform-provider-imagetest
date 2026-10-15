@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"log"
 	"log/slog"
+	"net"
 	"testing"
 	"time"
 
@@ -219,5 +221,52 @@ func TestHostKeyAlgorithms(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, hostKeyAlgorithms(tc.keys))
 		})
+	}
+}
+
+// TestConnectContextBoundsHandshake connects to a listener that accepts TCP
+// and never sends an SSH banner. x/crypto's own Timeout covers only the dial,
+// so without a handshake bound this would block forever.
+func TestConnectContextBoundsHandshake(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close() // hold it open, say nothing
+		}
+	}()
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("unexpected listener address %T", l.Addr())
+	}
+
+	kp, err := NewED25519KeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := kp.Private.ToSSH()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = ConnectContext(ctx, "127.0.0.1", uint16(addr.Port), "nobody", signer)
+	if err == nil {
+		t.Fatal("ConnectContext() = nil error, want handshake bound")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ConnectContext() = %v, want context.DeadlineExceeded", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("ConnectContext() took %s, handshake was not bounded by ctx", took)
 	}
 }
