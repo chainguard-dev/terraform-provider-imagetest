@@ -280,7 +280,9 @@ func (o *opts) executeProcess(ctx context.Context) (int, error) {
 		waitErr = errors.New("process timed out or cancelled")
 		gracefullyTerminate(ctx, cmd, o.GracePeriod)
 
-		<-done
+		if err := <-done; err != nil {
+			clog.InfoContext(ctx, "process exited after termination", "error", err)
+		}
 	}
 
 	// extract the exit code from the error
@@ -495,8 +497,8 @@ func gracefullyTerminate(ctx context.Context, cmd *exec.Cmd, gracePeriod time.Du
 	}()
 
 	select {
-	case <-done:
-		clog.InfoContext(ctx, "process exited gracefully after SIGINT")
+	case err := <-done:
+		clog.InfoContext(ctx, "process exited gracefully after SIGINT", "error", err)
 		return
 	case <-time.After(gracePeriod):
 		clog.InfoContext(ctx, "process did not exit gracefully after SIGINT, sending SIGKILL")
