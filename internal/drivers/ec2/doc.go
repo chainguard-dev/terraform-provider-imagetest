@@ -5,6 +5,10 @@
 //
 // This driver runs container tests on an EC2 instance using Docker over SSH.
 // It requires a pre-provisioned VPC with an internet gateway and public routing.
+// The driver connects to the instance by its public DNS name when the VPC has
+// DNS hostnames enabled and the name resolves to the instance's public IP,
+// so callers whose egress is restricted to hostnames can reach it, and by its
+// public IP otherwise (inside the VPC the name resolves to the private IP).
 //
 // Lifecycle: Setup -> Run -> Teardown
 //

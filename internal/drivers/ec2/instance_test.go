@@ -73,3 +73,56 @@ func TestIsAZRetryable(t *testing.T) {
 		})
 	}
 }
+
+// TestInstanceAddr checks that the driver connects by public DNS name when
+// the VPC assigns one and falls back to the public IP when it does not.
+func TestInstanceAddr(t *testing.T) {
+	tests := []struct {
+		name string
+		inst instance
+		want string
+	}{
+		{
+			name: "DNS name assigned",
+			inst: instance{publicIP: "203.0.113.10", publicDNS: "ec2-203-0-113-10.us-west-2.compute.amazonaws.com"},
+			want: "ec2-203-0-113-10.us-west-2.compute.amazonaws.com",
+		},
+		{
+			name: "no DNS name",
+			inst: instance{publicIP: "203.0.113.10"},
+			want: "203.0.113.10",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.inst.addr(); got != tc.want {
+				t.Errorf("addr() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolvesTo checks that a name only counts as leading to an IP when it
+// resolves to that IP, so the driver falls back to the IP where the name
+// resolves elsewhere (such as inside the instance's VPC) or not at all.
+func TestResolvesTo(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		ip   string
+		want bool
+	}{
+		{name: "resolves to the IP", host: "localhost", ip: "127.0.0.1", want: true},
+		{name: "resolves elsewhere", host: "localhost", ip: "203.0.113.10", want: false},
+		{name: "does not resolve", host: "imagetest.invalid", ip: "203.0.113.10", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolvesTo(t.Context(), tc.host, tc.ip); got != tc.want {
+				t.Errorf("resolvesTo(%q, %q) = %v, want %v", tc.host, tc.ip, got, tc.want)
+			}
+		})
+	}
+}

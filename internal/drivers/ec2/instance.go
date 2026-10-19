@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,9 +32,22 @@ type instance struct {
 
 	id       string
 	publicIP string
+	// publicDNS is the instance's public DNS name, set only when it resolves
+	// to publicIP from here (see wait).
+	publicDNS string
 }
 
 var _ resource = (*instance)(nil)
+
+// addr returns the address to reach the instance at: its public DNS name
+// when that resolves to its public IP, so callers whose egress is
+// restricted to hostnames can reach it, and its public IP otherwise.
+func (i *instance) addr() string {
+	if i.publicDNS != "" {
+		return i.publicDNS
+	}
+	return i.publicIP
+}
 
 // isAZRetryable reports whether err indicates the availability zone (rather
 // than the request itself) is the problem, so the same request is worth
@@ -201,14 +215,36 @@ func (i *instance) wait(ctx context.Context) error {
 	}
 
 	i.publicIP = *inst.PublicIpAddress
-	log.Info("instance ready", "id", i.id, "ip", i.publicIP)
+	name := aws.ToString(inst.PublicDnsName)
+	log.Info("instance ready", "id", i.id, "ip", i.publicIP, "dns", name)
 
-	log.Info("waiting for SSH to become available", "ip", i.publicIP)
-	if err := waitTCP(ctx, i.publicIP, uint16(i.sshPort)); err != nil {
+	// Inside the instance's VPC, or a peered one, the public DNS name
+	// resolves to the private IP, which the security group does not let in.
+	// Use the name only where it leads to the public IP.
+	if name != "" {
+		if resolvesTo(ctx, name, i.publicIP) {
+			i.publicDNS = name
+		} else {
+			log.Info("public DNS name does not resolve to the public IP here, connecting by IP", "dns", name, "ip", i.publicIP)
+		}
+	}
+
+	log.Info("waiting for SSH to become available", "addr", i.addr())
+	if err := waitTCP(ctx, i.addr(), uint16(i.sshPort)); err != nil {
 		return fmt.Errorf("waiting for SSH: %w", err)
 	}
 
 	return nil
+}
+
+// resolvesTo reports whether name resolves to ip from this host. A failed
+// lookup counts as not resolving to it.
+func resolvesTo(ctx context.Context, name, ip string) bool {
+	addrs, err := net.DefaultResolver.LookupHost(ctx, name)
+	if err != nil {
+		return false
+	}
+	return slices.Contains(addrs, ip)
 }
 
 func waitTCP(ctx context.Context, host string, port uint16) error {
