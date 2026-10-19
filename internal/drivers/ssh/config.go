@@ -40,6 +40,11 @@ type Config struct {
 	// Commands run on the host on failure, see Diagnose.
 	OnFailure []string
 
+	// LockPath, when set, is a file on the host that Setup takes an
+	// exclusive flock on, held until Teardown, so runs that share the host
+	// run one at a time. The wait is bounded by the setup timeout.
+	LockPath string
+
 	// Operational
 	SkipTeardown bool // IMAGETEST_SKIP_TEARDOWN: leave the test containers on the host
 	Timeouts     drivers.Timeouts
