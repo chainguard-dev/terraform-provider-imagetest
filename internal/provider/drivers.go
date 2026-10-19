@@ -1135,7 +1135,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 	Optional:    true,
 	Attributes: map[string]schema.Attribute{
 		"vpc_id": schema.StringAttribute{
-			Description: "The VPC ID to create resources in. Required unless using existing_instance (deprecated).",
+			Description: "The VPC ID to create resources in. Required unless using existing_instance (deprecated). With DNS hostnames enabled on the VPC, the driver connects to the instance by its public DNS name when that name resolves to the instance's public IP, otherwise by its public IP.",
 			Optional:    true,
 		},
 		"region": schema.StringAttribute{

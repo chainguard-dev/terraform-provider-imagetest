@@ -169,7 +169,7 @@ Optional:
 - `timeouts` (Attributes) Timeout configuration for driver lifecycle phases. (see [below for nested schema](#nestedatt--drivers--ec2--timeouts))
 - `user_data` (String) Cloud-init user data (will be base64 encoded).
 - `volume_mounts` (List of String) Volume mounts for the test container (format: src:dst).
-- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance (deprecated).
+- `vpc_id` (String) The VPC ID to create resources in. Required unless using existing_instance (deprecated). With DNS hostnames enabled on the VPC, the driver connects to the instance by its public DNS name when that name resolves to the instance's public IP, otherwise by its public IP.
 
 <a id="nestedatt--drivers--ec2--existing_instance"></a>
 ### Nested Schema for `drivers.ec2.existing_instance`

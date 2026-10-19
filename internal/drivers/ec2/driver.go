@@ -184,7 +184,7 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	}
 	span.AddEvent("ec2.instance.running")
 
-	d.host = d.newHost(d.instance.publicIP, d.key.path)
+	d.host = d.newHost(d.instance.addr(), d.key.path)
 	signer, err := d.key.private.ToSSH()
 	if err != nil {
 		return fmt.Errorf("getting SSH signer: %w", err)
@@ -208,11 +208,11 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 	if d.cfg.SkipTeardown {
 		log.Info("IMAGETEST_SKIP_TEARDOWN is set - resources will not be cleaned up",
 			"instance_id", d.instance.id,
-			"instance_ip", d.instance.publicIP,
+			"instance_addr", d.instance.addr(),
 			"ssh_key", d.sshKeyPath(),
 			"ssh_user", d.cfg.SSHUser,
 		)
-		log.Infof("to connect: ssh -i %s %s@%s", d.sshKeyPath(), d.cfg.SSHUser, d.instance.publicIP)
+		log.Infof("to connect: ssh -i %s %s@%s", d.sshKeyPath(), d.cfg.SSHUser, d.instance.addr())
 	}
 
 	return nil
@@ -333,11 +333,11 @@ func (d *driver) Teardown(ctx context.Context) error {
 
 	if d.cfg.SkipTeardown {
 		log.Info("IMAGETEST_SKIP_TEARDOWN is set, skipping teardown",
-			"instance_ip", d.instanceIP(),
+			"instance_addr", d.instanceAddr(),
 			"ssh_key", d.sshKeyPath(),
 			"ssh_user", d.cfg.SSHUser,
 		)
-		log.Infof("to connect: ssh -i %s %s@%s", d.sshKeyPath(), d.cfg.SSHUser, d.instanceIP())
+		log.Infof("to connect: ssh -i %s %s@%s", d.sshKeyPath(), d.cfg.SSHUser, d.instanceAddr())
 		return nil
 	}
 
@@ -370,9 +370,9 @@ func (d *driver) Diagnose(ctx context.Context, w io.Writer) error {
 	return d.host.Diagnose(ctx, w)
 }
 
-// instanceIP returns the IP address to connect to, or "" before the
-// instance is reachable.
-func (d *driver) instanceIP() string {
+// instanceAddr returns the address the driver connects to, a DNS name or an
+// IP, or "" before the instance is reachable.
+func (d *driver) instanceAddr() string {
 	if d.host == nil {
 		return ""
 	}
