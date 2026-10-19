@@ -42,7 +42,7 @@ Optional:
 
 - `aks` (Attributes) The AKS driver (see [below for nested schema](#nestedatt--drivers--aks))
 - `docker_in_docker` (Attributes) The docker_in_docker driver (see [below for nested schema](#nestedatt--drivers--docker_in_docker))
-- `ec2` (Attributes) The AWS EC2 driver. (see [below for nested schema](#nestedatt--drivers--ec2))
+- `ec2` (Attributes) The AWS EC2 driver. On instances the driver launches, images in private ECR registries are pulled with the instance profile, which needs docker-credential-ecr-login on the instance. Install it with `user_data` or `setup_commands`. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
 - `ssh` (Attributes) The ssh driver. Runs tests on a host that already exists, over SSH. The host runs Docker; the driver pulls the images under test into its daemon with the caller's registry credentials before the tests start, runs each test container under a unique name, and removes the containers at teardown. It creates no infrastructure and builds no cloud clients. (see [below for nested schema](#nestedatt--drivers--ssh))
@@ -155,7 +155,7 @@ Optional:
 - `env` (Map of String) Environment variables for setup commands and container.
 - `existing_instance` (Attributes, Deprecated) Deprecated: use the `ssh` driver, which runs tests on an existing host without AWS clients and requires a pinned host key. Use an existing instance instead of creating new resources. (see [below for nested schema](#nestedatt--drivers--ec2--existing_instance))
 - `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
-- `instance_profile_name` (String) IAM instance profile name. If not specified, one is created with ECR read-only permissions.
+- `instance_profile_name` (String) IAM instance profile name. If not specified, one is created with ECR read-only permissions. ECR images are pulled with this profile, so a custom profile needs ECR read access, and cross-account repositories must allow it.
 - `instance_type` (String) The EC2 instance type (default: t3.medium).
 - `mount_all_gpus` (Boolean, Deprecated) Deprecated: use gpus = 'all' instead.
 - `on_failure` (List of String) Commands to run on the instance when setup or a test fails, before teardown, for diagnostic collection. Unlike a test's `on_failure`, which runs inside the test container, these run on the instance itself, in `shell` with `env` like `setup_commands`, and also when setup fails. Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.

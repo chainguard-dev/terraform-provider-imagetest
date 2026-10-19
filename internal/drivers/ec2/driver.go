@@ -190,6 +190,11 @@ func (d *driver) setupNewInstance(ctx context.Context) error {
 		return fmt.Errorf("getting SSH signer: %w", err)
 	}
 	d.host.Signer = signer
+	// The instance profile the driver creates can read ECR, and a custom
+	// instance_profile_name has to as well. ECR images are pulled with it
+	// rather than the caller's registry credentials, which may not be usable
+	// from the instance.
+	d.host.PullECRWithHostCredentials = true
 
 	if err := d.prepareInstance(ctx); err != nil {
 		return fmt.Errorf("preparing instance: %w", err)
