@@ -69,6 +69,10 @@ type Host struct {
 	// profile. Pulls fail without them.
 	PullECRWithHostCredentials bool
 
+	// LockPath, when set, is a file on the host the driver takes an
+	// exclusive flock on for the length of the run, see AcquireLock.
+	LockPath string
+
 	// Stack receives each test container's removal.
 	Stack *harness.Stack
 }
@@ -121,9 +125,12 @@ func (h *Host) connect(ctx context.Context) (*ssh.Client, func(), error) {
 // Labels returns the labels for a test container, the same keys the ec2
 // driver tags its AWS resources with, so a host operator can find and prune
 // what a run left behind: docker container prune --filter label=imagetest.
+// LabelRun is the per-run label the teardown sweep filters on, see
+// RemoveRunContainers.
 func (h *Host) Labels() map[string]string {
 	return map[string]string{
-		"imagetest":           "true",
+		LabelImagetest:        "true",
+		LabelRun:              h.Name,
 		"imagetest:driver":    h.Driver,
 		"imagetest:test-name": h.Name,
 		"imagetest:expires":   time.Now().Add(2 * time.Hour).Format(time.RFC3339),

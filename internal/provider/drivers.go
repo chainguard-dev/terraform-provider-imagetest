@@ -203,6 +203,7 @@ type EC2ExistingInstanceResourceModel struct {
 }
 
 type SSHDriverResourceModel struct {
+	LockPath      types.String                 `tfsdk:"lock_path"`
 	Host          types.String                 `tfsdk:"host"`
 	SSHPort       types.Int64                  `tfsdk:"ssh_port"`
 	SSHUser       types.String                 `tfsdk:"ssh_user"`
@@ -714,6 +715,7 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			Shell:      cfg.Shell.ValueString(),
 			GPUs:       cfg.GPUs.ValueString(),
 			OnFailure:  cfg.OnFailure,
+			LockPath:   cfg.LockPath.ValueString(),
 			Env:        make(map[string]string),
 
 			PullECRWithHostCredentials: cfg.PullECRWithHostCredentials.ValueBool(),
@@ -1090,6 +1092,8 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 	Description: "The ssh driver. Runs tests on a host that already exists, over SSH. " +
 		"The host runs Docker; the driver pulls the images under test into its daemon before the tests start, runs each test container under a unique name, and removes the containers at teardown. " +
 		"Pulls send the caller's registry credentials to the daemon, or with `pull_ecr_with_host_credentials` the host pulls private ECR images with its own credentials. " +
+		"Every container it creates carries the per-run label `imagetest:run=<run>`, and the test container gets `IMAGETEST_RUN_LABEL` (the key) and `IMAGETEST_RUN` (the value) in its environment, so a test that starts containers through the Docker socket can pass `--label \"$IMAGETEST_RUN_LABEL=$IMAGETEST_RUN\"` and teardown removes them with the run. " +
+		"A failed first SSH connection is reported with a message starting `imagetest: host unreachable: `, so a caller can tell a dead host from a failed test. " +
 		"It creates no infrastructure and builds no cloud clients.",
 	Optional: true,
 	Attributes: map[string]schema.Attribute{
@@ -1155,6 +1159,13 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 				"With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.",
 			ElementType: types.StringType,
 			Optional:    true,
+		},
+		"lock_path": schema.StringAttribute{
+			Description: "Path of a file on the host to take an exclusive `flock` on for the length of the run, so runs that share the host run one at a time. " +
+				"Setup holds it in an SSH session that stays open until teardown; the wait for a busy lock is bounded by `timeouts.setup` and recorded as the span event `ssh.lock.acquired`. " +
+				"The directory must let `ssh_user` create or open the file, and `flock` (util-linux) must be on the host. " +
+				"While the lock is held, setup also removes every container on the host left by an earlier run (label `imagetest:run` with another value, or `imagetest=true`), since only the lock holder can have live containers.",
+			Optional: true,
 		},
 		"timeouts": driverTimeoutsSchema(),
 	},

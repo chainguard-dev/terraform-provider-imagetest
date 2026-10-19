@@ -61,6 +61,7 @@ func (d *driver) Setup(ctx context.Context) error {
 		GPUs:          d.cfg.GPUs,
 		VolumeMounts:  d.cfg.VolumeMounts,
 		DeviceMounts:  d.cfg.DeviceMounts,
+		LockPath:      d.cfg.LockPath,
 		Stack:         d.stack,
 
 		PullECRWithHostCredentials: d.cfg.PullECRWithHostCredentials,
@@ -72,13 +73,38 @@ func (d *driver) Setup(ctx context.Context) error {
 	d.host = host
 
 	// One connection up front, so a wrong key or a wrong pin fails here
-	// and not inside the Docker tunnel's OpenSSH process.
+	// and not inside the Docker tunnel's OpenSSH process. The typed error
+	// tells callers the host was never reached.
 	conn, err := d.host.Connect(ctx)
 	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", d.cfg.Host, err)
+		return &HostUnreachableError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
 	}
 	_ = conn.Close()
 	span.AddEvent("ssh.connected")
+
+	// The lock is the first teardown pushed, so it is released last: after
+	// the test containers and the run sweep. While it is held no other run
+	// can have live containers on the host, so whatever carries an
+	// imagetest label from an earlier run is stale and is removed now.
+	if d.cfg.LockPath != "" {
+		lock, err := d.host.AcquireLock(ctx)
+		if err != nil {
+			return fmt.Errorf("acquiring lock: %w", err)
+		}
+		if err := d.stack.Add(lock.Release); err != nil {
+			_ = lock.Release(ctx)
+			return fmt.Errorf("adding lock release to stack: %w", err)
+		}
+		if err := d.host.RemoveStaleContainers(ctx); err != nil {
+			return fmt.Errorf("sweeping stale containers: %w", err)
+		}
+	}
+
+	// Pushed before any test container, so it runs after their removal:
+	// it takes out what the tests started with the run's label.
+	if err := d.stack.Add(d.host.RemoveRunContainers); err != nil {
+		return fmt.Errorf("adding run sweep to stack: %w", err)
+	}
 
 	// Setup commands run before the GPU probe, unlike the ec2 launch path:
 	// on a held host they are where a missing driver or toolkit gets
@@ -117,7 +143,8 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	return d.host.Run(ctx, ref)
 }
 
-// Teardown removes the test containers. The host is shared and persistent,
+// Teardown removes the test containers, then every container labelled with
+// the run, then releases the host lock. The host is shared and persistent,
 // so nothing else is touched.
 func (d *driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)

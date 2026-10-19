@@ -24,11 +24,21 @@
 //     the port is not 22. A host rebuild changes the key, so a rebuild also
 //     updates the pinned file.
 //  2. Opens one SSH connection, so a wrong key or a wrong pin fails here
-//     with a clear error.
-//  3. Runs setup_commands, if any, in one session.
-//  4. Logs GPU and NVIDIA driver information if nvidia-smi is present.
+//     with a clear error. The error is a *HostUnreachableError whose
+//     message starts with HostUnreachablePrefix, so a caller can tell a
+//     host it never reached from a test that failed.
+//  3. With lock_path set, takes an exclusive flock on that file in an SSH
+//     session that stays open until Teardown, so runs that share the host
+//     run one at a time. The wait is bounded by the setup timeout and is
+//     recorded as the span event ssh.lock.acquired. Then, since no other
+//     run can have live containers while the lock is held, removes every
+//     container on the host that carries an imagetest label from an
+//     earlier run: a guest that died mid-run never reached its own
+//     teardown.
+//  4. Runs setup_commands, if any, in one session.
+//  5. Logs GPU and NVIDIA driver information if nvidia-smi is present.
 //     This is non-fatal.
-//  5. Pulls the images under test (Config.PrePullImages, filled by the
+//  6. Pulls the images under test (Config.PrePullImages, filled by the
 //     provider from the resource's images map) into the host's Docker
 //     daemon. By default each pull carries the caller's registry
 //     credentials for that one request; the host never logs in and never
@@ -45,14 +55,20 @@
 //  1. Connects to Docker on the host via the SSH tunnel
 //  2. Pulls the test image, the same way as in Setup step 5
 //  3. Runs the container under a unique name, streaming logs and waiting
-//     for exit
+//     for exit. The container carries the run's label (imagetest:run) and
+//     the environment variables IMAGETEST_RUN_LABEL and IMAGETEST_RUN
+//     name it, so a test that starts containers through the Docker socket
+//     can label them with the run.
 //
 // # Phase: Teardown
 //
-// The host is shared and persistent, so the only teardown is removing the
-// test containers this run created. Pulled images stay in the daemon's
-// cache for later runs; pruning them is the host operator's job. With
-// IMAGETEST_SKIP_TEARDOWN set the containers are left in place.
+// The host is shared and persistent, so teardown touches only containers.
+// In order: the test containers this run created, then every container on
+// the host carrying the run's label (a sibling the test started dies with
+// the run even when its exit trap never fired), then the host lock.
+// Pulled images stay in the daemon's cache for later runs; pruning them is
+// the host operator's job. With IMAGETEST_SKIP_TEARDOWN set the containers
+// are left in place and the lock is released when the provider exits.
 //
 // # Shared code
 //
