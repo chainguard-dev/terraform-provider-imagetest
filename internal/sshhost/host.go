@@ -61,6 +61,14 @@ type Host struct {
 	VolumeMounts []string
 	DeviceMounts []string
 
+	// PullECRWithHostCredentials pulls images from private ECR registries
+	// with the docker CLI on the host, through docker-credential-ecr-login
+	// and the host's own AWS credentials, instead of sending the caller's
+	// registry credentials to the daemon. The host needs the helper on its
+	// PATH and credentials that can read ECR, such as an EC2 instance
+	// profile. Pulls fail without them.
+	PullECRWithHostCredentials bool
+
 	// Stack receives each test container's removal.
 	Stack *harness.Stack
 }
@@ -122,8 +130,8 @@ func (h *Host) Labels() map[string]string {
 	}
 }
 
-// Run pulls ref into the host's Docker daemon with the caller's registry
-// credentials and runs it as a test container.
+// Run pulls ref into the host's Docker daemon (see pullImage) and runs it as
+// a test container.
 func (h *Host) Run(ctx context.Context, ref name.Reference) (*drivers.RunResult, error) {
 	log := clog.FromContext(ctx)
 

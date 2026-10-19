@@ -31,7 +31,11 @@
 //
 // The driver:
 //  1. Connects to Docker on the instance via SSH tunnel
-//  2. Pulls the test image (with registry auth from default keychain)
+//  2. Pulls the test image. An image in a private ECR registry is pulled by
+//     the docker CLI on the instance with the instance profile, which needs
+//     docker-credential-ecr-login on the instance (install it with user_data
+//     or setup_commands). Other images are pulled with registry auth from
+//     the default keychain.
 //  3. Runs the container, streaming logs and waiting for exit
 //
 // # Phase: Teardown
@@ -50,10 +54,12 @@
 // # Shared host code
 //
 // Everything after the instance is reachable (SSH with an optional pinned
-// host key, Docker over SSH, image pulls with the caller's registry
-// credentials, the test container and its removal, setup commands, GPU info
-// and on_failure diagnostics) lives in internal/sshhost and is shared with
-// the ssh driver.
+// host key, Docker over SSH, image pulls, the test container and its
+// removal, setup commands, GPU info and on_failure diagnostics) lives in
+// internal/sshhost and is shared with the ssh driver. Only this driver, and
+// only for instances it launches, pulls ECR images with the host's own
+// credentials. The ssh driver and existing instance mode always pull with
+// the caller's registry credentials.
 //
 // # Existing Instance Mode (deprecated)
 //

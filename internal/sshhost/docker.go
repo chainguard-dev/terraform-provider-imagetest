@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,10 +18,12 @@ import (
 	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
+	issh "github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
 	"github.com/docker/cli/cli/connhelper"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
+	"github.com/kballard/go-shellquote"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -126,22 +129,21 @@ func (h *Host) waitDocker(ctx context.Context, cli *client.Client) error {
 	return nil
 }
 
+// pullImage pulls ref into the host's Docker daemon, retrying with backoff.
+// With PullECRWithHostCredentials set, an image in a private ECR registry is
+// pulled on the host with the host's own credentials (see pullOnHost). Every
+// other pull sends the caller's registry credentials to the daemon.
 func (h *Host) pullImage(ctx context.Context, cli *client.Client, ref name.Reference) error {
-	auth, err := authn.DefaultKeychain.Resolve(ref.Context().Registry)
-	if err != nil {
-		return fmt.Errorf("resolving registry auth: %w", err)
+	var pull func(context.Context) error
+	if h.pullsOnHost(ref) {
+		pull = func(ctx context.Context) error { return h.pullOnHost(ctx, ref) }
+	} else {
+		auth, err := callerRegistryAuth(ref)
+		if err != nil {
+			return err
+		}
+		pull = func(ctx context.Context) error { return daemonPull(ctx, cli, ref, auth) }
 	}
-
-	authConfig, err := auth.Authorization()
-	if err != nil {
-		return fmt.Errorf("getting auth config: %w", err)
-	}
-
-	authJSON, err := json.Marshal(authConfig)
-	if err != nil {
-		return fmt.Errorf("marshaling auth config: %w", err)
-	}
-	authStr := base64.URLEncoding.EncodeToString(authJSON)
 
 	var lastErr error
 	if err := wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
@@ -151,20 +153,11 @@ func (h *Host) pullImage(ctx context.Context, cli *client.Client, ref name.Refer
 		Steps:    5,
 		Cap:      1 * time.Minute,
 	}, func(ctx context.Context) (bool, error) {
-		result, err := cli.ImagePull(ctx, ref.Name(), client.ImagePullOptions{RegistryAuth: authStr})
-		if err != nil {
+		if err := pull(ctx); err != nil {
 			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
 			lastErr = err
 			return false, nil
 		}
-		defer result.Close()
-
-		if _, err := io.Copy(io.Discard, result); err != nil {
-			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
-			lastErr = err
-			return false, nil
-		}
-
 		return true, nil
 	}); err != nil {
 		return fmt.Errorf("pulling image: %w: last error: %w", err, lastErr)
@@ -173,12 +166,100 @@ func (h *Host) pullImage(ctx context.Context, cli *client.Client, ref name.Refer
 	return nil
 }
 
-// PrePullImages pulls images into the host's Docker daemon. Each pull is
-// authenticated with the caller's keychain, like the test image pull in Run,
-// so the host never needs registry credentials of its own. References are
-// pulled as given (by digest when the caller resolved one) and never with a
-// platform override: the daemon selects its own platform from a multi-arch
-// index.
+// callerRegistryAuth returns the caller's credentials for ref's registry from
+// the default keychain, encoded for the Docker API's RegistryAuth.
+func callerRegistryAuth(ref name.Reference) (string, error) {
+	auth, err := authn.DefaultKeychain.Resolve(ref.Context().Registry)
+	if err != nil {
+		return "", fmt.Errorf("resolving registry auth: %w", err)
+	}
+
+	authConfig, err := auth.Authorization()
+	if err != nil {
+		return "", fmt.Errorf("getting auth config: %w", err)
+	}
+
+	authJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return "", fmt.Errorf("marshaling auth config: %w", err)
+	}
+	return base64.URLEncoding.EncodeToString(authJSON), nil
+}
+
+// daemonPull pulls ref through the Docker API with the given RegistryAuth.
+func daemonPull(ctx context.Context, cli *client.Client, ref name.Reference, auth string) error {
+	result, err := cli.ImagePull(ctx, ref.Name(), client.ImagePullOptions{RegistryAuth: auth})
+	if err != nil {
+		return err
+	}
+	defer result.Close()
+
+	_, err = io.Copy(io.Discard, result)
+	return err
+}
+
+// ecrRegistry matches private ECR registry hosts, such as
+// 123456789012.dkr.ecr.us-west-2.amazonaws.com, including FIPS and China
+// endpoints. Other registries, ECR Public among them, are pulled with the
+// caller's credentials.
+var ecrRegistry = regexp.MustCompile(`^[0-9]{12}\.dkr\.ecr(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$`)
+
+// pullsOnHost reports whether ref is pulled on the host with the host's own
+// credentials.
+func (h *Host) pullsOnHost(ref name.Reference) bool {
+	return h.PullECRWithHostCredentials && ecrRegistry.MatchString(ref.Context().RegistryStr())
+}
+
+// pullOnHost pulls ref with the docker CLI on the host, which gets ECR
+// credentials from docker-credential-ecr-login and the host's own AWS
+// credentials. The Docker daemon does not use credential helpers, so the
+// pull has to run through the CLI on the host rather than the Docker API.
+// Without the helper on the host's PATH, the CLI fails and says so.
+func (h *Host) pullOnHost(ctx context.Context, ref name.Reference) error {
+	script, err := hostPullScript(ref)
+	if err != nil {
+		return err
+	}
+
+	conn, done, err := h.connect(ctx)
+	if err != nil {
+		return fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer done()
+
+	stderr := new(bytes.Buffer)
+	if err := issh.ExecIn(conn, issh.ShellSh, io.Discard, stderr, script...); err != nil {
+		return fmt.Errorf("docker pull on the host: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// hostPullScript returns the sh commands pullOnHost runs. They use a
+// throwaway DOCKER_CONFIG that maps only ref's registry to the ECR helper
+// ("ecr-login" names docker-credential-ecr-login), so the host user's own
+// Docker config is neither read nor changed.
+func hostPullScript(ref name.Reference) ([]string, error) {
+	config, err := json.Marshal(map[string]any{
+		"credHelpers": map[string]string{ref.Context().RegistryStr(): "ecr-login"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encoding docker config: %w", err)
+	}
+	return []string{
+		"set -eu",
+		`config="$(mktemp -d)"`,
+		`trap 'rm -rf "$config"' EXIT`,
+		"printf '%s\\n' " + shellquote.Join(string(config)) + ` >"$config/config.json"`,
+		`DOCKER_CONFIG="$config" docker pull --quiet ` + shellquote.Join(ref.Name()) + " </dev/null",
+	}, nil
+}
+
+// PrePullImages pulls images into the host's Docker daemon the same way Run
+// pulls the test image (see pullImage): with the caller's keychain, or for
+// ECR images with the host's own credentials when PullECRWithHostCredentials
+// is set. References are pulled as given (by digest when the caller resolved
+// one) and never with a platform override: the daemon selects its own
+// platform from a multi-arch index.
 func (h *Host) PrePullImages(ctx context.Context, images []string) error {
 	if len(images) == 0 {
 		return nil

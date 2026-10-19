@@ -1131,7 +1131,7 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 }
 
 var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
-	Description: "The AWS EC2 driver.",
+	Description: "The AWS EC2 driver. On instances the driver launches, images in private ECR registries are pulled with the instance profile, which needs docker-credential-ecr-login on the instance. Install it with `user_data` or `setup_commands`.",
 	Optional:    true,
 	Attributes: map[string]schema.Attribute{
 		"vpc_id": schema.StringAttribute{
@@ -1155,7 +1155,7 @@ var driverResourceSchemaEC2 = schema.SingleNestedAttribute{
 			Optional:    true,
 		},
 		"instance_profile_name": schema.StringAttribute{
-			Description: "IAM instance profile name. If not specified, one is created with ECR read-only permissions.",
+			Description: "IAM instance profile name. If not specified, one is created with ECR read-only permissions. ECR images are pulled with this profile, so a custom profile needs ECR read access, and cross-account repositories must allow it.",
 			Optional:    true,
 		},
 		"subnet_cidr": schema.StringAttribute{
