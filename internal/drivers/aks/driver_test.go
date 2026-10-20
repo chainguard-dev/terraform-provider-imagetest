@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -110,26 +111,28 @@ func TestLocalFiles(t *testing.T) {
 	}
 }
 
-// renewingCredential hands out a new token on every call, as azidentity does
-// once the previous one nears expiry.
-type renewingCredential struct {
-	mu     sync.Mutex
-	issued int
-	scopes [][]string
+// expiringCredential hands out a new token on every call, each living for
+// the next of lifetimes, like a credential that does not cache.
+type expiringCredential struct {
+	mu        sync.Mutex
+	lifetimes []time.Duration
+	issued    int
+	scopes    [][]string
 }
 
-func (c *renewingCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
+func (c *expiringCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	lifetime := c.lifetimes[c.issued]
 	c.issued++
 	c.scopes = append(c.scopes, opts.Scopes)
-	return azcore.AccessToken{Token: fmt.Sprintf("token-%d", c.issued)}, nil
+	return azcore.AccessToken{Token: fmt.Sprintf("token-%d", c.issued), ExpiresOn: time.Now().Add(lifetime)}, nil
 }
 
 // TestUseEntraTokens checks that a client built from an Entra cluster's
-// kubeconfig authenticates every request with a token the credential hands
-// out for that request, so a token renewed mid-test reaches the next request,
-// and that the kubeconfig's kubelogin exec stanza is never run.
+// kubeconfig authenticates with the credential's tokens, renews one that has
+// expired, reuses one that has not instead of asking the credential again,
+// and never runs the kubeconfig's kubelogin exec stanza.
 func TestUseEntraTokens(t *testing.T) {
 	var (
 		mu   sync.Mutex
@@ -178,7 +181,8 @@ current-context: aks
 	if err != nil {
 		t.Fatalf("BuildConfigFromFlags: %v", err)
 	}
-	cred := &renewingCredential{}
+	// The first token has expired by the second request, the second outlives the test.
+	cred := &expiringCredential{lifetimes: []time.Duration{-time.Minute, time.Hour}}
 	useEntraTokens(config, cred)
 	kcli, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -191,9 +195,12 @@ current-context: aks
 		}
 	}
 
-	want := []string{"Bearer token-1", "Bearer token-2", "Bearer token-3"}
+	want := []string{"Bearer token-1", "Bearer token-2", "Bearer token-2"}
 	if !slices.Equal(auth, want) {
 		t.Errorf("Authorization headers = %q, want %q", auth, want)
+	}
+	if cred.issued != 2 {
+		t.Errorf("credential asked for %d tokens, want 2", cred.issued)
 	}
 	for _, scopes := range cred.scopes {
 		if !slices.Equal(scopes, []string{aksServerScope}) {

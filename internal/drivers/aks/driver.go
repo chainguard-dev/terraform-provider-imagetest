@@ -29,9 +29,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/oauth2"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/transport"
 )
 
 const (
@@ -48,6 +50,9 @@ const (
 	// Entra-enabled AKS cluster accepts tokens for. Its ID is the same in every
 	// tenant and cloud: https://azure.github.io/kubelogin/concepts/aks.html
 	aksServerScope = "6dae42f8-4368-4678-94ff-3960e28e3630/.default"
+	// aksTokenTimeout bounds one token request, since oauth2.TokenSource
+	// passes no context.
+	aksTokenTimeout = time.Minute
 )
 
 var rgRegex = regexp.MustCompile(`(?i)/resourceGroups/([^/]+)`)
@@ -1151,28 +1156,28 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 
 // useEntraTokens makes config authenticate with Entra tokens for the AKS
 // server application from cred, in place of the kubeconfig's kubelogin exec
-// stanza. The credential is asked on every request rather than once into
-// BearerToken, so a test that outlives one token gets the one azidentity
-// renews.
+// stanza. client-go caches each token until shortly before it expires and
+// drops it on a 401, so a test that outlives one token gets a renewed one,
+// and credentials that do not cache, such as AzureCLICredential, do not run
+// the CLI on every request.
 func useEntraTokens(config *rest.Config, cred azcore.TokenCredential) {
 	config.ExecProvider = nil
 	config.AuthProvider = nil
-	config.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return &entraTransport{cred: cred, base: rt}
-	}
+	config.WrapTransport = transport.ResettableTokenSourceWrapTransport(
+		transport.NewCachedTokenSource(entraTokenSource{cred: cred}))
 }
 
-type entraTransport struct {
+// entraTokenSource adapts cred to the oauth2.TokenSource client-go caches.
+type entraTokenSource struct {
 	cred azcore.TokenCredential
-	base http.RoundTripper
 }
 
-func (t *entraTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	tok, err := t.cred.GetToken(r.Context(), policy.TokenRequestOptions{Scopes: []string{aksServerScope}})
+func (s entraTokenSource) Token() (*oauth2.Token, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), aksTokenTimeout)
+	defer cancel()
+	tok, err := s.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{aksServerScope}})
 	if err != nil {
 		return nil, fmt.Errorf("getting AKS token: %w", err)
 	}
-	r = r.Clone(r.Context())
-	r.Header.Set("Authorization", "Bearer "+tok.Token)
-	return t.base.RoundTrip(r)
+	return &oauth2.Token{AccessToken: tok.Token, TokenType: "Bearer", Expiry: tok.ExpiresOn}, nil
 }
