@@ -82,8 +82,8 @@ func (d *driver) Setup(ctx context.Context) error {
 
 	// The lock is the first teardown pushed, so it is released last: after
 	// the test containers and the run sweep. While it is held no other run
-	// can have live containers on the host, so whatever carries an
-	// imagetest label from an earlier run is stale and is removed now.
+	// on the same lock can have live containers on the host, so what such
+	// a run left behind is stale and is removed now.
 	if d.cfg.LockPath != "" {
 		lock, err := d.host.AcquireLock(ctx)
 		if err != nil {
@@ -96,12 +96,6 @@ func (d *driver) Setup(ctx context.Context) error {
 		if err := d.host.RemoveStaleContainers(ctx); err != nil {
 			return fmt.Errorf("sweeping stale containers: %w", err)
 		}
-	}
-
-	// Pushed before any test container, so it runs after their removal:
-	// it takes out what the tests started with the run's label.
-	if err := d.stack.Add(d.host.RemoveRunContainers); err != nil {
-		return fmt.Errorf("adding run sweep to stack: %w", err)
 	}
 
 	// Setup commands run before the GPU probe, unlike the ec2 launch path:
@@ -117,6 +111,14 @@ func (d *driver) Setup(ctx context.Context) error {
 	// them locally. The host holds no registry credentials.
 	if err := d.host.PrePullImages(ctx, d.cfg.PrePullImages); err != nil {
 		return fmt.Errorf("pre-pulling images: %w", err)
+	}
+
+	// Pushed before any test container, so it runs after their removal:
+	// it takes out what the tests started with the run's label. Pushed
+	// last in Setup, so a Setup that fails before this point does not
+	// spend its teardown waiting for a Docker daemon it never reached.
+	if err := d.stack.Add(d.host.RemoveRunContainers); err != nil {
+		return fmt.Errorf("adding run sweep to stack: %w", err)
 	}
 	span.AddEvent("ssh.setup.complete")
 
@@ -142,7 +144,7 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 
 // Teardown removes the test containers, then every container labelled with
 // the run, then releases the host lock. The host is shared and persistent,
-// so nothing else is touched.
+// so teardown touches only containers.
 func (d *driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 
