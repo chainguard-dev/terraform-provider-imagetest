@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -28,9 +29,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/oauth2"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/transport"
 )
 
 const (
@@ -42,6 +45,18 @@ const (
 	defaultPoolName   = "nodepool0"
 
 	kubeletIdentityName = "kubeletidentity"
+
+	// aksServerScope is the scope of the Entra server application every
+	// Entra-enabled AKS cluster accepts tokens for. Its ID is the same in every
+	// tenant and cloud: https://azure.github.io/kubelogin/concepts/aks.html
+	aksServerScope = "6dae42f8-4368-4678-94ff-3960e28e3630/.default"
+	// aksTokenTimeout bounds one token request, since oauth2.TokenSource
+	// passes no context.
+	aksTokenTimeout = time.Minute
+	// aksTokenRefreshMargin is how long before expiry client-go stops reusing
+	// a token, the window azcore refreshes ARM tokens in, so no request goes
+	// out with a token about to expire.
+	aksTokenRefreshMargin = 5 * time.Minute
 )
 
 var rgRegex = regexp.MustCompile(`(?i)/resourceGroups/([^/]+)`)
@@ -63,6 +78,7 @@ type driver struct {
 	kubernetesVersion string
 	tags              map[string]string
 	attachedACRs      []*AttachedACR
+	entraAuth         bool
 
 	clusterName string
 	dnsPrefix   string
@@ -139,6 +155,13 @@ type Options struct {
 	// Allows assigning Azure roles to identities used by the Kubernetes services
 	// such as Kubelet.
 	ClusterIdentityAssociations []*ClusterIdentityAssociationOptions
+
+	// Create the cluster with Entra authentication and Azure RBAC and with
+	// local accounts disabled, and authenticate to it with Entra tokens from
+	// the driver's credential instead of the admin client certificate. The
+	// caller's identity needs the "Azure Kubernetes Service RBAC Cluster
+	// Admin" role on the cluster's resource group.
+	EntraAuth bool
 }
 
 // RegistryConfig holds authentication configuration for a container registry.
@@ -197,6 +220,7 @@ func NewDriver(name string, opts Options) (drivers.Tester, error) {
 		kubernetesVersion:    opts.KubernetesVersion,
 		tags:                 opts.Tags,
 		dnsPrefix:            opts.DNSPrefix,
+		entraAuth:            opts.EntraAuth,
 		podIdentityClientIDs: make(map[string]string),
 	}
 	if k.location == "" {
@@ -397,6 +421,9 @@ func (k *driver) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("building kubeconfig: %w", err)
 	}
+	if k.entraAuth {
+		useEntraTokens(config, k.aksCred)
+	}
 	k.kcfg = config
 
 	kcli, err := kubernetes.NewForConfig(config)
@@ -444,7 +471,43 @@ func (k *driver) createCluster(ctx context.Context) error {
 		"node_disk_type", nodeDiskType,
 		"tags", tags,
 		"workload_identity_enabled", workload_identity_enabled,
+		"entra_auth", k.entraAuth,
 		"dns_prefix", k.dnsPrefix)
+
+	properties := &armcontainerservice.ManagedClusterProperties{
+		DNSPrefix:         &k.dnsPrefix,
+		NodeResourceGroup: &clusterNodeRG,
+		AgentPoolProfiles: []*armcontainerservice.ManagedClusterAgentPoolProfile{
+			{
+				Name:         &k.nodePoolName,
+				Count:        &k.nodeCount,
+				VMSize:       &k.nodeVMSize,
+				OSDiskSizeGB: &k.nodeDiskSize,
+				OSDiskType:   nodeDiskType,
+				Mode:         to.Ptr(armcontainerservice.AgentPoolModeSystem),
+				OSType:       to.Ptr(armcontainerservice.OSTypeLinux),
+				Type:         to.Ptr(armcontainerservice.AgentPoolTypeVirtualMachineScaleSets),
+			},
+		},
+		NetworkProfile: &armcontainerservice.NetworkProfile{
+			NetworkPlugin: to.Ptr(armcontainerservice.NetworkPluginAzure),
+		},
+		OidcIssuerProfile: &armcontainerservice.ManagedClusterOIDCIssuerProfile{
+			Enabled: &workload_identity_enabled,
+		},
+		SecurityProfile: &armcontainerservice.ManagedClusterSecurityProfile{
+			WorkloadIdentity: &armcontainerservice.ManagedClusterSecurityProfileWorkloadIdentity{
+				Enabled: &workload_identity_enabled,
+			},
+		},
+	}
+	if k.entraAuth {
+		properties.AADProfile = &armcontainerservice.ManagedClusterAADProfile{
+			Managed:         new(true),
+			EnableAzureRBAC: new(true),
+		}
+		properties.DisableLocalAccounts = new(true)
+	}
 
 	poller, err := k.aksClient.BeginCreateOrUpdate(
 		ctx,
@@ -455,34 +518,8 @@ func (k *driver) createCluster(ctx context.Context) error {
 			Identity: &armcontainerservice.ManagedClusterIdentity{
 				Type: to.Ptr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
 			},
-			Tags: tags,
-			Properties: &armcontainerservice.ManagedClusterProperties{
-				DNSPrefix:         &k.dnsPrefix,
-				NodeResourceGroup: &clusterNodeRG,
-				AgentPoolProfiles: []*armcontainerservice.ManagedClusterAgentPoolProfile{
-					{
-						Name:         &k.nodePoolName,
-						Count:        &k.nodeCount,
-						VMSize:       &k.nodeVMSize,
-						OSDiskSizeGB: &k.nodeDiskSize,
-						OSDiskType:   nodeDiskType,
-						Mode:         to.Ptr(armcontainerservice.AgentPoolModeSystem),
-						OSType:       to.Ptr(armcontainerservice.OSTypeLinux),
-						Type:         to.Ptr(armcontainerservice.AgentPoolTypeVirtualMachineScaleSets),
-					},
-				},
-				NetworkProfile: &armcontainerservice.NetworkProfile{
-					NetworkPlugin: to.Ptr(armcontainerservice.NetworkPluginAzure),
-				},
-				OidcIssuerProfile: &armcontainerservice.ManagedClusterOIDCIssuerProfile{
-					Enabled: &workload_identity_enabled,
-				},
-				SecurityProfile: &armcontainerservice.ManagedClusterSecurityProfile{
-					WorkloadIdentity: &armcontainerservice.ManagedClusterSecurityProfileWorkloadIdentity{
-						Enabled: &workload_identity_enabled,
-					},
-				},
-			},
+			Tags:       tags,
+			Properties: properties,
 		},
 		nil,
 	)
@@ -951,9 +988,13 @@ func (k *driver) LocalFiles() []drivers.LocalFile {
 	if k.kubeconfig == "" {
 		return nil
 	}
+	description := "admin kubeconfig for AKS cluster "
+	if k.entraAuth {
+		description = "kubeconfig, which signs in with kubelogin, for AKS cluster "
+	}
 	return []drivers.LocalFile{{
 		Path:        k.kubeconfig,
-		Description: "admin kubeconfig for AKS cluster " + k.clusterName,
+		Description: description + k.clusterName,
 	}}
 }
 
@@ -990,17 +1031,31 @@ func (k *driver) writeKubeConfig(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 	log.Infof("Preparing kubeconfig: %s", k.kubeconfig)
 
-	creds, err := k.aksClient.ListClusterAdminCredentials(
-		ctx, k.resourceGroup, k.clusterName, nil)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve kubeconfig: %v", err)
+	var kubeconfigs []*armcontainerservice.CredentialResult
+	if k.entraAuth {
+		// An Entra-only cluster has no admin credentials. Its user kubeconfig
+		// carries the server and CA and a kubelogin exec stanza, but no
+		// credential.
+		creds, err := k.aksClient.ListClusterUserCredentials(
+			ctx, k.resourceGroup, k.clusterName, nil)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve kubeconfig: %v", err)
+		}
+		kubeconfigs = creds.Kubeconfigs
+	} else {
+		creds, err := k.aksClient.ListClusterAdminCredentials(
+			ctx, k.resourceGroup, k.clusterName, nil)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve kubeconfig: %v", err)
+		}
+		kubeconfigs = creds.Kubeconfigs
 	}
 
-	if len(creds.Kubeconfigs) == 0 {
+	if len(kubeconfigs) == 0 {
 		return fmt.Errorf("no kubeconfigs retrieved")
 	}
 
-	if err = os.WriteFile(k.kubeconfig, creds.Kubeconfigs[0].Value, 0o600); err != nil {
+	if err := os.WriteFile(k.kubeconfig, kubeconfigs[0].Value, 0o600); err != nil {
 		return fmt.Errorf("unable to write kubeconfig: %s %v", k.kubeconfig, err)
 	}
 
@@ -1101,4 +1156,32 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	}
 
 	return pod.Run(ctx, k.kcfg, runOpts...)
+}
+
+// useEntraTokens makes config authenticate with Entra tokens for the AKS
+// server application from cred, in place of the kubeconfig's kubelogin exec
+// stanza. client-go caches each token until shortly before it expires and
+// drops it on a 401, so a test that outlives one token gets a renewed one,
+// and credentials that do not cache, such as AzureCLICredential, do not run
+// the CLI on every request.
+func useEntraTokens(config *rest.Config, cred azcore.TokenCredential) {
+	config.ExecProvider = nil
+	config.AuthProvider = nil
+	config.WrapTransport = transport.ResettableTokenSourceWrapTransport(
+		transport.NewCachedTokenSource(entraTokenSource{cred: cred}))
+}
+
+// entraTokenSource adapts cred to the oauth2.TokenSource client-go caches.
+type entraTokenSource struct {
+	cred azcore.TokenCredential
+}
+
+func (s entraTokenSource) Token() (*oauth2.Token, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), aksTokenTimeout)
+	defer cancel()
+	tok, err := s.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{aksServerScope}})
+	if err != nil {
+		return nil, fmt.Errorf("getting AKS token: %w", err)
+	}
+	return &oauth2.Token{AccessToken: tok.Token, TokenType: "Bearer", Expiry: tok.ExpiresOn.Add(-aksTokenRefreshMargin)}, nil
 }
