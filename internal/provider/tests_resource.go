@@ -267,10 +267,11 @@ func (t *TestsResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				},
 			},
 			"timeout": schema.StringAttribute{
-				Description: "The maximum amount of time to wait for all tests to complete. This includes the time it takes to start and destroy the driver.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString(TestsResourceDefaultTimeout),
+				Description: "The maximum amount of time to wait for all tests to complete. This includes the time it takes to start and destroy the driver. " +
+					"A driver's wait for a shared host, such as the ssh driver's `lock_path`, is not included: the clock starts once the driver holds it.",
+				Optional: true,
+				Computed: true,
+				Default:  stringdefault.StaticString(TestsResourceDefaultTimeout),
 			},
 			"labels": schema.MapAttribute{
 				Description: "Metadata to attach to the tests resource. Used for filtering and grouping.",
@@ -409,6 +410,7 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to parse timeout", err.Error())}
 	}
 
+	base := ctx
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -461,6 +463,8 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 			attribute.String("timeout", data.Timeout.ValueString()),
 		),
 	)
+	clock := newTestClock(trace.ContextWithSpan(base, suiteSpan), ctx)
+	defer clock.stop()
 	defer func() {
 		if ds.HasError() {
 			suiteSpan.RecordError(fmt.Errorf("test suite failed"))
@@ -478,15 +482,17 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 		return cfgDiags
 	}
 
-	result := retry.Do(ctx, retryCfg, func(ctx context.Context, attempt int) error {
+	// The loop runs on the clock, so a wait the driver was admitted
+	// after does not count against the retry budget either.
+	result := retry.Do(clock.loop, retryCfg, func(_ context.Context, attempt int) error {
 		if attempt > 1 {
 			suiteSpan.AddEvent("retry", trace.WithAttributes(
 				attribute.Int("test.attempt", attempt),
 			))
 		}
 
-		// No retry follows the last attempt, or one whose context has ended.
-		ds = t.doAttempt(ctx, data, trefs, tracer, func() bool { return retryCfg.IsLast(attempt) || ctx.Err() != nil })
+		// No retry follows the last attempt, or one whose clock has run out.
+		ds = t.doAttempt(ctx, clock, data, trefs, tracer, func() bool { return retryCfg.IsLast(attempt) || clock.loop.Err() != nil })
 		if ds.HasError() {
 			// Warnings (diagnostics, teardown) may follow the error.
 			errs := ds.Errors()
@@ -511,16 +517,71 @@ func (t *TestsResource) do(ctx context.Context, data *TestsResourceModel) (ds di
 	return ds
 }
 
-// doAttempt runs a single attempt of the full driver lifecycle: load → setup →
-// run tests → teardown. Each resource-level retry calls this with a fresh driver.
-// final reports, once the attempt is over, whether no further attempt will
-// follow; driver diagnostics only run then.
-func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel, trefs []name.Reference, tracer trace.Tracer, final func() bool) (ds diag.Diagnostics) {
+// testClock is the tests resource timeout. Its deadline moves forward by
+// the time a driver spends in Admit, so a wait for a shared resource does
+// not count against the tests. Drivers that do not admit never move it,
+// and their contexts are the resource context as derived in Create.
+type testClock struct {
+	// base is the resource context without the deadline. The test
+	// context is derived from it, so a cancel from Terraform still ends
+	// the run.
+	base     context.Context
+	deadline time.Time
+	// waited is the time spent in Admit so far, over every attempt.
+	waited time.Duration
+
+	// loop ends when the moved deadline passes, or base ends. The retry
+	// loop runs on it, so it stops when the clock runs out and not
+	// before.
+	loop   context.Context
+	cancel context.CancelFunc
+	timer  *time.Timer
+}
+
+// newTestClock starts the clock at the deadline of timed, the resource
+// context with its timeout.
+func newTestClock(base, timed context.Context) *testClock {
+	deadline, _ := timed.Deadline()
+	c := &testClock{base: base, deadline: deadline}
+	c.loop, c.cancel = context.WithCancel(base)
+	c.timer = time.AfterFunc(time.Until(deadline), c.cancel)
+	return c
+}
+
+// pause holds the clock while a driver is admitted, so the loop does not
+// run out during the wait. resume or extend starts it again.
+func (c *testClock) pause() { c.timer.Stop() }
+
+// resume starts a paused clock again where it was.
+func (c *testClock) resume() { c.timer.Reset(time.Until(c.deadline.Add(c.waited))) }
+
+// extend adds waited to the time admitted so far, starts the clock again
+// and returns the test context: the resource deadline moved forward by
+// that total.
+func (c *testClock) extend(waited time.Duration) (context.Context, context.CancelFunc) {
+	c.waited += waited
+	c.resume()
+	return context.WithDeadline(c.base, c.deadline.Add(c.waited))
+}
+
+func (c *testClock) stop() {
+	c.timer.Stop()
+	c.cancel()
+}
+
+// doAttempt runs a single attempt of the full driver lifecycle: load → admit →
+// setup → run tests → teardown. Each resource-level retry calls this with a
+// fresh driver. final reports, once the attempt is over, whether no further
+// attempt will follow; driver diagnostics only run then.
+func (t *TestsResource) doAttempt(ctx context.Context, clock *testClock, data *TestsResourceModel, trefs []name.Reference, tracer trace.Tracer, final func() bool) (ds diag.Diagnostics) {
 	dr, err := t.LoadDriver(ctx, data)
 	if err != nil {
 		return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to load driver", err.Error())}
 	}
 
+	// A driver that was not admitted never had the host: there is nothing
+	// of this run to diagnose there, and another run may be using it.
+	admitted := true
 	defer func() {
 		// Detach teardown from the resource-level deadline. By this
 		// point the deadline may already be expired, but drivers still
@@ -531,7 +592,7 @@ func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel,
 			trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx)),
 			clog.FromContext(ctx),
 		)
-		if ds.HasError() && final() {
+		if ds.HasError() && admitted && final() {
 			if d := t.diagnose(teardownCtx, dr, data); d != nil {
 				ds = append(ds, d)
 			}
@@ -556,6 +617,19 @@ func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel,
 		}
 	}()
 
+	// A driver that waits for a shared resource waits outside the test
+	// clock: the wait is bounded by the driver, and the deadline for what
+	// follows moves forward by the time it took.
+	if a, ok := dr.(drivers.Admitter); ok {
+		testCtx, cancel, err := t.admit(clock, a, data, tracer)
+		if err != nil {
+			admitted = false
+			return []diag.Diagnostic{diag.NewErrorDiagnostic("failed to admit driver", err.Error())}
+		}
+		defer cancel()
+		ctx = testCtx
+	}
+
 	ctx, setupSpan := tracer.Start(ctx, "imagetest.setup",
 		trace.WithAttributes(
 			attribute.String(o11y.AttrDriver, string(data.Driver)),
@@ -578,6 +652,35 @@ func (t *TestsResource) doAttempt(ctx context.Context, data *TestsResourceModel,
 	}
 
 	return ds
+}
+
+// admit runs the driver's Admit under the resource context without its
+// deadline, in its own span, and returns the test context: the resource
+// deadline moved forward by the time Admit took.
+func (t *TestsResource) admit(clock *testClock, a drivers.Admitter, data *TestsResourceModel, tracer trace.Tracer) (context.Context, context.CancelFunc, error) {
+	ctx, span := tracer.Start(clock.base, "imagetest.admit",
+		trace.WithAttributes(
+			attribute.String(o11y.AttrDriver, string(data.Driver)),
+		),
+	)
+	defer span.End()
+
+	clock.pause()
+	start := time.Now()
+	err := a.Admit(ctx)
+	waited := time.Since(start)
+	span.SetAttributes(attribute.Int64("admit.wait_ms", waited.Milliseconds()))
+	if err != nil {
+		clock.resume()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, nil, err
+	}
+	span.SetStatus(codes.Ok, "")
+	clog.InfoContext(ctx, "driver admitted, test clock starts", "waited", waited.Round(time.Millisecond).String())
+
+	testCtx, cancel := clock.extend(waited)
+	return testCtx, cancel, nil
 }
 
 // doTestWithRetry wraps doTest with per-test retry. Each retry re-runs d.Run()
