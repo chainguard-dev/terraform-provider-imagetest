@@ -29,8 +29,9 @@
 //     a test that failed.
 //  3. With lock_path set, takes an exclusive flock on that file in an SSH
 //     session that stays open until Teardown, so runs that share the host
-//     run one at a time. The wait is bounded by the setup timeout and is
-//     recorded as the span event ssh.lock.acquired. Then, since no other
+//     run one at a time. A failure of that connection is a
+//     *SSHConnectionError too. The wait is bounded by the setup timeout
+//     and is recorded as the span event ssh.lock.acquired. Then, since no other
 //     run on the same lock can have live containers while the lock is
 //     held, removes every container left by an earlier run that held this
 //     lock (label imagetest:lock): a guest that died mid-run never

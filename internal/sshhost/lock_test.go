@@ -245,7 +245,8 @@ func TestAcquireLockHolderFails(t *testing.T) {
 // fails the lock without hanging.
 func TestAcquireLockUnreachable(t *testing.T) {
 	h := &Host{Addr: "127.0.0.1", Port: closedPort(t), User: "nobody", LockPath: "/tmp/lock"}
-	if _, err := h.AcquireLock(t.Context()); err == nil || !strings.Contains(err.Error(), "connecting for lock") {
-		t.Fatalf("AcquireLock() = %v, want connection error", err)
+	_, err := h.AcquireLock(t.Context())
+	if err == nil || !errors.Is(err, ErrConnect) || !strings.Contains(err.Error(), "connecting for lock") {
+		t.Fatalf("AcquireLock() = %v, want ErrConnect", err)
 	}
 }

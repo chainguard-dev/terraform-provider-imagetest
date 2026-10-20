@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -19,6 +20,11 @@ import (
 // lockReleaseTimeout bounds how long Release waits for the lock holder on
 // the host to exit after its stdin is closed.
 const lockReleaseTimeout = 10 * time.Second
+
+// ErrConnect marks an AcquireLock failure in the SSH connection itself,
+// before anything ran on the host, so a driver can report it as it reports
+// a failed first connection.
+var ErrConnect = errors.New("ssh connection failed")
 
 // Lock is an exclusive flock on a file on the host, held by a process in an
 // SSH session that stays open until Release. The process dies with the
@@ -61,7 +67,7 @@ func (h *Host) AcquireLock(ctx context.Context) (*Lock, error) {
 
 	conn, err := h.Connect(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("connecting for lock: %w", err)
+		return nil, fmt.Errorf("connecting for lock: %w: %w", ErrConnect, err)
 	}
 
 	session, err := conn.NewSession()
