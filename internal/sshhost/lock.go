@@ -61,7 +61,7 @@ func (h *Host) AcquireLock(ctx context.Context) (*Lock, error) {
 
 	conn, err := h.Connect(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("SSH connection failed: %w", err)
+		return nil, fmt.Errorf("connecting for lock: %w", err)
 	}
 
 	session, err := conn.NewSession()

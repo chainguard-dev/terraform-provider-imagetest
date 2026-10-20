@@ -1136,7 +1136,9 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 				"The directory must let `ssh_user` create or open the file, and `flock` (util-linux) must be on the host. " +
 				"Every run on the host must set the same `lock_path`: while the lock is held, setup also removes every container left by an earlier run that held this lock (label `imagetest:lock` with this path, and the containers carrying that run's `imagetest:test-name`), since only the lock holder can have live containers. Runs on no lock or on another lock are left alone. " +
 				"The lock is released when the holder's SSH connection ends, but sshd only notices a guest that vanished once TCP keepalive gives up, about two hours with Linux defaults. " +
-				"Set `ClientAliveInterval 15` and `ClientAliveCountMax 4` in the host's sshd_config so a dead holder is dropped in about a minute; the driver answers the probes, so live runs are not affected.",
+				"Set `ClientAliveInterval 15` and `ClientAliveCountMax 4` in the host's sshd_config so a dead holder is dropped in about a minute; the driver answers the probes, so live runs are not affected. " +
+				"Must be an absolute path: a relative one resolves against each `ssh_user`'s home. " +
+				"Containers kept by `IMAGETEST_SKIP_TEARDOWN` or `IMAGETEST_SKIP_TEARDOWN_ON_FAILURE` are removed by the next locked run's stale sweep, so inspect them first.",
 			Optional: true,
 		},
 		"timeouts": driverTimeoutsSchema(),
