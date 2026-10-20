@@ -45,7 +45,8 @@ const (
 	kubeletIdentityName = "kubeletidentity"
 
 	// aksServerScope is the scope of the Entra server application every
-	// Entra-enabled AKS cluster accepts tokens for.
+	// Entra-enabled AKS cluster accepts tokens for. Its ID is the same in every
+	// tenant and cloud: https://azure.github.io/kubelogin/concepts/aks.html
 	aksServerScope = "6dae42f8-4368-4678-94ff-3960e28e3630/.default"
 )
 
