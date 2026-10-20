@@ -66,6 +66,7 @@ type AKSDriverResourceModel struct {
 	PodIdentityAssociations     []*AKSPodIdentityAssociationResourceModel     `tfsdk:"pod_identity_associations"`
 	ClusterIdentityAssociations []*AKSClusterIdentityAssociationResourceModel `tfsdk:"cluster_identity_associations"`
 	AttachedACRs                []*AKSAttachedACR                             `tfsdk:"attached_acrs"`
+	EntraAuth                   types.Bool                                    `tfsdk:"entra_auth"`
 }
 
 type AKSPodIdentityAssociationResourceModel struct {
@@ -336,6 +337,7 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 			PodIdentityAssociations:     podIdentityAssociations,
 			ClusterIdentityAssociations: clusterIdentityAssociations,
 			AttachedACRs:                attachedACRs,
+			EntraAuth:                   cfg.EntraAuth.ValueBool(),
 		})
 
 	case DriverK3sInDocker:
@@ -822,6 +824,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 					},
 					"kubernetes_version": schema.StringAttribute{
 						Description: "The Kubernetes version to deploy, uses the Azure default if unspecified",
+						Optional:    true,
+					},
+					"entra_auth": schema.BoolAttribute{
+						Description: "Create the cluster with Entra ID authentication and Azure RBAC, with local accounts disabled, and authenticate to it with Entra tokens instead of the admin client certificate. The caller needs the Azure Kubernetes Service RBAC Cluster Admin role on the resource group (default is false)",
 						Optional:    true,
 					},
 					"tags": schema.MapAttribute{

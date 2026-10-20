@@ -88,6 +88,38 @@ resource "imagetest_tests" "foo_with_storage" {
 }
 `, resourceGroup, nodeResourceGroup, subscriptionID)
 
+	// The caller needs the "Azure Kubernetes Service RBAC Cluster Admin" role
+	// on the resource group to reach an Entra-only cluster.
+	tfWithEntraAuth := fmt.Sprintf(`
+resource "imagetest_tests" "foo_with_entra_auth" {
+  name   = "foo-with-entra-auth"
+  driver = "aks"
+
+  drivers = {
+    aks = {
+      resource_group = %q
+      subscription_id = %q
+      entra_auth = true
+    }
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "basic"
+      image   = "cgr.dev/chainguard/busybox:latest@sha256:ecc152fe3dece44e60d1aa0fbbefb624902b4af0e2ed8c2c84dfbce653ff064f"
+      cmd     = "echo success"
+    }
+  ]
+
+  // Cluster provisioning usually takes about 5 minutes.
+  timeout = "30m"
+}
+`, resourceGroup, subscriptionID)
+
 	readerRoleGuid := "acdd72a7-3385-48ef-bd42-f606fba81ae7"
 	scope := fmt.Sprintf(
 		"/subscriptions/%s/resourceGroups/%s",
@@ -173,6 +205,7 @@ resource "imagetest_tests" "foo_with_pod_identity" {
 			{Config: tf},
 			{Config: tfWithStorage},
 			{Config: tfWithPodIdentityAssociation},
+			{Config: tfWithEntraAuth},
 		},
 	})
 }

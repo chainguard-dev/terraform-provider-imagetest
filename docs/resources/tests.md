@@ -55,6 +55,7 @@ Optional:
 - `attached_acrs` (Attributes List) Attached ACRs, granting image pull rights (see [below for nested schema](#nestedatt--drivers--aks--attached_acrs))
 - `cluster_identity_associations` (Attributes List) Cluster Identity Associations for the AKS driver (see [below for nested schema](#nestedatt--drivers--aks--cluster_identity_associations))
 - `dns_prefix` (String) The DNS prefix of the AKS cluster (uses the cluster name by default)
+- `entra_auth` (Boolean) Create the cluster with Entra ID authentication and Azure RBAC, with local accounts disabled, and authenticate to it with Entra tokens instead of the admin client certificate. The caller needs the Azure Kubernetes Service RBAC Cluster Admin role on the resource group (default is false)
 - `kubernetes_version` (String) The Kubernetes version to deploy, uses the Azure default if unspecified
 - `location` (String) The Azure region for the AKS driver (default is eastus)
 - `node_count` (Number) The number of nodes to use for the AKS driver (default is 1)
