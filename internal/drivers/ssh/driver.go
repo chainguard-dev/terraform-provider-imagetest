@@ -97,6 +97,11 @@ func (d *driver) Setup(ctx context.Context) error {
 	if d.cfg.LockPath != "" {
 		lock, err := d.host.AcquireLock(ctx)
 		if err != nil {
+			// The lock's own connection failed, so nothing ran on the host
+			// here either, and callers get the same typed error.
+			if errors.Is(err, sshhost.ErrConnect) {
+				return &SSHConnectionError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
+			}
 			return fmt.Errorf("acquiring lock: %w", err)
 		}
 		d.releaseLock = lock.Release

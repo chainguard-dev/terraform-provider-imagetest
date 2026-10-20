@@ -9,7 +9,7 @@ import "fmt"
 const SSHConnectionFailedPrefix = "imagetest: ssh connection failed: "
 
 // SSHConnectionError is returned by Setup when the first SSH connection to
-// the host fails. It covers a down host, a wrong address or port, a
+// the host fails, or the lock's connection right after it. It covers a down host, a wrong address or port, a
 // refused key, and a host key that does not match the pin. In every case
 // nothing ran on the host, so this is never a test failure. The wrapped
 // error says which of them it was.
