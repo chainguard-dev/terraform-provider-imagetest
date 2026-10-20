@@ -1092,7 +1092,7 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 	Description: "The ssh driver. Runs tests on a host that already exists, over SSH. " +
 		"The host runs Docker; the driver pulls the images under test into its daemon before the tests start, runs each test container under a unique name, and removes the containers at teardown. " +
 		"Pulls send the caller's registry credentials to the daemon, or with `pull_ecr_with_host_credentials` the host pulls private ECR images with its own credentials. " +
-		"Every container it creates carries the per-run label `imagetest:run=<run>`, and the test container gets `IMAGETEST_RUN_LABEL` (the key) and `IMAGETEST_RUN` (the value) in its environment, so a test that starts containers through the Docker socket can pass `--label \"$IMAGETEST_RUN_LABEL=$IMAGETEST_RUN\"` and teardown removes them with the run. " +
+		"Every container it creates carries the per-run label `imagetest:test-name=<run>`, and the test container gets `IMAGETEST_RUN_LABEL` (the key) and `IMAGETEST_RUN` (the value) in its environment, so a test that starts containers through the Docker socket can pass `--label \"$IMAGETEST_RUN_LABEL=$IMAGETEST_RUN\"` and teardown removes them with the run. " +
 		"A failed first SSH connection is reported with a message starting `imagetest: host unreachable: `, so a caller can tell a dead host from a failed test. " +
 		"It creates no infrastructure and builds no cloud clients.",
 	Optional: true,
@@ -1164,7 +1164,9 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 			Description: "Path of a file on the host to take an exclusive `flock` on for the length of the run, so runs that share the host run one at a time. " +
 				"Setup holds it in an SSH session that stays open until teardown; the wait for a busy lock is bounded by `timeouts.setup` and recorded as the span event `ssh.lock.acquired`. " +
 				"The directory must let `ssh_user` create or open the file, and `flock` (util-linux) must be on the host. " +
-				"While the lock is held, setup also removes every container on the host left by an earlier run (label `imagetest:run` with another value, or `imagetest=true`), since only the lock holder can have live containers.",
+				"Every run on the host must set the same `lock_path`: while the lock is held, setup also removes every container left by an earlier run that held this lock (label `imagetest:lock` with this path, and the containers carrying that run's `imagetest:test-name`), since only the lock holder can have live containers. Runs on no lock or on another lock are left alone. " +
+				"The lock is released when the holder's SSH connection ends, but sshd only notices a guest that vanished once TCP keepalive gives up, about two hours with Linux defaults. " +
+				"Set `ClientAliveInterval 15` and `ClientAliveCountMax 4` in the host's sshd_config so a dead holder is dropped in about a minute; the driver answers the probes, so live runs are not affected.",
 			Optional: true,
 		},
 		"timeouts": driverTimeoutsSchema(),
