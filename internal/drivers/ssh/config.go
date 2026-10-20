@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
@@ -48,7 +49,9 @@ type Config struct {
 
 	// LockPath, when set, is a file on the host that Setup takes an
 	// exclusive flock on, held until Teardown, so runs that share the host
-	// run one at a time. The wait is bounded by the setup timeout.
+	// run one at a time. The wait is bounded by the setup timeout. It must
+	// be absolute: a relative path resolves against each ssh_user's home,
+	// so two users would take different locks under the same lock label.
 	LockPath string
 
 	// Operational
@@ -86,6 +89,9 @@ func (c *Config) validate() error {
 	}
 	if c.SSHPort < 1 || c.SSHPort > 65535 {
 		return fmt.Errorf("ssh_port %d is out of range", c.SSHPort)
+	}
+	if c.LockPath != "" && !path.IsAbs(c.LockPath) {
+		return fmt.Errorf("lock_path %q must be an absolute path on the host", c.LockPath)
 	}
 	for _, ref := range c.PrePullImages {
 		if _, err := name.ParseReference(ref); err != nil {

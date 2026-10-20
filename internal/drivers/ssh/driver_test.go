@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,6 +55,13 @@ func TestValidate(t *testing.T) {
 		name:    "unparseable pre-pull ref rejected",
 		mutate:  func(c *Config) { c.PrePullImages = []string{"not a ref"} },
 		wantErr: `pre-pull image "not a ref"`,
+	}, {
+		name:   "absolute lock_path accepted",
+		mutate: func(c *Config) { c.LockPath = "/var/lock/imagetest/gpu" },
+	}, {
+		name:    "relative lock_path rejected",
+		mutate:  func(c *Config) { c.LockPath = "gpu.lock" },
+		wantErr: `lock_path "gpu.lock" must be an absolute path`,
 	}}
 
 	for _, tc := range tests {
@@ -213,8 +222,9 @@ func TestSetupSSHConnectionError(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection refused")
 
 	// The host was loaded, so Diagnose can still try the on_failure
-	// commands, and nothing was pushed on the stack: no lock, no sweep.
+	// commands. No lock was taken and nothing was pushed on the stack.
 	assert.NotNil(t, d.host)
+	assert.Nil(t, d.releaseLock)
 	require.NoError(t, d.Teardown(t.Context()))
 }
 
@@ -227,8 +237,55 @@ func TestSSHConnectionErrorUnwraps(t *testing.T) {
 	assert.ErrorIs(t, err, cause)
 }
 
-func TestLockPathDefaultsOff(t *testing.T) {
-	d, err := NewDriver(Config{Host: "192.0.2.10", SSHKey: "/tmp/key", KnownHosts: "/tmp/known_hosts"})
-	require.NoError(t, err)
-	assert.Empty(t, d.cfg.LockPath)
+// TestTeardownOrder checks the order Teardown works in after a Setup that
+// took the lock: what the stack holds in reverse push order (the run sweep
+// is pushed in Setup, the test containers during Run, so the containers go
+// first and the sweep after them), and the lock release last of all. The
+// release must also run when the stack's context has already ended, since
+// the stack stops at its deadline, and when teardown is skipped.
+func TestTeardownOrder(t *testing.T) {
+	newDriver := func(t *testing.T, cfg Config, wedged bool) (*driver, *[]string) {
+		cfg.Host, cfg.SSHKey, cfg.KnownHosts = "192.0.2.10", "/tmp/key", "/tmp/known_hosts"
+		cfg.LockPath = "/var/lock/imagetest/gpu"
+		d, err := NewDriver(cfg)
+		require.NoError(t, err)
+		var order []string
+		record := func(step string) func(context.Context) error {
+			return func(context.Context) error {
+				order = append(order, step)
+				return nil
+			}
+		}
+		d.releaseLock = record("release lock")
+		require.NoError(t, d.stack.Add(record("run sweep")))
+		require.NoError(t, d.stack.Add(func(ctx context.Context) error {
+			order = append(order, "test container")
+			if wedged {
+				// A daemon that does not answer: the removal lasts until
+				// the teardown deadline.
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return nil
+		}))
+		return d, &order
+	}
+
+	t.Run("containers, run sweep, then the lock", func(t *testing.T) {
+		d, order := newDriver(t, Config{}, false)
+		require.NoError(t, d.Teardown(t.Context()))
+		assert.Equal(t, []string{"test container", "run sweep", "release lock"}, *order)
+	})
+
+	t.Run("lock released after the teardown deadline", func(t *testing.T) {
+		d, order := newDriver(t, Config{Timeouts: drivers.Timeouts{Teardown: 20 * time.Millisecond}}, true)
+		require.ErrorIs(t, d.Teardown(t.Context()), context.DeadlineExceeded)
+		assert.Equal(t, []string{"test container", "release lock"}, *order)
+	})
+
+	t.Run("lock released when teardown is skipped", func(t *testing.T) {
+		d, order := newDriver(t, Config{SkipTeardown: true}, false)
+		require.NoError(t, d.Teardown(t.Context()))
+		assert.Equal(t, []string{"release lock"}, *order)
+	})
 }

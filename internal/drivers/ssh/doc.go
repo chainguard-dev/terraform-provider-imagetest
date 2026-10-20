@@ -37,9 +37,10 @@
 //     held, removes every container left by an earlier run that held this
 //     lock (label imagetest:lock): a guest that died mid-run never
 //     reached its own teardown. Runs on no lock or on another lock are
-//     left alone, so every run on a host must use the same lock_path.
-//     sshd notices a vanished guest only through keepalives, so the host
-//     should set ClientAliveInterval 15 and ClientAliveCountMax 4.
+//     left alone, so every run on a host must use the same lock_path. A
+//     container that will not go is logged and setup goes on. sshd notices
+//     a vanished guest only through keepalives, so the host should set
+//     ClientAliveInterval 15 and ClientAliveCountMax 4.
 //  4. Runs setup_commands, if any, in one session.
 //  5. Logs GPU and NVIDIA driver information if nvidia-smi is present.
 //     This is non-fatal.
@@ -70,10 +71,17 @@
 // The host is shared and persistent, so teardown touches only containers.
 // In order: the test containers this run created, then every container on
 // the host carrying the run's label (a sibling the test started dies with
-// the run even when its exit trap never fired), then the host lock.
-// Pulled images stay in the daemon's cache for later runs; pruning them is
-// the host operator's job. With IMAGETEST_SKIP_TEARDOWN set the containers
-// are left in place and the lock is released when the provider exits.
+// the run even when its exit trap never fired), then the host lock. The
+// lock is released even when the teardown timeout cut the steps before it
+// short, so a wedged daemon never leaves the host locked until the
+// provider exits. Pulled images stay in the daemon's cache for later runs;
+// pruning them is the host operator's job.
+//
+// With IMAGETEST_SKIP_TEARDOWN set the containers are left in place and
+// only the lock is released. IMAGETEST_SKIP_TEARDOWN_ON_FAILURE skips
+// Teardown as a whole, so the lock is held until the provider exits. In
+// both cases the next run that takes the lock removes the kept containers
+// in its stale sweep, so inspect them before starting another locked run.
 //
 // # Shared code
 //

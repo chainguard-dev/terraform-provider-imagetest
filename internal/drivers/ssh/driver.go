@@ -23,6 +23,11 @@ type driver struct {
 	// host is set by Setup once the key and the pinned host key are
 	// loaded, and stays nil when Setup fails before that.
 	host *sshhost.Host
+
+	// releaseLock releases the host lock Setup took, and is nil without
+	// lock_path or when Setup failed before the lock. It is kept off the
+	// stack so Teardown can release the lock after the stack's deadline.
+	releaseLock func(context.Context) error
 }
 
 func NewDriver(cfg Config) (*driver, error) {
@@ -82,21 +87,21 @@ func (d *driver) Setup(ctx context.Context) error {
 	_ = conn.Close()
 	span.AddEvent("ssh.connected")
 
-	// The lock is the first teardown pushed, so it is released last: after
-	// the test containers and the run sweep. While it is held no other run
-	// on the same lock can have live containers on the host, so what such
-	// a run left behind is stale and is removed now.
+	// The lock is released by Teardown after the stack, so after the test
+	// containers and the run sweep. While it is held no other run on the
+	// same lock can have live containers on the host, so what such a run
+	// left behind is stale and is removed now. A container that will not
+	// go is logged, not fatal: failing here would fail every later run on
+	// the host until an operator steps in, and the test itself shows
+	// whether the host is usable.
 	if d.cfg.LockPath != "" {
 		lock, err := d.host.AcquireLock(ctx)
 		if err != nil {
 			return fmt.Errorf("acquiring lock: %w", err)
 		}
-		if err := d.stack.Add(lock.Release); err != nil {
-			_ = lock.Release(ctx)
-			return fmt.Errorf("adding lock release to stack: %w", err)
-		}
+		d.releaseLock = lock.Release
 		if err := d.host.RemoveStaleContainers(ctx); err != nil {
-			return fmt.Errorf("sweeping stale containers: %w", err)
+			log.Warn("stale containers were not all removed, continuing", "error", err)
 		}
 	}
 
@@ -148,8 +153,23 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 // Teardown removes the test containers, then every container labelled with
 // the run, then releases the host lock. The host is shared and persistent,
 // so teardown touches only containers.
+//
+// The lock is released whatever came before it. The stack stops at its
+// context's deadline, and a lock kept past that holds up every other run on
+// the host until this process exits, so the release runs outside that
+// context and is bounded by the lock's own release timeout. With
+// IMAGETEST_SKIP_TEARDOWN the containers stay and only the lock is
+// released.
 func (d *driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)
+	defer func() {
+		if d.releaseLock == nil {
+			return
+		}
+		if err := d.releaseLock(context.WithoutCancel(ctx)); err != nil {
+			log.Warn("failed to release the host lock", "error", err)
+		}
+	}()
 
 	if d.cfg.SkipTeardown {
 		log.Info("IMAGETEST_SKIP_TEARDOWN is set, skipping teardown", "host", d.cfg.Host)
