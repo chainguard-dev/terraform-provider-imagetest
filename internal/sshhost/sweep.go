@@ -12,13 +12,15 @@ import (
 )
 
 // Labels on the containers the driver creates. LabelRun is the per-run
-// label: its value is the run's name, and the driver exports both as
+// label: its value is the run's name, the same key the ec2 driver tags
+// its AWS resources with. The driver exports the key and the value as
 // environment variables (see RunEnv) so a test can put the same label on
 // the containers it starts through the Docker socket. Teardown then
-// removes them with the run.
+// removes them with the run. LabelLock names the lock path a run held, so
+// the stale sweep touches only runs that took the same lock.
 const (
-	LabelImagetest = "imagetest"
-	LabelRun       = "imagetest:run"
+	LabelRun  = "imagetest:test-name"
+	LabelLock = "imagetest:lock"
 
 	EnvRunLabel = "IMAGETEST_RUN_LABEL"
 	EnvRun      = "IMAGETEST_RUN"
@@ -43,14 +45,35 @@ func isRunContainer(labels map[string]string, run string) bool {
 	return ok && run != "" && r == run
 }
 
-// isStaleContainer reports whether labels mark a container as imagetest's
-// but not this run's: one of another run, by its run label, or one from a
-// driver that set only the shared marker.
-func isStaleContainer(labels map[string]string, run string) bool {
-	if r, ok := labels[LabelRun]; ok {
-		return r != run
+// staleRuns returns the names of the other runs that held lockPath, read
+// from the driver containers they left behind. A run that took no lock,
+// or another lock, is not stale: it may be live, and its containers are
+// not this lock holder's to remove. A run from before lock labels, or a
+// sibling with only a run label, never adds a run by itself.
+func staleRuns(all []container.Summary, lockPath, run string) map[string]bool {
+	stale := map[string]bool{}
+	if lockPath == "" {
+		return stale
 	}
-	return labels[LabelImagetest] == "true"
+	for _, c := range all {
+		if c.Labels[LabelLock] != lockPath {
+			continue
+		}
+		if r, ok := c.Labels[LabelRun]; ok && r != "" && r != run {
+			stale[r] = true
+		}
+	}
+	return stale
+}
+
+// selectStaleContainers returns every container of a run in staleRuns,
+// the driver's own and the siblings the test labelled alike.
+func selectStaleContainers(all []container.Summary, lockPath, run string) []container.Summary {
+	stale := staleRuns(all, lockPath, run)
+	return selectContainers(all, func(labels map[string]string) bool {
+		r, ok := labels[LabelRun]
+		return ok && stale[r]
+	})
 }
 
 // RemoveRunContainers removes every container on the host that carries
@@ -61,23 +84,29 @@ func (h *Host) RemoveRunContainers(ctx context.Context) error {
 	if h.Name == "" {
 		return errors.New("run sweep: the host has no run name")
 	}
-	return h.removeContainers(ctx, "run", func(labels map[string]string) bool {
-		return isRunContainer(labels, h.Name)
+	return h.removeContainers(ctx, "run", func(all []container.Summary) []container.Summary {
+		return selectContainers(all, func(labels map[string]string) bool {
+			return isRunContainer(labels, h.Name)
+		})
 	})
 }
 
-// RemoveStaleContainers removes every imagetest container on the host that
-// is not this run's. It is for the lock holder only: a guest that died
-// mid-run never reached teardown, and its containers may still hold the
-// GPU. Once this run holds the host lock, no other run can have live
-// containers, so anything else labelled imagetest's is stale.
+// RemoveStaleContainers removes the containers of every other run that
+// held this host's lock, see staleRuns. It is for the lock holder only: a
+// guest that died mid-run never reached teardown, and its containers may
+// still hold the GPU. Once this run holds the lock, no other run on the
+// same lock can have live containers, so what they left is stale. Runs on
+// no lock or on another lock are left alone, since they may be live.
 func (h *Host) RemoveStaleContainers(ctx context.Context) error {
-	return h.removeContainers(ctx, "stale", func(labels map[string]string) bool {
-		return isStaleContainer(labels, h.Name)
+	if h.LockPath == "" {
+		return errors.New("stale sweep: the host has no lock path")
+	}
+	return h.removeContainers(ctx, "stale", func(all []container.Summary) []container.Summary {
+		return selectStaleContainers(all, h.LockPath, h.Name)
 	})
 }
 
-func (h *Host) removeContainers(ctx context.Context, what string, match func(map[string]string) bool) error {
+func (h *Host) removeContainers(ctx context.Context, what string, pick func([]container.Summary) []container.Summary) error {
 	log := clog.FromContext(ctx)
 
 	cli, err := h.dockerClient(ctx)
@@ -97,7 +126,7 @@ func (h *Host) removeContainers(ctx context.Context, what string, match func(map
 
 	var errs []error
 	removed := 0
-	for _, c := range selectContainers(list.Items, match) {
+	for _, c := range pick(list.Items) {
 		log.Info("removing "+what+" container", "id", c.ID, "names", c.Names, "labels", c.Labels)
 		if _, err := cli.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
 			errs = append(errs, fmt.Errorf("removing %s container %s: %w", what, c.ID, err))

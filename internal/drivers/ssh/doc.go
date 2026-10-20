@@ -29,10 +29,13 @@
 //     session that stays open until Teardown, so runs that share the host
 //     run one at a time. The wait is bounded by the setup timeout and is
 //     recorded as the span event ssh.lock.acquired. Then, since no other
-//     run can have live containers while the lock is held, removes every
-//     container on the host that carries an imagetest label from an
-//     earlier run: a guest that died mid-run never reached its own
-//     teardown.
+//     run on the same lock can have live containers while the lock is
+//     held, removes every container left by an earlier run that held this
+//     lock (label imagetest:lock): a guest that died mid-run never
+//     reached its own teardown. Runs on no lock or on another lock are
+//     left alone, so every run on a host must use the same lock_path.
+//     sshd notices a vanished guest only through keepalives, so the host
+//     should set ClientAliveInterval 15 and ClientAliveCountMax 4.
 //  4. Runs setup_commands, if any, in one session.
 //  5. Logs GPU and NVIDIA driver information if nvidia-smi is present.
 //     This is non-fatal.
@@ -48,10 +51,10 @@
 //  1. Connects to Docker on the host via the SSH tunnel
 //  2. Pulls the test image (with registry auth from the default keychain)
 //  3. Runs the container under a unique name, streaming logs and waiting
-//     for exit. The container carries the run's label (imagetest:run) and
-//     the environment variables IMAGETEST_RUN_LABEL and IMAGETEST_RUN
-//     name it, so a test that starts containers through the Docker socket
-//     can label them with the run.
+//     for exit. The container carries the run's label
+//     (imagetest:test-name) and the environment variables
+//     IMAGETEST_RUN_LABEL and IMAGETEST_RUN name it, so a test that starts
+//     containers through the Docker socket can label them with the run.
 //
 // # Phase: Teardown
 //
