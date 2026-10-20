@@ -130,9 +130,9 @@ func (c *expiringCredential) GetToken(_ context.Context, opts policy.TokenReques
 }
 
 // TestUseEntraTokens checks that a client built from an Entra cluster's
-// kubeconfig authenticates with the credential's tokens, renews one that has
-// expired, reuses one that has not instead of asking the credential again,
-// and never runs the kubeconfig's kubelogin exec stanza.
+// kubeconfig authenticates with the credential's tokens, renews one that is
+// about to expire, reuses one that is not instead of asking the credential
+// again, and never runs the kubeconfig's kubelogin exec stanza.
 func TestUseEntraTokens(t *testing.T) {
 	var (
 		mu   sync.Mutex
@@ -181,8 +181,9 @@ current-context: aks
 	if err != nil {
 		t.Fatalf("BuildConfigFromFlags: %v", err)
 	}
-	// The first token has expired by the second request, the second outlives the test.
-	cred := &expiringCredential{lifetimes: []time.Duration{-time.Minute, time.Hour}}
+	// The first token is within the refresh margin of its expiry, so the
+	// second request renews it. The second token outlives the test.
+	cred := &expiringCredential{lifetimes: []time.Duration{aksTokenRefreshMargin - time.Minute, time.Hour}}
 	useEntraTokens(config, cred)
 	kcli, err := kubernetes.NewForConfig(config)
 	if err != nil {

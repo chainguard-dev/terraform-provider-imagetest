@@ -53,6 +53,10 @@ const (
 	// aksTokenTimeout bounds one token request, since oauth2.TokenSource
 	// passes no context.
 	aksTokenTimeout = time.Minute
+	// aksTokenRefreshMargin is how long before expiry client-go stops reusing
+	// a token, the window azcore refreshes ARM tokens in, so no request goes
+	// out with a token about to expire.
+	aksTokenRefreshMargin = 5 * time.Minute
 )
 
 var rgRegex = regexp.MustCompile(`(?i)/resourceGroups/([^/]+)`)
@@ -1179,5 +1183,5 @@ func (s entraTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting AKS token: %w", err)
 	}
-	return &oauth2.Token{AccessToken: tok.Token, TokenType: "Bearer", Expiry: tok.ExpiresOn}, nil
+	return &oauth2.Token{AccessToken: tok.Token, TokenType: "Bearer", Expiry: tok.ExpiresOn.Add(-aksTokenRefreshMargin)}, nil
 }
