@@ -74,10 +74,10 @@ func (d *driver) Setup(ctx context.Context) error {
 
 	// One connection up front, so a wrong key or a wrong pin fails here
 	// and not inside the Docker tunnel's OpenSSH process. The typed error
-	// tells callers the host was never reached.
+	// tells callers nothing ran on the host.
 	conn, err := d.host.Connect(ctx)
 	if err != nil {
-		return &HostUnreachableError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
+		return &SSHConnectionError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
 	}
 	_ = conn.Close()
 	span.AddEvent("ssh.connected")
