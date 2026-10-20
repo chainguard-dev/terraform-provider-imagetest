@@ -1068,7 +1068,7 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 	Description: "The ssh driver. Runs tests on a host that already exists, over SSH. " +
 		"The host runs Docker; the driver pulls the images under test into its daemon with the caller's registry credentials before the tests start, runs each test container under a unique name, and removes the containers at teardown. " +
 		"Every container it creates carries the per-run label `imagetest:test-name=<run>`, and the test container gets `IMAGETEST_RUN_LABEL` (the key) and `IMAGETEST_RUN` (the value) in its environment, so a test that starts containers through the Docker socket can pass `--label \"$IMAGETEST_RUN_LABEL=$IMAGETEST_RUN\"` and teardown removes them with the run. " +
-		"A failed first SSH connection is reported with a message starting `imagetest: host unreachable: `, so a caller can tell a dead host from a failed test. " +
+		"A failed first SSH connection is reported with a message starting `imagetest: ssh connection failed: `, so a caller can tell a connection that failed from a test that failed. " +
 		"It creates no infrastructure and builds no cloud clients.",
 	Optional: true,
 	Attributes: map[string]schema.Attribute{

@@ -22,9 +22,11 @@
 //     host as given, as [host]:port when the port is not 22. A host rebuild
 //     changes the key, so a rebuild also updates the pinned file.
 //  2. Opens one SSH connection, so a wrong key or a wrong pin fails here
-//     with a clear error. The error is a *HostUnreachableError whose
-//     message starts with HostUnreachablePrefix, so a caller can tell a
-//     host it never reached from a test that failed.
+//     with a clear error. The error is a *SSHConnectionError whose message
+//     starts with SSHConnectionFailedPrefix. It covers a down host, a
+//     wrong address or port, a refused key, and a host-key pin mismatch;
+//     in every case nothing ran on the host, so a caller can tell it from
+//     a test that failed.
 //  3. With lock_path set, takes an exclusive flock on that file in an SSH
 //     session that stays open until Teardown, so runs that share the host
 //     run one at a time. The wait is bounded by the setup timeout and is
