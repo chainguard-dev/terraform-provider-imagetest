@@ -20,9 +20,12 @@ type driver struct {
 	cfg   Config
 	stack *harness.Stack
 
-	// host is set by Setup once the key and the pinned host key are
-	// loaded, and stays nil when Setup fails before that.
+	// host is set by Admit once the key and the pinned host key are
+	// loaded, and stays nil when Admit fails before that.
 	host *sshhost.Host
+	// admitted is set once Admit holds the host, so a Setup that follows
+	// does not connect or take the lock again.
+	admitted bool
 }
 
 func NewDriver(cfg Config) (*driver, error) {
@@ -36,15 +39,17 @@ func NewDriver(cfg Config) (*driver, error) {
 	}, nil
 }
 
-func (d *driver) Setup(ctx context.Context) error {
-	ctx, cancel := d.cfg.Timeouts.SetupContext(ctx)
-	defer cancel()
-
+// Admit loads the key and the pinned host key, opens one SSH connection,
+// and with LockPath set takes the host lock, waiting at most LockTimeout.
+// The provider calls it before Setup and outside the tests resource
+// timeout, so a run queued behind another reads as a wait and not as a
+// slow test. Setup calls it itself when it has not run.
+func (d *driver) Admit(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 	span := trace.SpanFromContext(ctx)
 
 	d.name = "imagetest-ssh-" + uuid.New().String()[:8]
-	log.Info("setting up ssh driver", "name", d.name, "host", d.cfg.Host)
+	log.Info("admitting ssh driver", "name", d.name, "host", d.cfg.Host)
 
 	host := &sshhost.Host{
 		Name:          d.name,
@@ -61,6 +66,7 @@ func (d *driver) Setup(ctx context.Context) error {
 		GPUs:          d.cfg.GPUs,
 		VolumeMounts:  d.cfg.VolumeMounts,
 		DeviceMounts:  d.cfg.DeviceMounts,
+		LockPath:      d.cfg.LockPath,
 		Stack:         d.stack,
 	}
 	if err := host.Load(); err != nil {
@@ -70,13 +76,63 @@ func (d *driver) Setup(ctx context.Context) error {
 	d.host = host
 
 	// One connection up front, so a wrong key or a wrong pin fails here
-	// and not inside the Docker tunnel's OpenSSH process.
+	// and not inside the Docker tunnel's OpenSSH process. The typed error
+	// tells callers nothing ran on the host.
 	conn, err := d.host.Connect(ctx)
 	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", d.cfg.Host, err)
+		return &SSHConnectionError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
 	}
 	_ = conn.Close()
 	span.AddEvent("ssh.connected")
+
+	if d.cfg.LockPath == "" {
+		d.admitted = true
+		return nil
+	}
+
+	// The lock is the first teardown pushed, so it is released last: after
+	// the test containers and the run sweep. The wait has its own bound;
+	// a bound that passes while the caller's context is still live is the
+	// typed error, a caller that gave up is not.
+	waitCtx, cancel := context.WithTimeout(ctx, d.cfg.LockTimeout)
+	defer cancel()
+	lock, err := d.host.AcquireLock(waitCtx)
+	if err != nil {
+		if waitCtx.Err() != nil && ctx.Err() == nil {
+			return &LockTimeoutError{Path: d.cfg.LockPath, Timeout: d.cfg.LockTimeout, Err: err}
+		}
+		return fmt.Errorf("acquiring lock: %w", err)
+	}
+	if err := d.stack.Add(lock.Release); err != nil {
+		_ = lock.Release(ctx)
+		return fmt.Errorf("adding lock release to stack: %w", err)
+	}
+	d.admitted = true
+	return nil
+}
+
+func (d *driver) Setup(ctx context.Context) error {
+	ctx, cancel := d.cfg.Timeouts.SetupContext(ctx)
+	defer cancel()
+
+	log := clog.FromContext(ctx)
+	span := trace.SpanFromContext(ctx)
+
+	if !d.admitted {
+		if err := d.Admit(ctx); err != nil {
+			return err
+		}
+	}
+	log.Info("setting up ssh driver", "name", d.name, "host", d.cfg.Host)
+
+	// While the lock is held no other run on the same lock can have live
+	// containers on the host, so what such a run left behind is stale and
+	// is removed now.
+	if d.cfg.LockPath != "" {
+		if err := d.host.RemoveStaleContainers(ctx); err != nil {
+			return fmt.Errorf("sweeping stale containers: %w", err)
+		}
+	}
 
 	// Setup commands run before the GPU probe, unlike the ec2 launch path:
 	// on a held host they are where a missing driver or toolkit gets
@@ -91,6 +147,14 @@ func (d *driver) Setup(ctx context.Context) error {
 	// them locally. The host holds no registry credentials.
 	if err := d.host.PrePullImages(ctx, d.cfg.PrePullImages); err != nil {
 		return fmt.Errorf("pre-pulling images: %w", err)
+	}
+
+	// Pushed before any test container, so it runs after their removal:
+	// it takes out what the tests started with the run's label. Pushed
+	// last in Setup, so a Setup that fails before this point does not
+	// spend its teardown waiting for a Docker daemon it never reached.
+	if err := d.stack.Add(d.host.RemoveRunContainers); err != nil {
+		return fmt.Errorf("adding run sweep to stack: %w", err)
 	}
 	span.AddEvent("ssh.setup.complete")
 
@@ -114,8 +178,9 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	return d.host.Run(ctx, ref)
 }
 
-// Teardown removes the test containers. The host is shared and persistent,
-// so nothing else is touched.
+// Teardown removes the test containers, then every container labelled with
+// the run, then releases the host lock. The host is shared and persistent,
+// so teardown touches only containers.
 func (d *driver) Teardown(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 

@@ -300,7 +300,15 @@ func (h *Host) PrePullImages(ctx context.Context, images []string) error {
 func (h *Host) runContainer(ctx context.Context, cli *client.Client, ref name.Reference) (*drivers.RunResult, error) {
 	log := clog.FromContext(ctx)
 
-	env := make([]string, 0, len(h.Env))
+	// The run's label goes in as environment variables so the test can
+	// label the containers it starts, see RunEnv. A user Env of the same
+	// name is not overridden.
+	env := make([]string, 0, len(h.Env)+2)
+	for k, v := range h.RunEnv() {
+		if _, ok := h.Env[k]; !ok {
+			env = append(env, k+"="+v)
+		}
+	}
 	for k, v := range h.Env {
 		env = append(env, k+"="+v)
 	}

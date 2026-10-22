@@ -3,8 +3,10 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,3 +181,53 @@ AAAED1zq6jd0yfUKQAo4r1rc1wOiHT486tFhnbXnvM9ac9VKLWRjZENiMfIws78gLoUiNr
 uKl0l6YjNwcdhShtyrxeAAAABHRlc3QB
 -----END OPENSSH PRIVATE KEY-----
 `) + "\n"
+
+// TestSetupSSHConnectionError checks that a host the driver cannot connect
+// to fails Setup with SSHConnectionError, whose message starts with the
+// stable marker a caller reading guest output looks for.
+func TestSetupSSHConnectionError(t *testing.T) {
+	dir := t.TempDir()
+	key := filepath.Join(dir, "key")
+	require.NoError(t, os.WriteFile(key, []byte(testPrivateKey), 0o600))
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port //nolint:forcetypeassert // test listener
+	require.NoError(t, l.Close())
+
+	known := filepath.Join(dir, "known_hosts")
+	require.NoError(t, os.WriteFile(known, fmt.Appendf(nil, "[127.0.0.1]:%d %s\n", port, testHostKeyLine), 0o644))
+
+	d, err := NewDriver(Config{Host: "127.0.0.1", SSHPort: int32(port), SSHKey: key, KnownHosts: known, LockPath: "/var/lock/imagetest/gpu"})
+	require.NoError(t, err)
+
+	err = d.Setup(t.Context())
+	require.Error(t, err)
+
+	var connErr *SSHConnectionError
+	require.ErrorAs(t, err, &connErr)
+	assert.Equal(t, "127.0.0.1", connErr.Host)
+	assert.Equal(t, int32(port), connErr.Port)
+	assert.True(t, strings.HasPrefix(err.Error(), SSHConnectionFailedPrefix), "error %q does not start with %q", err, SSHConnectionFailedPrefix)
+	assert.Contains(t, err.Error(), "connection refused")
+
+	// The host was loaded, so Diagnose can still try the on_failure
+	// commands, and nothing was pushed on the stack: no lock, no sweep.
+	assert.NotNil(t, d.host)
+	require.NoError(t, d.Teardown(t.Context()))
+}
+
+// TestSSHConnectionErrorUnwraps checks that the cause stays reachable
+// through errors.Is.
+func TestSSHConnectionErrorUnwraps(t *testing.T) {
+	cause := errors.New("dial tcp: i/o timeout")
+	err := error(&SSHConnectionError{Host: "192.0.2.10", Port: 22, Err: cause})
+	assert.Equal(t, "imagetest: ssh connection failed: 192.0.2.10 port 22: dial tcp: i/o timeout", err.Error())
+	assert.ErrorIs(t, err, cause)
+}
+
+func TestLockPathDefaultsOff(t *testing.T) {
+	d, err := NewDriver(Config{Host: "192.0.2.10", SSHKey: "/tmp/key", KnownHosts: "/tmp/known_hosts"})
+	require.NoError(t, err)
+	assert.Empty(t, d.cfg.LockPath)
+}
