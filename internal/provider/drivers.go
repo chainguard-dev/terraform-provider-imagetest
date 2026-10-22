@@ -11,7 +11,10 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -675,8 +678,18 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		}
 		driverCfg.Timeouts = timeouts
 
-		// Init AWS config and clients
-		awsCfg, err := config.LoadDefaultConfig(ctx)
+		// Init AWS config and clients. The EC2 request-rate limit is per
+		// account and region, shared with every other launch there, so a
+		// burst of parallel tests can get RequestLimitExceeded. The SDK
+		// retries that, but its default 3 attempts give up within seconds.
+		// 10 attempts with backoff growing to a minute keep trying for
+		// about five minutes.
+		awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRetryer(func() aws.Retryer {
+			return retry.NewStandard(func(o *retry.StandardOptions) {
+				o.MaxAttempts = 10
+				o.MaxBackoff = time.Minute
+			})
+		}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to load AWS configuration: %w", err)
 		}
