@@ -15,12 +15,14 @@
 //  1. Reads the private key and the known_hosts file. known_hosts is
 //     required: the host is reached by address, often over the internet,
 //     and image pulls send the caller's registry credentials over the
-//     tunnel unless Config.PullECRWithHostCredentials is set. Every SSH connection, the Docker tunnel and the Go client
-//     alike, accepts only the keys the file records for the host and fails
-//     on a mismatch. The file is in OpenSSH known_hosts format, as written
-//     by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name the
-//     host as given, as [host]:port when the port is not 22. A host rebuild
-//     changes the key, so a rebuild also updates the pinned file.
+//     tunnel. With Config.PullECRWithHostCredentials, every image outside
+//     a private ECR registry still does. Every SSH connection, the Docker
+//     tunnel and the Go client alike, accepts only the keys the file
+//     records for the host and fails on a mismatch. The file is in OpenSSH
+//     known_hosts format, as written by `ssh-keyscan -p <port> -t ed25519
+//     <host>`; the entry must name the host as given, as [host]:port when
+//     the port is not 22. A host rebuild changes the key, so a rebuild also
+//     updates the pinned file.
 //  2. Opens one SSH connection, so a wrong key or a wrong pin fails here
 //     with a clear error.
 //  3. Runs setup_commands, if any, in one session.
@@ -28,11 +30,13 @@
 //     This is non-fatal.
 //  5. Pulls the images under test (Config.PrePullImages, filled by the
 //     provider from the resource's images map) into the host's Docker
-//     daemon. Each pull carries the caller's registry credentials for that
-//     one request; the host never logs in and never stores a token. With
-//     Config.PullECRWithHostCredentials, an image in a private ECR registry
-//     is instead pulled by the docker CLI on the host with the host's own
-//     AWS credentials through docker-credential-ecr-login. Images are
+//     daemon. By default each pull carries the caller's registry
+//     credentials for that one request; the host never logs in and never
+//     stores a token. With Config.PullECRWithHostCredentials, an image in
+//     a private ECR registry is instead pulled by the docker CLI on the
+//     host with the host's own AWS credentials through
+//     docker-credential-ecr-login, which caches the ECR token under the
+//     host user's home. Images are
 //     pulled as given, by digest, never with a platform override: the
 //     daemon selects its own platform from a multi-arch index.
 //

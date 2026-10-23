@@ -71,8 +71,10 @@ func TestPullsOnHost(t *testing.T) {
 // TestHostPullScript runs the host pull script under sh with a stand-in
 // docker CLI. The CLI must see a config that maps only the image's registry
 // to the ECR helper and DOCKER_HOST set to the endpoint of the user's
-// current context, and the config must be gone afterwards, whether the
-// pull succeeds or fails.
+// current context, which the script must read with the user's own config,
+// and the config must be gone afterwards, whether the pull succeeds or
+// fails. When the inspect fails, nothing is pulled and nothing is left
+// behind.
 func TestHostPullScript(t *testing.T) {
 	ref, err := name.ParseReference("123456789012.dkr.ecr.us-west-2.amazonaws.com/imagetest@sha256:" + strings.Repeat("a", 64))
 	if err != nil {
@@ -84,19 +86,28 @@ func TestHostPullScript(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name    string
-		exit    int
-		wantErr bool
+		name        string
+		inspectExit int
+		exit        int
+		wantErr     bool
 	}{
 		{name: "pull succeeds"},
 		{name: "pull fails", exit: 1, wantErr: true},
+		{name: "inspect fails", inspectExit: 1, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bin := t.TempDir()
-			out := filepath.Join(t.TempDir(), "out")
+			tmp := t.TempDir()
+			out := filepath.Join(tmp, "out")
+			ctx := filepath.Join(tmp, "ctx")
 			docker := strings.Join([]string{
 				"#!/bin/sh",
-				`if [ "$1" = context ]; then echo unix:///run/user/1001/docker.sock; exit 0; fi`,
+				`if [ "$1" = context ]; then`,
+				`  printf '%s\n' "${DOCKER_CONFIG-unset}" >"$CTX"`,
+				`  printf '%s\n' "$*" >>"$CTX"`,
+				`  echo unix:///run/user/1001/docker.sock`,
+				"  exit " + strconv.Itoa(tc.inspectExit),
+				"fi",
 				`printf '%s\n' "$DOCKER_CONFIG" >"$OUT"`,
 				`cat "$DOCKER_CONFIG/config.json" >>"$OUT"`,
 				`printf '%s\n' "$*" >>"$OUT"`,
@@ -109,13 +120,39 @@ func TestHostPullScript(t *testing.T) {
 
 			cmd := exec.CommandContext(t.Context(), "sh")
 			cmd.Stdin = strings.NewReader(strings.Join(script, "\n") + "\n")
-			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "OUT="+out)
+			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"OUT="+out, "CTX="+ctx, "TMPDIR="+tmp)
 			output, err := cmd.CombinedOutput()
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("script error = %v, want error %t, output:\n%s", err, tc.wantErr, output)
 			}
 
-			data, err := os.ReadFile(out)
+			data, err := os.ReadFile(ctx)
+			if err != nil {
+				t.Fatalf("docker context inspect did not run: %v", err)
+			}
+			if want := "unset\ncontext inspect --format {{.Endpoints.docker.Host}}"; strings.TrimSpace(string(data)) != want {
+				t.Errorf("context inspect saw %q, want %q", strings.TrimSpace(string(data)), want)
+			}
+
+			entries, err := os.ReadDir(tmp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range entries {
+				if e.IsDir() {
+					t.Errorf("config dir %s still exists", e.Name())
+				}
+			}
+
+			if tc.inspectExit != 0 {
+				if _, err := os.Stat(out); !os.IsNotExist(err) {
+					t.Errorf("docker pull ran after a failed inspect (stat error %v)", err)
+				}
+				return
+			}
+
+			data, err = os.ReadFile(out)
 			if err != nil {
 				t.Fatalf("docker did not run: %v", err)
 			}
@@ -131,9 +168,6 @@ func TestHostPullScript(t *testing.T) {
 			}
 			if want := "unix:///run/user/1001/docker.sock"; lines[3] != want {
 				t.Errorf("DOCKER_HOST = %q, want %q", lines[3], want)
-			}
-			if _, err := os.Stat(lines[0]); !os.IsNotExist(err) {
-				t.Errorf("config dir %s still exists (stat error %v)", lines[0], err)
 			}
 		})
 	}

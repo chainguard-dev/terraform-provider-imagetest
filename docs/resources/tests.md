@@ -295,7 +295,7 @@ Optional:
 Required:
 
 - `host` (String) Address of the host: a hostname, IPv4 or IPv6 address.
-- `known_hosts` (String) Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and image pulls send the caller's registry credentials over the tunnel unless `pull_ecr_with_host_credentials` is set.
+- `known_hosts` (String) Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and image pulls send the caller's registry credentials over the tunnel. With `pull_ecr_with_host_credentials`, every image outside a private ECR registry still does.
 - `ssh_key` (String) Path to the SSH private key file.
 
 Optional:
