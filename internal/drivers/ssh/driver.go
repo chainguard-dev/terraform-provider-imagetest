@@ -62,6 +62,8 @@ func (d *driver) Setup(ctx context.Context) error {
 		VolumeMounts:  d.cfg.VolumeMounts,
 		DeviceMounts:  d.cfg.DeviceMounts,
 		Stack:         d.stack,
+
+		PullECRWithHostCredentials: d.cfg.PullECRWithHostCredentials,
 	}
 	if err := host.Load(); err != nil {
 		return err
@@ -88,7 +90,8 @@ func (d *driver) Setup(ctx context.Context) error {
 	d.host.CollectGPUInfo(ctx)
 
 	// Pull the images under test into the host's daemon so the tests find
-	// them locally. The host holds no registry credentials.
+	// them locally, with the caller's registry credentials or, for ECR
+	// images when configured, with the host's own.
 	if err := d.host.PrePullImages(ctx, d.cfg.PrePullImages); err != nil {
 		return fmt.Errorf("pre-pulling images: %w", err)
 	}
