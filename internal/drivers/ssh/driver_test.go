@@ -81,6 +81,7 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "ubuntu", d.cfg.SSHUser)
 	assert.Equal(t, "bash", d.cfg.Shell)
 	assert.NotNil(t, d.cfg.Env)
+	assert.False(t, d.cfg.PullECRWithHostCredentials)
 }
 
 // TestSetupFailsClosed checks that Setup fails before any connection when

@@ -216,6 +216,8 @@ type SSHDriverResourceModel struct {
 	GPUs          types.String                 `tfsdk:"gpus"`
 	OnFailure     []string                     `tfsdk:"on_failure"`
 	Timeouts      *DriverTimeoutsResourceModel `tfsdk:"timeouts"`
+
+	PullECRWithHostCredentials types.Bool `tfsdk:"pull_ecr_with_host_credentials"`
 }
 
 func parseTimeoutsModel(m *DriverTimeoutsResourceModel) (drivers.Timeouts, error) {
@@ -713,6 +715,8 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			GPUs:       cfg.GPUs.ValueString(),
 			OnFailure:  cfg.OnFailure,
 			Env:        make(map[string]string),
+
+			PullECRWithHostCredentials: cfg.PullECRWithHostCredentials.ValueBool(),
 		}
 
 		var err error
@@ -724,8 +728,9 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 			driverCfg.SkipTeardown = true
 		}
 
-		// The host holds no registry credentials, so the driver pulls the
-		// images under test with ours before the tests run.
+		// The driver pulls the images under test into the host's daemon
+		// before the tests run, with the caller's registry credentials or,
+		// for ECR images when configured, with the host's own.
 		imgs, err := data.Images.Resolve()
 		if err != nil {
 			return nil, fmt.Errorf("resolving images for pre-pull: %w", err)
@@ -1083,7 +1088,8 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 
 var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 	Description: "The ssh driver. Runs tests on a host that already exists, over SSH. " +
-		"The host runs Docker; the driver pulls the images under test into its daemon with the caller's registry credentials before the tests start, runs each test container under a unique name, and removes the containers at teardown. " +
+		"The host runs Docker; the driver pulls the images under test into its daemon before the tests start, runs each test container under a unique name, and removes the containers at teardown. " +
+		"Pulls send the caller's registry credentials to the daemon, or with `pull_ecr_with_host_credentials` the host pulls private ECR images with its own credentials. " +
 		"It creates no infrastructure and builds no cloud clients.",
 	Optional: true,
 	Attributes: map[string]schema.Attribute{
@@ -1105,8 +1111,13 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 		},
 		"known_hosts": schema.StringAttribute{
 			Description: "Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. " +
-				"Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and every image pull sends the caller's registry credentials over the tunnel.",
+				"Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and image pulls send the caller's registry credentials over the tunnel unless `pull_ecr_with_host_credentials` is set.",
 			Required: true,
+		},
+		"pull_ecr_with_host_credentials": schema.BoolAttribute{
+			Description: "Pull images in private ECR registries with the docker CLI on the host, through docker-credential-ecr-login and the host's own AWS credentials, instead of sending the caller's registry credentials to the daemon. " +
+				"The host needs docker-credential-ecr-login on its PATH and credentials that can read the registry; without them ECR pulls fail with docker's error. Other registries are pulled with the caller's credentials (default: false).",
+			Optional: true,
 		},
 		"shell": schema.StringAttribute{
 			Description: "Shell to use for commands (default: bash).",

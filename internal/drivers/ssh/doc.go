@@ -14,8 +14,8 @@
 //
 //  1. Reads the private key and the known_hosts file. known_hosts is
 //     required: the host is reached by address, often over the internet,
-//     and every image pull sends the caller's registry credentials over the
-//     tunnel. Every SSH connection, the Docker tunnel and the Go client
+//     and image pulls send the caller's registry credentials over the
+//     tunnel unless Config.PullECRWithHostCredentials is set. Every SSH connection, the Docker tunnel and the Go client
 //     alike, accepts only the keys the file records for the host and fails
 //     on a mismatch. The file is in OpenSSH known_hosts format, as written
 //     by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name the
@@ -29,14 +29,17 @@
 //  5. Pulls the images under test (Config.PrePullImages, filled by the
 //     provider from the resource's images map) into the host's Docker
 //     daemon. Each pull carries the caller's registry credentials for that
-//     one request; the host never logs in and never stores a token. Images
-//     are pulled as given, by digest, never with a platform override: the
+//     one request; the host never logs in and never stores a token. With
+//     Config.PullECRWithHostCredentials, an image in a private ECR registry
+//     is instead pulled by the docker CLI on the host with the host's own
+//     AWS credentials through docker-credential-ecr-login. Images are
+//     pulled as given, by digest, never with a platform override: the
 //     daemon selects its own platform from a multi-arch index.
 //
 // # Phase: Run
 //
 //  1. Connects to Docker on the host via the SSH tunnel
-//  2. Pulls the test image (with registry auth from the default keychain)
+//  2. Pulls the test image, the same way as in Setup step 5
 //  3. Runs the container under a unique name, streaming logs and waiting
 //     for exit
 //

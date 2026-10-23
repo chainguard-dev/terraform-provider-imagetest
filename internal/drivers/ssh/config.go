@@ -33,9 +33,15 @@ type Config struct {
 	GPUs         string // "all", "0", "1", "2", etc. Empty means no GPUs.
 
 	// PrePullImages are image references the driver pulls into the host's
-	// Docker daemon during Setup, before any test container starts, with the
-	// caller's registry credentials.
+	// Docker daemon during Setup, before any test container starts.
 	PrePullImages []string
+
+	// PullECRWithHostCredentials pulls images in private ECR registries with
+	// the docker CLI on the host, through docker-credential-ecr-login and the
+	// host's own AWS credentials. Without it every pull sends the caller's
+	// registry credentials to the daemon. The host needs the helper on its
+	// PATH and credentials that can read the registry.
+	PullECRWithHostCredentials bool
 
 	// Commands run on the host on failure, see Diagnose.
 	OnFailure []string

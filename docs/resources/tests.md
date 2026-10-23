@@ -45,7 +45,7 @@ Optional:
 - `ec2` (Attributes) The AWS EC2 driver. On instances the driver launches, images in private ECR registries are pulled with the instance profile, which needs docker-credential-ecr-login on the instance. Install it with `user_data` or `setup_commands`. (see [below for nested schema](#nestedatt--drivers--ec2))
 - `eks_with_eksctl` (Attributes) The eks_with_eksctl driver (see [below for nested schema](#nestedatt--drivers--eks_with_eksctl))
 - `k3s_in_docker` (Attributes) The k3s_in_docker driver (see [below for nested schema](#nestedatt--drivers--k3s_in_docker))
-- `ssh` (Attributes) The ssh driver. Runs tests on a host that already exists, over SSH. The host runs Docker; the driver pulls the images under test into its daemon with the caller's registry credentials before the tests start, runs each test container under a unique name, and removes the containers at teardown. It creates no infrastructure and builds no cloud clients. (see [below for nested schema](#nestedatt--drivers--ssh))
+- `ssh` (Attributes) The ssh driver. Runs tests on a host that already exists, over SSH. The host runs Docker; the driver pulls the images under test into its daemon before the tests start, runs each test container under a unique name, and removes the containers at teardown. Pulls send the caller's registry credentials to the daemon, or with `pull_ecr_with_host_credentials` the host pulls private ECR images with its own credentials. It creates no infrastructure and builds no cloud clients. (see [below for nested schema](#nestedatt--drivers--ssh))
 
 <a id="nestedatt--drivers--aks"></a>
 ### Nested Schema for `drivers.aks`
@@ -295,7 +295,7 @@ Optional:
 Required:
 
 - `host` (String) Address of the host: a hostname, IPv4 or IPv6 address.
-- `known_hosts` (String) Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and every image pull sends the caller's registry credentials over the tunnel.
+- `known_hosts` (String) Path to an OpenSSH known_hosts file with the host's key, as written by `ssh-keyscan -p <port> -t ed25519 <host>`; the entry must name `host` as given, as `[host]:port` when the port is not 22. Every SSH connection verifies the host key against it and fails on a mismatch. Required: the host is reached by address and image pulls send the caller's registry credentials over the tunnel unless `pull_ecr_with_host_credentials` is set.
 - `ssh_key` (String) Path to the SSH private key file.
 
 Optional:
@@ -304,6 +304,7 @@ Optional:
 - `env` (Map of String) Environment variables for setup commands and container.
 - `gpus` (String) GPUs to mount in the test container. Use 'all' for all GPUs, or a number like '1' or '2'.
 - `on_failure` (List of String) Commands to run on the host when setup or a test fails, before teardown, for diagnostic collection. Unlike a test's `on_failure`, which runs inside the test container, these run on the host itself, in `shell` with `env` like `setup_commands`, and also when setup fails. Each command runs independently (best-effort) with a 1m timeout, longer than a test's `on_failure` (10s) because host logs can be large; failures do not prevent subsequent commands from executing. Their output is reported as a warning, capped at 2 MiB in total; trim large logs with e.g. `tail -n` or `journalctl -n`. With resource-level `retry`, they run only after the last attempt, or after an attempt that ran out of time.
+- `pull_ecr_with_host_credentials` (Boolean) Pull images in private ECR registries with the docker CLI on the host, through docker-credential-ecr-login and the host's own AWS credentials, instead of sending the caller's registry credentials to the daemon. The host needs docker-credential-ecr-login on its PATH and credentials that can read the registry; without them ECR pulls fail with docker's error. Other registries are pulled with the caller's credentials (default: false).
 - `setup_commands` (List of String) Commands to run on the host before tests.
 - `shell` (String) Shell to use for commands (default: bash).
 - `ssh_port` (Number) SSH port for connecting to the host (default: 22).

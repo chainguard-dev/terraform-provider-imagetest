@@ -70,7 +70,8 @@ func TestPullsOnHost(t *testing.T) {
 
 // TestHostPullScript runs the host pull script under sh with a stand-in
 // docker CLI. The CLI must see a config that maps only the image's registry
-// to the ECR helper, and the config must be gone afterwards, whether the
+// to the ECR helper and DOCKER_HOST set to the endpoint of the user's
+// current context, and the config must be gone afterwards, whether the
 // pull succeeds or fails.
 func TestHostPullScript(t *testing.T) {
 	ref, err := name.ParseReference("123456789012.dkr.ecr.us-west-2.amazonaws.com/imagetest@sha256:" + strings.Repeat("a", 64))
@@ -95,9 +96,11 @@ func TestHostPullScript(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "out")
 			docker := strings.Join([]string{
 				"#!/bin/sh",
+				`if [ "$1" = context ]; then echo unix:///run/user/1001/docker.sock; exit 0; fi`,
 				`printf '%s\n' "$DOCKER_CONFIG" >"$OUT"`,
 				`cat "$DOCKER_CONFIG/config.json" >>"$OUT"`,
 				`printf '%s\n' "$*" >>"$OUT"`,
+				`printf '%s\n' "$DOCKER_HOST" >>"$OUT"`,
 				"exit " + strconv.Itoa(tc.exit),
 			}, "\n") + "\n"
 			if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(docker), 0o755); err != nil {
@@ -117,14 +120,17 @@ func TestHostPullScript(t *testing.T) {
 				t.Fatalf("docker did not run: %v", err)
 			}
 			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			if len(lines) != 3 {
-				t.Fatalf("docker recorded %q, want config dir, config and arguments", lines)
+			if len(lines) != 4 {
+				t.Fatalf("docker recorded %q, want config dir, config, arguments and DOCKER_HOST", lines)
 			}
 			if want := `{"credHelpers":{"123456789012.dkr.ecr.us-west-2.amazonaws.com":"ecr-login"}}`; lines[1] != want {
 				t.Errorf("config = %s, want %s", lines[1], want)
 			}
 			if want := "pull --quiet " + ref.Name(); lines[2] != want {
 				t.Errorf("arguments = %q, want %q", lines[2], want)
+			}
+			if want := "unix:///run/user/1001/docker.sock"; lines[3] != want {
+				t.Errorf("DOCKER_HOST = %q, want %q", lines[3], want)
 			}
 			if _, err := os.Stat(lines[0]); !os.IsNotExist(err) {
 				t.Errorf("config dir %s still exists (stat error %v)", lines[0], err)
