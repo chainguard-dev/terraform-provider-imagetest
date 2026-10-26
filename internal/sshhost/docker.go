@@ -237,7 +237,14 @@ func (h *Host) pullOnHost(ctx context.Context, ref name.Reference) error {
 // hostPullScript returns the sh commands pullOnHost runs. They use a
 // throwaway DOCKER_CONFIG that maps only ref's registry to the ECR helper
 // ("ecr-login" names docker-credential-ecr-login), so the host user's own
-// Docker config is neither read nor changed.
+// Docker config is neither read nor changed. The user's config also selects
+// the daemon, through its current context: a rootless daemon, say. The
+// script reads that endpoint first and passes it as DOCKER_HOST, so the
+// pull reaches the same daemon the tunnel does. A config whose current
+// context is missing fails at the inspect, under set -eu, where the docker
+// CLI alone would fall back to the default socket. Only the endpoint host
+// is carried over: TLS material or SkipTLSVerify on a tcp context is not,
+// which is fine for unix sockets and for the default context.
 func hostPullScript(ref name.Reference) ([]string, error) {
 	config, err := json.Marshal(map[string]any{
 		"credHelpers": map[string]string{ref.Context().RegistryStr(): "ecr-login"},
@@ -247,10 +254,11 @@ func hostPullScript(ref name.Reference) ([]string, error) {
 	}
 	return []string{
 		"set -eu",
+		`host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' </dev/null)"`,
 		`config="$(mktemp -d)"`,
 		`trap 'rm -rf "$config"' EXIT`,
 		"printf '%s\\n' " + shellquote.Join(string(config)) + ` >"$config/config.json"`,
-		`DOCKER_CONFIG="$config" docker pull --quiet ` + shellquote.Join(ref.Name()) + " </dev/null",
+		`DOCKER_HOST="$host" DOCKER_CONFIG="$config" docker pull --quiet ` + shellquote.Join(ref.Name()) + " </dev/null",
 	}, nil
 }
 
