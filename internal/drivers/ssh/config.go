@@ -4,10 +4,16 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/name"
 )
+
+// DefaultLockTimeout is how long Admit waits for a busy host lock when
+// Config.LockTimeout is unset. It is generous: a run queued behind a
+// full test suite on the host should get its turn, not fail.
+const DefaultLockTimeout = 60 * time.Minute
 
 // Config configures the ssh driver.
 type Config struct {
@@ -47,12 +53,17 @@ type Config struct {
 	// Commands run on the host on failure, see Diagnose.
 	OnFailure []string
 
-	// LockPath, when set, is a file on the host that Setup takes an
+	// LockPath, when set, is a file on the host that Admit takes an
 	// exclusive flock on, held until Teardown, so runs that share the host
-	// run one at a time. The wait is bounded by the setup timeout. It must
+	// run one at a time. The wait is bounded by LockTimeout. It must
 	// be absolute: a relative path resolves against each ssh_user's home,
 	// so two users would take different locks under the same lock label.
 	LockPath string
+	// LockTimeout bounds the wait for the lock. Default: 60m. A wait that
+	// passes it fails with a *LockTimeoutError. The provider runs Admit
+	// outside the tests resource timeout, so the wait is bounded by this
+	// alone.
+	LockTimeout time.Duration
 
 	// Operational
 	SkipTeardown bool // IMAGETEST_SKIP_TEARDOWN: leave the test containers on the host
@@ -75,6 +86,9 @@ func (c *Config) applyDefaults() {
 	if c.Env == nil {
 		c.Env = make(map[string]string)
 	}
+	if c.LockTimeout == 0 {
+		c.LockTimeout = DefaultLockTimeout
+	}
 }
 
 func (c *Config) validate() error {
@@ -92,6 +106,9 @@ func (c *Config) validate() error {
 	}
 	if c.LockPath != "" && !path.IsAbs(c.LockPath) {
 		return fmt.Errorf("lock_path %q must be an absolute path on the host", c.LockPath)
+	}
+	if c.LockTimeout < 0 {
+		return fmt.Errorf("lock_timeout %s is negative", c.LockTimeout)
 	}
 	for _, ref := range c.PrePullImages {
 		if _, err := name.ParseReference(ref); err != nil {

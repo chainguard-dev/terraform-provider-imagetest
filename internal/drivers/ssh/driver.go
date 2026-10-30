@@ -20,14 +20,18 @@ type driver struct {
 	cfg   Config
 	stack *harness.Stack
 
-	// host is set by Setup once the key and the pinned host key are
-	// loaded, and stays nil when Setup fails before that.
+	// host is set by Admit once the key and the pinned host key are
+	// loaded, and stays nil when Admit fails before that.
 	host *sshhost.Host
 
 	// releaseLock releases the host lock Setup took, and is nil without
 	// lock_path or when Setup failed before the lock. It is kept off the
 	// stack so Teardown can release the lock after the stack's deadline.
 	releaseLock func(context.Context) error
+
+	// admitted is set once Admit holds the host, so a Setup that follows
+	// does not connect or take the lock again.
+	admitted bool
 }
 
 func NewDriver(cfg Config) (*driver, error) {
@@ -41,15 +45,17 @@ func NewDriver(cfg Config) (*driver, error) {
 	}, nil
 }
 
-func (d *driver) Setup(ctx context.Context) error {
-	ctx, cancel := d.cfg.Timeouts.SetupContext(ctx)
-	defer cancel()
-
+// Admit loads the key and the pinned host key, opens one SSH connection,
+// and with LockPath set takes the host lock, waiting at most LockTimeout.
+// The provider calls it before Setup and outside the tests resource
+// timeout, so a run queued behind another reads as a wait and not as a
+// slow test. Setup calls it itself when it has not run.
+func (d *driver) Admit(ctx context.Context) error {
 	log := clog.FromContext(ctx)
 	span := trace.SpanFromContext(ctx)
 
 	d.name = "imagetest-ssh-" + uuid.New().String()[:8]
-	log.Info("setting up ssh driver", "name", d.name, "host", d.cfg.Host)
+	log.Info("admitting ssh driver", "name", d.name, "host", d.cfg.Host)
 
 	host := &sshhost.Host{
 		Name:          d.name,
@@ -87,24 +93,55 @@ func (d *driver) Setup(ctx context.Context) error {
 	_ = conn.Close()
 	span.AddEvent("ssh.connected")
 
+	if d.cfg.LockPath == "" {
+		d.admitted = true
+		return nil
+	}
+
 	// The lock is released by Teardown after the stack, so after the test
-	// containers and the run sweep. While it is held no other run on the
-	// same lock can have live containers on the host, so what such a run
-	// left behind is stale and is removed now. A container that will not
-	// go is logged, not fatal: failing here would fail every later run on
-	// the host until an operator steps in, and the test itself shows
-	// whether the host is usable.
-	if d.cfg.LockPath != "" {
-		lock, err := d.host.AcquireLock(ctx)
-		if err != nil {
-			// The lock's own connection failed, so nothing ran on the host
-			// here either, and callers get the same typed error.
-			if errors.Is(err, sshhost.ErrConnect) {
-				return &SSHConnectionError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
-			}
-			return fmt.Errorf("acquiring lock: %w", err)
+	// containers and the run sweep. The wait has its own bound; a bound
+	// that passes while the caller's context is still live is the typed
+	// error, a caller that gave up is not.
+	waitCtx, cancel := context.WithTimeout(ctx, d.cfg.LockTimeout)
+	defer cancel()
+	lock, err := d.host.AcquireLock(waitCtx)
+	if err != nil {
+		// The lock's own connection failed, so nothing ran on the host
+		// here either, and callers get the same typed error.
+		if errors.Is(err, sshhost.ErrConnect) {
+			return &SSHConnectionError{Host: d.cfg.Host, Port: d.cfg.SSHPort, Err: err}
 		}
-		d.releaseLock = lock.Release
+		if waitCtx.Err() != nil && ctx.Err() == nil {
+			return &LockTimeoutError{Path: d.cfg.LockPath, Timeout: d.cfg.LockTimeout, Err: err}
+		}
+		return fmt.Errorf("acquiring lock: %w", err)
+	}
+	d.releaseLock = lock.Release
+	d.admitted = true
+	return nil
+}
+
+func (d *driver) Setup(ctx context.Context) error {
+	ctx, cancel := d.cfg.Timeouts.SetupContext(ctx)
+	defer cancel()
+
+	log := clog.FromContext(ctx)
+	span := trace.SpanFromContext(ctx)
+
+	if !d.admitted {
+		if err := d.Admit(ctx); err != nil {
+			return err
+		}
+	}
+	log.Info("setting up ssh driver", "name", d.name, "host", d.cfg.Host)
+
+	// While the lock is held no other run on the same lock can have live
+	// containers on the host, so what such a run left behind is stale and
+	// is removed now. A container that will not go is logged, not fatal:
+	// failing here would fail every later run on the host until an
+	// operator steps in, and the test itself shows whether the host is
+	// usable.
+	if d.cfg.LockPath != "" {
 		if err := d.host.RemoveStaleContainers(ctx); err != nil {
 			log.Warn("stale containers were not all removed, continuing", "error", err)
 		}
