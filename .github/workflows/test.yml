@@ -158,6 +158,9 @@ jobs:
         # list whatever Terraform versions here you would like to support
         terraform:
           - "1.14.*"
+          - "1.15.*"
+          - "1.16.*"
+          - "1.17.*"
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -212,7 +215,7 @@ jobs:
         with:
           go-version-file: ".go-version"
           check-latest: true
-          cache: true
+          cache: false
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -328,11 +331,11 @@ jobs:
         with:
           go-version-file: ".go-version"
           check-latest: true
-          cache: true
+          cache: false
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: "1.14.*"
+          terraform_version: "1.17.*"
           terraform_wrapper: false
 
       - uses: chainguard-dev/actions/setup-registry@53668650c25af6e8864f1d1ddaa69ed4db4cdf09 # v1.6.42
@@ -377,7 +380,7 @@ jobs:
         with:
           go-version-file: ".go-version"
           check-latest: true
-          cache: true
+          cache: false
 
       - name: Start floci
         run: |
