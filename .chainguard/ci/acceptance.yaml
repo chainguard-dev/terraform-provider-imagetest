@@ -20,6 +20,7 @@ checks:
         - bash
         - coreutils # shuf, for the pterraform testdata
         - git
+        - jq # the docker harness tests inspect containers with it
         - ko~0.19
         - terraform-1.14~1.14
       services: &services
@@ -29,6 +30,9 @@ checks:
       vars: &vars
         GOTOOLCHAIN: local
         GOTMPDIR: /var/tmp
+        # /tmp is a tmpfs sized from guest RAM, which the per-test terraform
+        # work directories and image layers fill.
+        TMPDIR: /var/tmp
         CHECKPOINT_DISABLE: "1"
         TF_ACC: "1"
         TF_LOG: info
@@ -68,6 +72,7 @@ checks:
         - bash
         - coreutils
         - git
+        - jq
         - ko~0.19
         - terraform-1.15~1.15
       services: *services
@@ -87,6 +92,7 @@ checks:
         - bash
         - coreutils
         - git
+        - jq
         - ko~0.19
         - terraform-1.16~1.16
       services: *services
@@ -106,6 +112,7 @@ checks:
         - bash
         - coreutils
         - git
+        - jq
         - ko~0.19
         - terraform-1.17~1.17
       services: *services
