@@ -1,0 +1,68 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the provider built from the tree against published cgr.dev images.
+version: 1
+
+environment:
+  packages:
+    - go-1.27~1.27 # go.mod's go directive; GOTOOLCHAIN=local refuses an older one
+    - bash
+    - coreutils
+    - curl
+    - git
+    - make
+    - crane~0.22 # resolves the image digests
+    - ko~0.19 # builds the entrypoint image
+    - terraform-1.17~1.17
+  services:
+    - docker
+    - uses: registry
+      with: {port: "5005"}
+  vars:
+    GOTOOLCHAIN: local
+    GOTMPDIR: /var/tmp
+    CHECKPOINT_DISABLE: "1"
+
+checks:
+  images-test:
+    description: >-
+      Applies one tests/fixtures module per image against its live
+      cgr.dev/chainguard image, with the entrypoint and sandbox images pushed
+      to the local registry.
+    trigger: [presubmit, postsubmit]
+    resources: medium
+    timeout: 30m
+    foreach:
+      - vars: {IMAGE: jre}
+      - vars: {IMAGE: nginx}
+      - vars: {IMAGE: wolfi-base}
+      - vars: {IMAGE: busybox}
+      - vars: {IMAGE: go}
+      - vars: {IMAGE: maven}
+      - vars: {IMAGE: python}
+      - vars: {IMAGE: ruby}
+      - vars: {IMAGE: curl}
+      - vars: {IMAGE: redis}
+    network:
+      egress:
+        - proxy.golang.org
+        - sum.golang.org
+        - storage.googleapis.com
+        # Terraform providers: the registry, then HashiCorp's releases or the
+        # GitHub release assets of third-party providers.
+        - registry.terraform.io
+        - releases.hashicorp.com
+        - github.com
+        - release-assets.githubusercontent.com
+        - objects.githubusercontent.com
+        - cgr.dev
+        - 9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com
+        - packages.wolfi.dev
+        - apk.cgr.dev
+        # The docker-in-docker daemon pulls through this mirror.
+        - mirror.gcr.io
+        # Fetched by the tests inside the images.
+        - raw.githubusercontent.com
+        - repo.maven.apache.org
+    cmd: [sh, -c, 'make "images-test/${IMAGE}"']
