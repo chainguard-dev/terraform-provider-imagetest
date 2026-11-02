@@ -12,8 +12,8 @@ environment:
     - curl
     - git
     - make
-    - crane~0.22 # resolves the image digests
-    - ko~0.19 # builds the entrypoint image
+    - crane # resolves the image digests
+    - ko # builds the entrypoint image
     - terraform-1.17~1.17
   services:
     - docker

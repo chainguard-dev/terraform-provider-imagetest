@@ -21,7 +21,7 @@ checks:
         - coreutils # shuf, for the pterraform testdata
         - git
         - jq # the docker harness tests inspect containers with it
-        - ko~0.19
+        - ko
         - terraform-1.14~1.14
       services: &services
         - docker
@@ -73,7 +73,7 @@ checks:
         - coreutils
         - git
         - jq
-        - ko~0.19
+        - ko
         - terraform-1.15~1.15
       services: *services
       vars: *vars
@@ -93,7 +93,7 @@ checks:
         - coreutils
         - git
         - jq
-        - ko~0.19
+        - ko
         - terraform-1.16~1.16
       services: *services
       vars: *vars
@@ -113,7 +113,7 @@ checks:
         - coreutils
         - git
         - jq
-        - ko~0.19
+        - ko
         - terraform-1.17~1.17
       services: *services
       vars: *vars
