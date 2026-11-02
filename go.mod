@@ -3,7 +3,7 @@ module github.com/chainguard-dev/terraform-provider-imagetest
 go 1.27.0
 
 require (
-	chainguard.dev/apko v1.4.12
+	chainguard.dev/apko v1.4.13
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2 v2.2.0
@@ -63,7 +63,7 @@ require (
 
 require (
 	chainguard.dev/go-grpc-kit v0.20.0 // indirect
-	chainguard.dev/sdk v0.1.373 // indirect
+	chainguard.dev/sdk v0.1.404 // indirect
 	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
@@ -182,7 +182,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/klauspost/pgzip v1.2.7 // indirect
+	github.com/klauspost/pgzip v1.3.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
@@ -250,7 +250,7 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
-	google.golang.org/api v0.302.0 // indirect
+	google.golang.org/api v0.305.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
