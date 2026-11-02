@@ -1,0 +1,56 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Build and lint. The tests need Docker and run in their own checks.
+version: 1
+
+environment:
+  packages:
+    - go-1.27~1.27 # go.mod's go directive; GOTOOLCHAIN=local refuses an older one
+    - bash
+    - git
+    - make
+  vars:
+    GOTOOLCHAIN: local
+    GOTMPDIR: /var/tmp
+
+checks:
+  build:
+    description: Builds the provider.
+    trigger: [presubmit, postsubmit]
+    timeout: 10m
+    network:
+      egress: &goproxy
+        - proxy.golang.org
+        - sum.golang.org
+        - storage.googleapis.com
+    cmd: [go, build, -v, .]
+
+  lint:
+    description: >-
+      golangci-lint over the module, then make go-generate (terraform fmt on
+      the examples and tfplugindocs), failing if it leaves the tree dirty.
+    environment:
+      packages:
+        - go-1.27~1.27
+        - bash
+        - git
+        - make
+        - golangci-lint~2.15
+        - terraform-1.14~1.14 # the oldest version the acceptance tests cover
+      vars:
+        GOTOOLCHAIN: local
+        GOTMPDIR: /var/tmp
+        CHECKPOINT_DISABLE: "1"
+    trigger: [presubmit, postsubmit]
+    resources: medium
+    timeout: 15m
+    network:
+      egress: *goproxy
+    steps:
+      - name: golangci-lint
+        cmd: golangci-lint run
+      - name: generate
+        script: |
+          make go-generate
+          git diff --compact-summary --exit-code
