@@ -48,6 +48,12 @@ checks:
         - apk.cgr.dev
         # The docker-in-docker daemon pulls through this mirror.
         - mirror.gcr.io
+        # k3s pulls its pause image from Docker Hub.
+        - registry-1.docker.io
+        - index.docker.io
+        - auth.docker.io
+        - production.cloudfront.docker.com
+        - docker-images-prod.s3.dualstack.us-east-1.amazonaws.com
     script: &script |
       set -eu
       IMAGETEST_ENTRYPOINT_REF=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
@@ -133,12 +139,12 @@ checks:
         - proxy.golang.org
         - sum.golang.org
         - storage.googleapis.com
-        # floci is on Docker Hub, which serves layers from a different CDN
-        # from one pull to the next.
-        - "*.docker.io"
-        - "*.docker.com"
+        # floci is on Docker Hub.
+        - registry-1.docker.io
+        - index.docker.io
+        - auth.docker.io
+        - production.cloudfront.docker.com
         - docker-images-prod.s3.dualstack.us-east-1.amazonaws.com
-        - docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com
     shell: bash
     script: |
       set -eu
