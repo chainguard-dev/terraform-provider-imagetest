@@ -4,7 +4,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -eu
-crane registry serve --address "127.0.0.1:${REGISTRY_PORT}" &
+# All interfaces, not loopback: the k3s driver's containerd reaches the
+# registry through host.docker.internal, the docker bridge gateway.
+crane registry serve --address ":${REGISTRY_PORT}" &
 daemon=$!
 trap 'kill "$daemon" 2>/dev/null || true' EXIT
 trap 'exit 1' HUP INT TERM
