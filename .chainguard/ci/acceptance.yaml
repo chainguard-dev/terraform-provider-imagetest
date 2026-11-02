@@ -1,0 +1,153 @@
+# Copyright 2026 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Acceptance tests against Docker, one check per supported Terraform version,
+# and the EC2 driver against floci, an AWS emulator.
+version: 1
+
+# Every terraform-1.x package installs /usr/bin/terraform, so each version is
+# its own check with its own environment.
+checks:
+  acceptance-1-14:
+    description: &description >-
+      Builds the entrypoint image into the local registry, then runs the
+      provider, driver, harness and sshhost tests with TF_ACC=1. The
+      drivers and pterraform packages are not reached through the provider
+      tests.
+    environment:
+      packages:
+        - go-1.27~1.27 # go.mod's go directive; GOTOOLCHAIN=local refuses an older one
+        - bash
+        - coreutils # shuf, for the pterraform testdata
+        - git
+        - ko~0.19
+        - terraform-1.14~1.14
+      services: &services
+        - docker
+        - uses: registry
+          with: {port: "5005"}
+      vars: &vars
+        GOTOOLCHAIN: local
+        GOTMPDIR: /var/tmp
+        CHECKPOINT_DISABLE: "1"
+        TF_ACC: "1"
+        TF_LOG: info
+        IMAGETEST_REGISTRY: localhost:5005
+    trigger: [presubmit, postsubmit]
+    resources: medium
+    timeout: 30m
+    network:
+      egress: &egress
+        - proxy.golang.org
+        - sum.golang.org
+        - storage.googleapis.com
+        - cgr.dev
+        - 9236a389bd48b984df91adc1bc924620.r2.cloudflarestorage.com
+        - packages.wolfi.dev
+        - packages.cgr.dev
+        - apk.cgr.dev
+        # The docker-in-docker daemon pulls through this mirror.
+        - mirror.gcr.io
+    script: &script |
+      set -eu
+      IMAGETEST_ENTRYPOINT_REF=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
+      export IMAGETEST_ENTRYPOINT_REF
+      go test -v -cover ./internal/o11y/ ./internal/provider/ ./internal/drivers/... ./internal/sshhost/ ./internal/harness/pterraform/
+
+  acceptance-1-15:
+    description: *description
+    environment:
+      packages:
+        - go-1.27~1.27
+        - bash
+        - coreutils
+        - git
+        - ko~0.19
+        - terraform-1.15~1.15
+      services: *services
+      vars: *vars
+    trigger: [presubmit, postsubmit]
+    resources: medium
+    timeout: 30m
+    network:
+      egress: *egress
+    script: *script
+
+  acceptance-1-16:
+    description: *description
+    environment:
+      packages:
+        - go-1.27~1.27
+        - bash
+        - coreutils
+        - git
+        - ko~0.19
+        - terraform-1.16~1.16
+      services: *services
+      vars: *vars
+    trigger: [presubmit, postsubmit]
+    resources: medium
+    timeout: 30m
+    network:
+      egress: *egress
+    script: *script
+
+  acceptance-1-17:
+    description: *description
+    environment:
+      packages:
+        - go-1.27~1.27
+        - bash
+        - coreutils
+        - git
+        - ko~0.19
+        - terraform-1.17~1.17
+      services: *services
+      vars: *vars
+    trigger: [presubmit, postsubmit]
+    resources: medium
+    timeout: 30m
+    network:
+      egress: *egress
+    script: *script
+
+  floci:
+    description: >-
+      Runs TestFlociPlacement, which drives the EC2 driver's subnet and
+      instance placement and teardown against floci on localhost:4566.
+    environment:
+      packages:
+        - go-1.27~1.27
+        - bash
+        - curl
+        - git
+      services: [docker]
+      vars:
+        GOTOOLCHAIN: local
+        GOTMPDIR: /var/tmp
+        FLOCI_ENDPOINT: http://localhost:4566
+    trigger: [presubmit, postsubmit]
+    timeout: 15m
+    network:
+      egress:
+        - proxy.golang.org
+        - sum.golang.org
+        - storage.googleapis.com
+        # floci is on Docker Hub, which serves layers from a different CDN
+        # from one pull to the next.
+        - "*.docker.io"
+        - "*.docker.com"
+        - docker-images-prod.s3.dualstack.us-east-1.amazonaws.com
+        - docker-images-prod.6aa30f8b08e16409b46e0173d6de2f56.r2.cloudflarestorage.com
+    shell: bash
+    script: |
+      set -eu
+      docker run -d --name floci -p 4566:4566 \
+        -v /var/run/docker.sock:/var/run/docker.sock -u root \
+        floci/floci:latest@sha256:bec9b9f749322444a57fb0f00d3e007ffd49015162361aab84ccecd9b4f5f8ed
+      for _ in $(seq 1 30); do
+        curl -fsS http://localhost:4566/_floci/health >/dev/null 2>&1 && break
+        sleep 2
+      done
+      curl -fsS http://localhost:4566/_floci/health >/dev/null || { docker logs floci; exit 1; }
+      go test -tags floci -count 1 -v -run TestFlociPlacement ./internal/drivers/ec2/
