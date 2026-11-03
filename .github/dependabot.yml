@@ -25,3 +25,6 @@ updates:
           - "k8s.io/*"
     cooldown:
       default-days: 7
+      exclude:
+        - "chainguard.dev/apko"
+        - "golang.org/x/*"
