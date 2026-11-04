@@ -10,8 +10,9 @@ spec:
             issuer: https://accounts.google.com
           - issuer: https://accounts.google.com
             subject: workstation-work@chainguard-workstations.iam.gserviceaccount.com
+          # subjectRegExp is matched unanchored: without the trailing $, a longer look-alike domain would also match.
           - issuer: https://accounts.google.com
-            subjectRegExp: ".*-work-v2@chainguard-workstations\\.iam\\.gserviceaccount\\.com"
+            subjectRegExp: ".*-work-v2@chainguard-workstations\\.iam\\.gserviceaccount\\.com$"
       ctlog:
         url: https://rekor.sigstore.dev
     - key:
