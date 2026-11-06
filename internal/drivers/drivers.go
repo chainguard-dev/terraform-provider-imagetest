@@ -36,6 +36,18 @@ type Diagnoser interface {
 	Diagnose(ctx context.Context, w io.Writer) error
 }
 
+// Admitter is optionally implemented by drivers that wait their turn on a
+// shared resource, such as a host lock, before Setup can start. The
+// provider calls Admit before Setup under the resource context without its
+// deadline, then moves the tests resource deadline forward by the time
+// Admit took: the test clock starts once the driver holds what it waited
+// for, so a collision reads as a wait and never as a slow test. Admit
+// bounds its own wait and reports a passed bound with a typed error. A
+// Setup that runs without Admit must admit itself.
+type Admitter interface {
+	Admit(ctx context.Context) error
+}
+
 // LocalFiler is optionally implemented by drivers that create files on the
 // host whose removal is part of Teardown, such as a kubeconfig. After the
 // teardown step, whether it ran or was skipped, the provider reports the

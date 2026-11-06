@@ -204,6 +204,7 @@ type EC2ExistingInstanceResourceModel struct {
 
 type SSHDriverResourceModel struct {
 	LockPath      types.String                 `tfsdk:"lock_path"`
+	LockTimeout   types.String                 `tfsdk:"lock_timeout"`
 	Host          types.String                 `tfsdk:"host"`
 	SSHPort       types.Int64                  `tfsdk:"ssh_port"`
 	SSHUser       types.String                 `tfsdk:"ssh_user"`
@@ -761,6 +762,11 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		if err != nil {
 			return nil, fmt.Errorf("ssh: %w", err)
 		}
+		if v := cfg.LockTimeout.ValueString(); v != "" {
+			if driverCfg.LockTimeout, err = time.ParseDuration(v); err != nil {
+				return nil, fmt.Errorf("ssh: parsing lock_timeout %q: %w", v, err)
+			}
+		}
 
 		return sshdriver.NewDriver(driverCfg)
 
@@ -1094,6 +1100,7 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 		"Pulls send the caller's registry credentials to the daemon, or with `pull_ecr_with_host_credentials` the host pulls private ECR images with its own credentials. " +
 		"Every container it creates carries the per-run label `imagetest:test-name=<run>`, and the test container gets `IMAGETEST_RUN_LABEL` (the key) and `IMAGETEST_RUN` (the value) in its environment, so a test that starts containers through the Docker socket can pass `--label \"$IMAGETEST_RUN_LABEL=$IMAGETEST_RUN\"` and teardown removes them with the run. " +
 		"A failed first SSH connection is reported with a message starting `imagetest: ssh connection failed: `, so a caller can tell a connection that failed from a test that failed. " +
+		"With `lock_path`, the wait for the host lock runs before setup and does not count against the resource `timeout`. " +
 		"It creates no infrastructure and builds no cloud clients.",
 	Optional: true,
 	Attributes: map[string]schema.Attribute{
@@ -1162,13 +1169,19 @@ var driverResourceSchemaSSH = schema.SingleNestedAttribute{
 		},
 		"lock_path": schema.StringAttribute{
 			Description: "Path of a file on the host to take an exclusive `flock` on for the length of the run, so runs that share the host run one at a time. " +
-				"Setup holds it in an SSH session that stays open until teardown; the wait for a busy lock is bounded by `timeouts.setup` and recorded as the span event `ssh.lock.acquired`. " +
+				"The driver holds it in an SSH session that stays open until teardown. The wait for a busy lock runs before setup and outside the resource `timeout`, which starts once the lock is held; it is bounded by `lock_timeout` alone and recorded as the span event `ssh.lock.acquired`. " +
 				"The directory must let `ssh_user` create or open the file, and `flock` (util-linux) must be on the host. " +
 				"Every run on the host must set the same `lock_path`: while the lock is held, setup also removes every container left by an earlier run that held this lock (label `imagetest:lock` with this path, and the containers carrying that run's `imagetest:test-name`), since only the lock holder can have live containers. Runs on no lock or on another lock are left alone. " +
 				"The lock is released when the holder's SSH connection ends, but sshd only notices a guest that vanished once TCP keepalive gives up, about two hours with Linux defaults. " +
 				"Set `ClientAliveInterval 15` and `ClientAliveCountMax 4` in the host's sshd_config so a dead holder is dropped in about a minute; the driver answers the probes, so live runs are not affected. " +
 				"Must be an absolute path: a relative one resolves against each `ssh_user`'s home. " +
 				"Containers kept by `IMAGETEST_SKIP_TEARDOWN` or `IMAGETEST_SKIP_TEARDOWN_ON_FAILURE` are removed by the next locked run's stale sweep, so inspect them first.",
+			Optional: true,
+		},
+		"lock_timeout": schema.StringAttribute{
+			Description: "Maximum time to wait for `lock_path` to be free (default: 60m). " +
+				"A wait that passes it fails with a message starting `imagetest: ssh lock wait timed out: `, so a caller can tell a host that was busy from a test that failed. " +
+				"Ignored without `lock_path`.",
 			Optional: true,
 		},
 		"timeouts": driverTimeoutsSchema(),

@@ -41,10 +41,11 @@ type Lock struct {
 	done    chan error
 }
 
-// lockToken is the line the lock holder prints once flock returns. The
+// LockToken is the line the lock holder prints once flock returns. The
 // client reads stdout until it sees the line, so the wait for a busy lock
-// is measured on the host and not guessed.
-const lockToken = "imagetest-lock-held"
+// is measured on the host and not guessed. It is exported for tests that
+// play the holder.
+const LockToken = "imagetest-lock-held"
 
 // lockCommand returns the shell line that takes the lock on path and holds
 // it until stdin closes. flock(1) opens path, takes an exclusive lock and
@@ -53,7 +54,7 @@ const lockToken = "imagetest-lock-held"
 // session dying with its connection, ends cat and releases the lock.
 func lockCommand(path string) string {
 	return fmt.Sprintf("flock -x %s -c %s", shellquote.Join(path),
-		shellquote.Join("echo "+lockToken+"; exec cat"))
+		shellquote.Join("echo "+LockToken+"; exec cat"))
 }
 
 // AcquireLock takes an exclusive flock on LockPath over a new SSH
@@ -112,7 +113,7 @@ func (h *Host) AcquireLock(ctx context.Context) (*Lock, error) {
 		r := bufio.NewReader(stdout)
 		for {
 			line, err := r.ReadString('\n')
-			if strings.TrimSpace(line) == lockToken {
+			if strings.TrimSpace(line) == LockToken {
 				held <- nil
 				_, _ = io.Copy(io.Discard, r)
 				return

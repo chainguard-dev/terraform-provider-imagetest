@@ -8,9 +8,15 @@
 // broken local cloud profile cannot fail it. The host runs Docker, and the
 // driver talks to that daemon over an SSH tunnel.
 //
-// Lifecycle: Setup -> Run -> Teardown
+// Lifecycle: Admit -> Setup -> Run -> Teardown
 //
-// # Phase: Setup
+// # Phase: Admit
+//
+// Admit is the driver's turn on the host. The provider runs it before Setup
+// and outside the tests resource timeout, moving the resource deadline
+// forward by the time it took, so a run queued behind another reads as a
+// wait and never as a slow test. Setup runs it itself when the caller did
+// not.
 //
 //  1. Reads the private key and the known_hosts file. known_hosts is
 //     required: the host is reached by address, often over the internet,
@@ -32,20 +38,26 @@
 //  3. With lock_path set, takes an exclusive flock on that file in an SSH
 //     session that stays open until Teardown, so runs that share the host
 //     run one at a time. A failure of that connection is a
-//     *SSHConnectionError too. The wait is bounded by the setup timeout
-//     and is recorded as the span event ssh.lock.acquired. Then, since no other
-//     run on the same lock can have live containers while the lock is
-//     held, removes every container left by an earlier run that held this
-//     lock (label imagetest:lock): a guest that died mid-run never
-//     reached its own teardown. Runs on no lock or on another lock are
-//     left alone, so every run on a host must use the same lock_path. A
-//     container that will not go is logged and setup goes on. sshd notices
-//     a vanished guest only through keepalives, so the host should set
-//     ClientAliveInterval 15 and ClientAliveCountMax 4.
-//  4. Runs setup_commands, if any, in one session.
-//  5. Logs GPU and NVIDIA driver information if nvidia-smi is present.
+//     *SSHConnectionError too. The wait is bounded by lock_timeout (default 60m)
+//     and is recorded as the span event ssh.lock.acquired. A wait that
+//     passes the bound fails with a *LockTimeoutError whose message starts
+//     with LockTimeoutPrefix: another run held the host the whole time, so
+//     this is not a test failure either. sshd notices a vanished guest
+//     only through keepalives, so the host should set ClientAliveInterval
+//     15 and ClientAliveCountMax 4.
+//
+// # Phase: Setup
+//
+//  1. With lock_path set, removes every container left by an earlier run
+//     that held this lock (label imagetest:lock): a guest that died
+//     mid-run never reached its own teardown, and no other run on the
+//     same lock can have live containers while the lock is held. Runs on
+//     no lock or on another lock are left alone, so every run on a host
+//     must use the same lock_path.
+//  2. Runs setup_commands, if any, in one session.
+//  3. Logs GPU and NVIDIA driver information if nvidia-smi is present.
 //     This is non-fatal.
-//  6. Pulls the images under test (Config.PrePullImages, filled by the
+//  4. Pulls the images under test (Config.PrePullImages, filled by the
 //     provider from the resource's images map) into the host's Docker
 //     daemon. By default each pull carries the caller's registry
 //     credentials for that one request; the host never logs in and never
@@ -94,5 +106,6 @@ import "github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 
 var (
 	_ drivers.Tester    = (*driver)(nil)
+	_ drivers.Admitter  = (*driver)(nil)
 	_ drivers.Diagnoser = (*driver)(nil)
 )

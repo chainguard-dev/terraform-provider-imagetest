@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	issh "github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/sshhost/sshtest"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -27,134 +25,23 @@ func TestLockCommand(t *testing.T) {
 	}
 }
 
-// execHandler plays the lock holder for one exec request. It returns the
-// exit status; the channel is closed by the server afterwards.
-type execHandler func(cmd string, ch ssh.Channel) uint32
-
-// lockServer is an SSH server that accepts any key and answers exec
-// requests with handle. Host returns a Host that connects to it.
-type lockServer struct {
-	t       *testing.T
-	l       net.Listener
-	hostKey ssh.PublicKey
-	signer  ssh.Signer
-	handle  execHandler
-
-	mu   sync.Mutex
-	cmds []string
-}
-
-func newLockServer(t *testing.T, handle execHandler) *lockServer {
-	t.Helper()
-
-	hostPair, err := issh.NewED25519KeyPair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	hostSigner, err := hostPair.Private.ToSSH()
-	if err != nil {
-		t.Fatal(err)
-	}
-	userPair, err := issh.NewED25519KeyPair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	userSigner, err := userPair.Private.ToSSH()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = l.Close() })
-
-	s := &lockServer{t: t, l: l, hostKey: hostSigner.PublicKey(), signer: userSigner, handle: handle}
-	config := &ssh.ServerConfig{
-		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil },
-	}
-	config.AddHostKey(hostSigner)
-	go s.serve(config)
-	return s
-}
-
-func (s *lockServer) Host() *Host {
-	addr, ok := s.l.Addr().(*net.TCPAddr)
-	if !ok {
-		s.t.Fatalf("unexpected listener address %T", s.l.Addr())
-	}
+// lockHost returns a Host that connects to srv and locks the test path.
+func lockHost(srv *sshtest.Server) *Host {
 	return &Host{
 		Name:     "imagetest-ssh-test",
-		Addr:     "127.0.0.1",
-		Port:     int32(addr.Port),
+		Addr:     srv.Addr,
+		Port:     srv.Port,
 		User:     "test",
-		Signer:   s.signer,
-		HostKeys: []ssh.PublicKey{s.hostKey},
+		Signer:   srv.Signer,
+		HostKeys: []ssh.PublicKey{srv.HostKey},
 		LockPath: "/var/lock/imagetest/gpu",
-	}
-}
-
-// Commands returns the exec commands received so far.
-func (s *lockServer) Commands() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.cmds...)
-}
-
-func (s *lockServer) serve(config *ssh.ServerConfig) {
-	for {
-		c, err := s.l.Accept()
-		if err != nil {
-			return
-		}
-		go func() {
-			conn, chans, reqs, err := ssh.NewServerConn(c, config)
-			if err != nil {
-				return
-			}
-			defer conn.Close()
-			go ssh.DiscardRequests(reqs)
-			for newCh := range chans {
-				if newCh.ChannelType() != "session" {
-					_ = newCh.Reject(ssh.UnknownChannelType, "unknown channel type")
-					continue
-				}
-				ch, chReqs, err := newCh.Accept()
-				if err != nil {
-					return
-				}
-				go s.session(ch, chReqs)
-			}
-		}()
-	}
-}
-
-func (s *lockServer) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
-	defer ch.Close()
-	for req := range reqs {
-		if req.Type != "exec" {
-			_ = req.Reply(false, nil)
-			continue
-		}
-		// exec payload: uint32 length, then the command.
-		cmd := string(req.Payload[4:])
-		s.mu.Lock()
-		s.cmds = append(s.cmds, cmd)
-		s.mu.Unlock()
-		_ = req.Reply(true, nil)
-		status := s.handle(cmd, ch)
-		var payload [4]byte
-		payload[3] = byte(status)
-		_, _ = ch.SendRequest("exit-status", false, payload[:])
-		return
 	}
 }
 
 // holdUntilEOF is a lock holder that gets the lock at once: it prints the
 // token, then holds until stdin closes, like cat.
 func holdUntilEOF(_ string, ch ssh.Channel) uint32 {
-	_, _ = fmt.Fprintln(ch, lockToken)
+	_, _ = fmt.Fprintln(ch, LockToken)
 	_, _ = io.Copy(io.Discard, ch)
 	return 0
 }
@@ -164,12 +51,12 @@ func holdUntilEOF(_ string, ch ssh.Channel) uint32 {
 // ends the holder by closing its stdin.
 func TestAcquireLockAndRelease(t *testing.T) {
 	released := make(chan struct{})
-	srv := newLockServer(t, func(cmd string, ch ssh.Channel) uint32 {
+	srv := sshtest.New(t, func(cmd string, ch ssh.Channel) uint32 {
 		status := holdUntilEOF(cmd, ch)
 		close(released)
 		return status
 	})
-	h := srv.Host()
+	h := lockHost(srv)
 
 	lock, err := h.AcquireLock(t.Context())
 	if err != nil {
@@ -196,11 +83,11 @@ func TestAcquireLockAndRelease(t *testing.T) {
 // waited is measured, and that the wait ends with ctx.
 func TestAcquireLockWaits(t *testing.T) {
 	const busy = 300 * time.Millisecond
-	srv := newLockServer(t, func(cmd string, ch ssh.Channel) uint32 {
+	srv := sshtest.New(t, func(cmd string, ch ssh.Channel) uint32 {
 		time.Sleep(busy) // another holder has the lock
 		return holdUntilEOF(cmd, ch)
 	})
-	h := srv.Host()
+	h := lockHost(srv)
 
 	lock, err := h.AcquireLock(t.Context())
 	if err != nil {
@@ -224,11 +111,11 @@ func TestAcquireLockWaits(t *testing.T) {
 // taking the lock, such as when flock is not installed, is reported with
 // its stderr and exit status instead of being waited for.
 func TestAcquireLockHolderFails(t *testing.T) {
-	srv := newLockServer(t, func(_ string, ch ssh.Channel) uint32 {
+	srv := sshtest.New(t, func(_ string, ch ssh.Channel) uint32 {
 		_, _ = fmt.Fprintln(ch.Stderr(), "sh: 1: flock: not found")
 		return 127
 	})
-	h := srv.Host()
+	h := lockHost(srv)
 
 	_, err := h.AcquireLock(t.Context())
 	if err == nil {
