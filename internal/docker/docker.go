@@ -171,74 +171,19 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		})
 	}
 
-	// If a health check is present, set up a poller to poll on health status
-	unhealthyCh := make(chan error)
+	// A healthcheck verdict is buffered so the watcher can always deliver it
+	// and exit, even once Run has stopped listening and is waiting for it.
+	unhealthyCh := make(chan error, 1)
 	if req.HealthCheck != nil {
-		go func() {
-			var exitRaceRetries int
-			for {
-				time.Sleep(time.Second)
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					inspectResult, err := d.inner.ContainerInspect(ctx, cid, client.ContainerInspectOptions{})
-					if err != nil {
-						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
-						return
-					}
-					inspect := inspectResult.Container
-					if inspect.State == nil {
-						// No usable state yet, try again.
-						continue
-					}
-					if !inspect.State.Running {
-						// The container isn't running yet or anymore. Ignore health status.
-						continue
-					}
-
-					if inspect.State.Health == nil {
-						// No health info yet, try again.
-						continue
-					}
-					if inspect.State.Health.Status == container.Unhealthy {
-						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
-
-						// There is a race condition where the container can exit and the health
-						// check can report unhealthy because of it. Negative exit codes indicate
-						// the exec infrastructure failed (command never ran), which typically
-						// happens when the container is exiting. Similarly, the entrypoint tears
-						// down its health socket just before exiting, so a probe landing in that
-						// window fails to dial the socket while the container still reports
-						// Running. Give both a few iterations to resolve - if the container
-						// exited, we'll see !Running above and the main wait loop will handle
-						// the actual exit.
-						if check.ExitCode < 0 || strings.Contains(check.Output, "failed to connect to health socket") {
-							exitRaceRetries++
-							if exitRaceRetries < 5 {
-								continue
-							}
-						} else {
-							exitRaceRetries = 0
-						}
-
-						// Additional safety: skip known exec infrastructure error messages that
-						// can occur during the container exit race condition.
-						if strings.Contains(check.Output, "cannot exec in a stopped container") ||
-							strings.Contains(check.Output, "error executing setns process") ||
-							strings.Contains(check.Output, "procReady not received") {
-							continue
-						}
-
-						unhealthyCh <- &RunError{
-							ExitCode: int64(check.ExitCode),
-							Message:  check.Output,
-						}
-						return
-					}
-				}
+		var watchGrp sync.WaitGroup
+		defer watchGrp.Wait()
+		watchCtx, stopWatch := context.WithCancel(ctx)
+		defer stopWatch()
+		watchGrp.Go(func() {
+			if err := d.watchHealth(watchCtx, cid); err != nil {
+				unhealthyCh <- err
 			}
-		}()
+		})
 	}
 
 	select {
@@ -249,22 +194,108 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		return cid, fmt.Errorf("waiting for container to exit: %w", err)
 
 	case status := <-statusCh:
-		if status.Error != nil {
-			return cid, &RunError{
-				ExitCode: status.StatusCode,
-				Message:  status.Error.Message,
-			}
-		}
-
-		if status.StatusCode != 0 {
-			return cid, &RunError{ExitCode: status.StatusCode}
-		}
+		return cid, exitError(status)
 
 	case err := <-unhealthyCh:
+		// The container's own exit outcome takes precedence over a
+		// healthcheck verdict that raced with it.
+		select {
+		case status := <-statusCh:
+			return cid, exitError(status)
+		default:
+		}
 		return cid, fmt.Errorf("container marked unhealthy by healthcheck: %w", err)
 	}
+}
 
-	return cid, nil
+// inconclusiveFor bounds how long watchHealth tolerates inconclusive
+// evidence (an unhealthy streak without two consecutive probes that ran and
+// failed, or failed inspects) before reporting it. It must outlast the
+// daemon's lag in processing a container's exit, which includes tearing down
+// nested docker-in-docker containers and has been seen to take about 30s on
+// a slow node. The cost of a longer window is only slower detection of a
+// hung entrypoint, which is small against the default test timeout.
+const inconclusiveFor = 60 * time.Second
+
+// watchHealth polls the container's health until ctx is done or the
+// healthcheck has failed in a way the container exiting cannot explain, and
+// returns that failure.
+//
+// When PID 1 exits, the kernel kills the probe in flight, which the daemon
+// records as a failure. Until the daemon processes the exit, which waits for
+// every process in the container to be reaped, it keeps reporting the
+// container as running and keeps probing it, but those probes cannot start
+// and are recorded with a negative exit code. So once PID 1 has exited, the
+// killed probe is the only one that ran and failed. Hence an unhealthy
+// container is reported early only when its last two logged probes both ran
+// and failed (positive exit codes); any other unhealthy streak, such as
+// probes that could not run or timed out, is reported only once it has
+// lasted inconclusiveFor. Inspect errors are tolerated for the same window; a
+// daemon that is really gone also fails Run's wait.
+func (d *Client) watchHealth(ctx context.Context, cid string) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var inconclusiveSince, inspectFailingSince time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+
+		inspectResult, err := d.inner.ContainerInspect(ctx, cid, client.ContainerInspectOptions{})
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if inspectFailingSince.IsZero() {
+				inspectFailingSince = time.Now()
+			}
+			if time.Since(inspectFailingSince) < inconclusiveFor {
+				continue
+			}
+			return fmt.Errorf("inspecting container: %w", err)
+		}
+		inspectFailingSince = time.Time{}
+
+		state := inspectResult.Container.State
+		if state == nil || !state.Running || state.Health == nil ||
+			state.Health.Status != container.Unhealthy || len(state.Health.Log) == 0 {
+			inconclusiveSince = time.Time{}
+			continue
+		}
+
+		if inconclusiveSince.IsZero() {
+			inconclusiveSince = time.Now()
+		}
+		log := state.Health.Log
+		last := log[len(log)-1]
+		ranAndFailedTwice := last.ExitCode > 0 && len(log) >= 2 && log[len(log)-2].ExitCode > 0
+		if !ranAndFailedTwice && time.Since(inconclusiveSince) < inconclusiveFor {
+			continue
+		}
+
+		return &RunError{
+			ExitCode: int64(last.ExitCode),
+			Message:  last.Output,
+		}
+	}
+}
+
+// exitError converts a container wait result into an error, nil if the
+// container exited successfully.
+func exitError(status container.WaitResponse) error {
+	if status.Error != nil {
+		return &RunError{
+			ExitCode: status.StatusCode,
+			Message:  status.Error.Message,
+		}
+	}
+	if status.StatusCode != 0 {
+		return &RunError{ExitCode: status.StatusCode}
+	}
+	return nil
 }
 
 type RunError struct {
