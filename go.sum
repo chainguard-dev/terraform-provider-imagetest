@@ -1,11 +1,11 @@
-chainguard.dev/apko v1.4.17 h1:DoGCSSKhfyKuURNQV4Raf92Iwzuc0SkQSvduR1dnPQo=
-chainguard.dev/apko v1.4.17/go.mod h1:mKMA9u3nmLdy87atr2UHHgJ4fVZAYe1XLlFr4fwfbxQ=
+chainguard.dev/apko v1.4.18 h1:MKNLxULcS/0d90+gEq2emToToVS4tE9Ph6eh7KdkGL4=
+chainguard.dev/apko v1.4.18/go.mod h1:5xXGXtzZ6LIz/QapWh9P1FKyTeSz7uozgJXzbeojmOY=
 chainguard.dev/go-grpc-kit v0.20.0 h1:MDwZtTlUlMSMEPcoi9m8tnu4g+M88T1toUZ3Th/+0Gc=
 chainguard.dev/go-grpc-kit v0.20.0/go.mod h1:ocuwyRX9tqRRvJkS3/ZkDYGMnl+6FLC4bvF0cm6DGsk=
 chainguard.dev/go-oidctest v0.4.0 h1:B9YTfoa1WtsrEg0wnFeSP7i9tth0LO+GICm2j8HOgWI=
 chainguard.dev/go-oidctest v0.4.0/go.mod h1:IIic4S3je1I7Acy3bqPtaSPefGEsQDzUp7NJF35MPV4=
-chainguard.dev/sdk v0.1.448 h1:ykcDo6cXWopoOVrgyS7i/vfqLds10Pv0IV5dc8FQEIY=
-chainguard.dev/sdk v0.1.448/go.mod h1:d5UIR1Uz5eubnyvFffmR64oWEiKw/MWZ2mUSmy2vEOY=
+chainguard.dev/sdk v0.1.454 h1:UXC6I7pvX62kWTOoEXjD1IiV7gPmkCdg9WtUidjhipI=
+chainguard.dev/sdk v0.1.454/go.mod h1:d5UIR1Uz5eubnyvFffmR64oWEiKw/MWZ2mUSmy2vEOY=
 cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a h1:jW1ZLFy9oa5ai8LOI40z6s+DL1cO/L1KSm9hVGnibn8=
 cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a/go.mod h1:1dmBXa9xfBvBr39ZnDUDkaaA91ccq9CcqENDgJA4d7c=
 cloud.google.com/go/auth/oauth2adapt v0.3.0 h1:FY8oSZpCYoUNv6QxVODuMjQz4IlSOVeiQtZ08vLPz88=
@@ -186,8 +186,8 @@ github.com/go-git/go-git-fixtures/v4 v4.3.2-0.20231010084843-55a94097c399 h1:eMj
 github.com/go-git/go-git-fixtures/v4 v4.3.2-0.20231010084843-55a94097c399/go.mod h1:1OCfN199q1Jm3HZlxleg+Dw/mwps2Wbk9frAWm+4FII=
 github.com/go-git/go-git/v5 v5.19.3 h1:qHttbZ+Am7wEjdTpR1XMQ4rl42FK9SIXzZ4o9x7s6M4=
 github.com/go-git/go-git/v5 v5.19.3/go.mod h1:Ye4C8dVigkqrv9UsB4NMdSLV4yAIkLiIhW61gcOyhl4=
-github.com/go-jose/go-jose/v4 v4.1.7 h1:Nac/98uT5LPkfbiFuYa8ktf62a2VxwQ4xbq1GK8pV5E=
-github.com/go-jose/go-jose/v4 v4.1.7/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+github.com/go-jose/go-jose/v4 v4.1.8 h1:k38WifTutpGuqt6Imq9xW1OgCvnWFri0Nz7FnfiACM8=
+github.com/go-jose/go-jose/v4 v4.1.8/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/go-logfmt/logfmt v0.6.1 h1:4hvbpePJKnIzH1B+8OR/JPbTx37NktoI9LE2QZBBkvE=
 github.com/go-logfmt/logfmt v0.6.1/go.mod h1:EV2pOAQoZaT1ZXZbqDl5hrymndi4SY9ED9/z6CO0XAk=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
