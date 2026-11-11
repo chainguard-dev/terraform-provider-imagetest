@@ -16,7 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.343.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.6
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.114.0
-	github.com/aws/smithy-go v1.28.7
+	github.com/aws/smithy-go v1.28.8
 	github.com/chainguard-dev/clog v1.8.1
 	github.com/charmbracelet/log v1.0.0
 	github.com/containerd/errdefs v1.0.0
