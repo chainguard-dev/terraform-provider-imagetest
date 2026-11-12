@@ -52,10 +52,9 @@ type ProviderSandboxModel struct {
 }
 
 type ProviderTestExecutionModel struct {
-	SkipAll      types.Bool `tfsdk:"skip_all_tests"`
-	SkipTeardown types.Bool `tfsdk:"skip_teardown"`
-	Include      types.Map  `tfsdk:"include_by_label"`
-	Exclude      types.Map  `tfsdk:"exclude_by_label"`
+	SkipAll types.Bool `tfsdk:"skip_all_tests"`
+	Include types.Map  `tfsdk:"include_by_label"`
+	Exclude types.Map  `tfsdk:"exclude_by_label"`
 	// TODO: Global timeout, retry, etc
 }
 
@@ -80,24 +79,19 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
 					"skip_all_tests": schema.BoolAttribute{
-						Description:         "Skips all features and harnesses.",
-						MarkdownDescription: "Skips all features and harnesses. All tests can also be skipped by setting the environment variable `IMAGETEST_SKIP_ALL` to `true`.",
+						Description:         "Skips all `imagetest_test_docker_run` tests.",
+						MarkdownDescription: "Skips all `imagetest_test_docker_run` tests. Setting the environment variable `IMAGETEST_SKIP_ALL` to `true` skips these and all `imagetest_tests` tests.",
 						Optional:            true,
 					},
 					"include_by_label": schema.MapAttribute{
 						ElementType: types.StringType,
-						Description: "Run features with matching label values. Any tests which do not contain all of the provided labels will be skipped.",
+						Description: "Run tests with matching label values. Any tests which do not contain all of the provided labels will be skipped.",
 						Optional:    true,
 					},
 					"exclude_by_label": schema.MapAttribute{
 						ElementType: types.StringType,
-						Description: "Skip features with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.",
+						Description: "Skip tests with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.",
 						Optional:    true,
-					},
-					"skip_teardown": schema.BoolAttribute{
-						Description:         "Skips the teardown of test harnesses to allow debugging test failures",
-						MarkdownDescription: "Skips the teardown of test harnesses to allow debugging test failures. Harness teardown can also be skipped by setting the environment variable `IMAGETEST_SKIP_TEARDOWN` to `true`",
-						Optional:            true,
 					},
 				},
 			},
@@ -154,10 +148,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 		data.TestExecution.SkipAll = basetypes.NewBoolValue(true)
 	}
 
-	if v := os.Getenv("IMAGETEST_SKIP_TEARDOWN"); v != "" {
-		data.TestExecution.SkipTeardown = basetypes.NewBoolValue(true)
-	}
-
 	var repo name.Repository
 	if p.repo != "" {
 		r, err := name.NewRepository(p.repo)
@@ -201,7 +191,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	store.skipAll = data.TestExecution.SkipAll.ValueBool()
-	store.skipTeardown = data.TestExecution.SkipTeardown.ValueBool()
 	if diag := data.TestExecution.Include.ElementsAs(ctx, &store.includeTests, true); diag.HasError() {
 		resp.Diagnostics.Append(diag...)
 		return

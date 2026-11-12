@@ -76,7 +76,6 @@ Optional:
 
 Optional:
 
-- `exclude_by_label` (Map of String) Skip features with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.
-- `include_by_label` (Map of String) Run features with matching label values. Any tests which do not contain all of the provided labels will be skipped.
-- `skip_all_tests` (Boolean) Skips all features and harnesses. All tests can also be skipped by setting the environment variable `IMAGETEST_SKIP_ALL` to `true`.
-- `skip_teardown` (Boolean) Skips the teardown of test harnesses to allow debugging test failures. Harness teardown can also be skipped by setting the environment variable `IMAGETEST_SKIP_TEARDOWN` to `true`
+- `exclude_by_label` (Map of String) Skip tests with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.
+- `include_by_label` (Map of String) Run tests with matching label values. Any tests which do not contain all of the provided labels will be skipped.
+- `skip_all_tests` (Boolean) Skips all `imagetest_test_docker_run` tests. Setting the environment variable `IMAGETEST_SKIP_ALL` to `true` skips these and all `imagetest_tests` tests.

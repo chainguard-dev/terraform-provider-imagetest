@@ -3,7 +3,6 @@ terraform {
     apko      = { source = "chainguard-dev/apko" }
     imagetest = { source = "chainguard-dev/imagetest" }
     oci       = { source = "chainguard-dev/oci" }
-    random    = { source = "hashicorp/random" }
   }
 
   backend "inmem" {}
@@ -12,9 +11,9 @@ terraform {
 variable "target_repository" {
   description = <<-EOT
     Writable registry path used both by the imagetest provider itself (to push
-    its entrypoint/harness bundle) and by fixtures that push sandbox images
-    via bash-sandbox + docker-in-docker (busybox, go, maven, python, ruby,
-    curl, redis). Set to a localhost:5000 sidecar registry in CI, or
+    its entrypoint bundle) and by fixtures that push sandbox images via
+    bash-sandbox + docker-in-docker (busybox, go, jre, maven, nginx, python,
+    ruby, curl, redis). Set to a localhost:5000 sidecar registry in CI, or
     ttl.sh/<unique> for ad-hoc local runs.
   EOT
   type        = string
@@ -42,8 +41,7 @@ provider "apko" {
 
 locals {
   # Tag-pinned refs to the currently-published images on cgr.dev. The
-  # oci_exec_test data source used by some fixtures (wolfi-base, nginx)
-  # requires a digest-pinned ref, so each tag is resolved via `crane digest`
+  # oci_exec_test data source used by the wolfi-base fixture requires a digest-pinned ref, so each tag is resolved via `crane digest`
   # in the external data source below.
   image_tags = {
     jre        = "cgr.dev/chainguard/jre:latest"

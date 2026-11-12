@@ -24,7 +24,6 @@ import (
 // shared external state.
 type ProviderStore struct {
 	// test execution configuration
-	skipTeardown bool
 	skipAll      bool
 	includeTests map[string]string
 	excludeTests map[string]string
@@ -86,11 +85,6 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 	// truncate it to some reasonable length, knowing these will mostly be used
 	// as suffixes and prefixes and conflict is unlikely
 	return hashint.Text(36)[:5], nil
-}
-
-// SkipTeardown returns true if harnesses should skip teardown steps.
-func (s *ProviderStore) SkipTeardown() bool {
-	return s.skipTeardown
 }
 
 func getEntrypointLayers(opts ...remote.Option) (map[string][]v1.Layer, error) {
