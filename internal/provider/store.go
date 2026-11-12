@@ -2,7 +2,6 @@ package provider
 
 import (
 	"archive/tar"
-	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -11,12 +10,8 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 
-	"github.com/chainguard-dev/clog"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
-	"github.com/chainguard-dev/terraform-provider-imagetest/internal/inventory"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -28,11 +23,6 @@ import (
 // uses this to look up the defined relationships between resources, and manage
 // shared external state.
 type ProviderStore struct {
-	// harnesses stores a map of the available harnesses, keyed by their ID. This
-	// is used for passing harness implementations between the providers various
-	// resources.
-	harnesses *mmap[string, harness.Harness]
-	inv       *mmap[string, *inventory.Inventory]
 	// test execution configuration
 	skipTeardown bool
 	skipAll      bool
@@ -74,16 +64,8 @@ func NewProviderStore(repo name.Repository) (*ProviderStore, error) {
 	}
 
 	return &ProviderStore{
-		inv: &mmap[string, *inventory.Inventory]{
-			store: make(map[string]*inventory.Inventory),
-			mu:    sync.Mutex{},
-		},
-		excludeTests: make(map[string]string),
-		includeTests: make(map[string]string),
-		harnesses: &mmap[string, harness.Harness]{
-			store: make(map[string]harness.Harness),
-			mu:    sync.Mutex{},
-		},
+		excludeTests:     make(map[string]string),
+		includeTests:     make(map[string]string),
 		repo:             repo,
 		ropts:            ropts,
 		entrypointLayers: el,
@@ -104,13 +86,6 @@ func (s *ProviderStore) Encode(components ...string) (string, error) {
 	// truncate it to some reasonable length, knowing these will mostly be used
 	// as suffixes and prefixes and conflict is unlikely
 	return hashint.Text(36)[:5], nil
-}
-
-// Logger initializes the context logger for the given inventory.
-func (s *ProviderStore) Logger(ctx context.Context, inv InventoryDataSourceModel, withs ...any) (context.Context, error) {
-	logger := clog.FromContext(ctx).With(withs...)
-	ctx = clog.WithLogger(ctx, logger)
-	return ctx, nil
 }
 
 // SkipTeardown returns true if harnesses should skip teardown steps.
@@ -245,29 +220,4 @@ func entrypointPathAllowed(p string) bool {
 	}
 
 	return false
-}
-
-// mmap is a generic thread-safe map implementation.
-type mmap[K comparable, V any] struct {
-	mu    sync.Mutex
-	store map[K]V
-}
-
-func (m *mmap[K, V]) Set(key K, value V) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.store[key] = value
-}
-
-func (m *mmap[K, V]) Get(key K) (V, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	v, ok := m.store[key]
-	return v, ok
-}
-
-func (m *mmap[K, V]) Delete(key K) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.store, key)
 }

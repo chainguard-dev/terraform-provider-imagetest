@@ -8,6 +8,7 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/provider/framework"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/skip"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -257,4 +258,19 @@ func (r *TestDockerRunResource) Update(ctx context.Context, req resource.UpdateR
 	if resp.Diagnostics.HasError() {
 		return
 	}
+}
+
+type ContainerMountModel struct {
+	Source      types.String `tfsdk:"source"`
+	Destination types.String `tfsdk:"destination"`
+	ReadOnly    types.Bool   `tfsdk:"read_only"`
+}
+
+// skippedValue returns the value for the computed 'skipped' field.
+func skippedValue(s *ProviderStore, labels map[string]string) string {
+	if s.skipAll {
+		return "Provider is configured to skip all tests"
+	}
+	_, reason := skip.Skip(labels, s.includeTests, s.excludeTests)
+	return reason
 }

@@ -1,5 +1,9 @@
 # `imagetest` Design
 
+> **Note:** The `imagetest_inventory`, `imagetest_harness_*`, `imagetest_feature` and
+> `imagetest_container_volume` resources described below have been removed. Tests
+> use the `imagetest_tests` resource and its drivers instead.
+
 This doc outlines in more detail the user facing design of the provider, and
 how that translates to the decisions made on the backend. It is not meant to be
 a complete architectural design doc.

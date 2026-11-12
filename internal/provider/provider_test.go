@@ -10,33 +10,14 @@ import (
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	v1 "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/network"
 )
-
-// testAccProtoV6ProviderFactories are used to instantiate a provider during
-// acceptance testing. The factory function will be invoked for every Terraform
-// CLI command executed to create a provider server to which the CLI can
-// reattach.
-var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	// "imagetest": providerserver.NewProtocol6WithError(New("test")()),
-	"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{}),
-}
 
 func testAccPreCheck(t *testing.T) {
 	// You can add code here to run prior to any test case execution, for example assertions
 	// about the appropriate environment variables being set are common to see in a pre-check
 	// function.
-}
-
-func testProviderWithRegistry(t *testing.T, ctx context.Context) map[string]func() (tfprotov6.ProviderServer, error) {
-	return map[string]func() (tfprotov6.ProviderServer, error){
-		"imagetest": providerserver.NewProtocol6WithError(&ImageTestProvider{
-			repo: testRegistry(t, ctx),
-		}),
-	}
 }
 
 func testRegistry(t *testing.T, ctx context.Context) string {
