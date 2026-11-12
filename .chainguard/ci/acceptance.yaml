@@ -62,7 +62,7 @@ checks:
       set -eu
       IMAGETEST_ENTRYPOINT_REF=$(KO_DOCKER_REPO=localhost:5005/imagetest ko build --base-import-paths ./cmd/entrypoint)
       export IMAGETEST_ENTRYPOINT_REF
-      go test -v -cover ./internal/o11y/ ./internal/provider/ ./internal/drivers/... ./internal/sshhost/ ./internal/harness/pterraform/
+      go test -v -cover ./internal/o11y/ ./internal/provider/ ./internal/drivers/... ./internal/sshhost/
 
   acceptance-1-15:
     description: *description

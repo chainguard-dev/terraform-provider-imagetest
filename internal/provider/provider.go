@@ -33,32 +33,16 @@ type ImageTestProvider struct {
 
 // ImageTestProviderModel describes the provider data model.
 type ImageTestProviderModel struct {
-	Harnesses     *ImageTestProviderHarnessModel `tfsdk:"harnesses"`
-	TestExecution *ProviderTestExecutionModel    `tfsdk:"test_execution"`
-	Repo          types.String                   `tfsdk:"repo"`
-	ExtraRepos    []string                       `tfsdk:"extra_repos"`
-	Sandbox       *ProviderSandboxModel          `tfsdk:"sandbox"`
-	Logs          *ProviderLogsModel             `tfsdk:"logs"`
+	TestExecution *ProviderTestExecutionModel `tfsdk:"test_execution"`
+	Repo          types.String                `tfsdk:"repo"`
+	ExtraRepos    []string                    `tfsdk:"extra_repos"`
+	Sandbox       *ProviderSandboxModel       `tfsdk:"sandbox"`
+	Logs          *ProviderLogsModel          `tfsdk:"logs"`
 }
 
 // ProviderLogsModel describes the logs configuration.
 type ProviderLogsModel struct {
 	Directory types.String `tfsdk:"directory"`
-}
-
-type ImageTestProviderHarnessModel struct {
-	K3s     *ProviderHarnessK3sModel     `tfsdk:"k3s"`
-	Docker  *ProviderHarnessDockerModel  `tfsdk:"docker"`
-	Cluster *ProviderHarnessClusterModel `tfsdk:"cluster"`
-}
-
-type ProviderHarnessK3sModel struct {
-	Networks   map[string]ContainerNetworkModel `tfsdk:"networks"`
-	Registries map[string]RegistryResourceModel `tfsdk:"registries"`
-}
-
-type ProviderHarnessClusterModel struct {
-	Kubeconfig *string `tfsdk:"kubeconfig"`
 }
 
 type ProviderSandboxModel struct {
@@ -67,19 +51,10 @@ type ProviderSandboxModel struct {
 	ExtraPackages []string `tfsdk:"extra_packages"`
 }
 
-type ProviderHarnessDockerModel struct {
-	HostSocketPath *string                                `tfsdk:"host_socket_path"`
-	Networks       map[string]ContainerNetworkModel       `tfsdk:"networks"`
-	Envs           *HarnessContainerEnvs                  `tfsdk:"envs"`
-	Mounts         []ContainerMountModel                  `tfsdk:"mounts"`
-	Registries     map[string]DockerRegistryResourceModel `tfsdk:"registries"`
-}
-
 type ProviderTestExecutionModel struct {
-	SkipAll      types.Bool `tfsdk:"skip_all_tests"`
-	SkipTeardown types.Bool `tfsdk:"skip_teardown"`
-	Include      types.Map  `tfsdk:"include_by_label"`
-	Exclude      types.Map  `tfsdk:"exclude_by_label"`
+	SkipAll types.Bool `tfsdk:"skip_all_tests"`
+	Include types.Map  `tfsdk:"include_by_label"`
+	Exclude types.Map  `tfsdk:"exclude_by_label"`
 	// TODO: Global timeout, retry, etc
 }
 
@@ -104,24 +79,19 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
 					"skip_all_tests": schema.BoolAttribute{
-						Description:         "Skips all features and harnesses.",
-						MarkdownDescription: "Skips all features and harnesses. All tests can also be skipped by setting the environment variable `IMAGETEST_SKIP_ALL` to `true`.",
+						Description:         "Skips all `imagetest_test_docker_run` tests.",
+						MarkdownDescription: "Skips all `imagetest_test_docker_run` tests. Setting the environment variable `IMAGETEST_SKIP_ALL` to `true` skips these and all `imagetest_tests` tests.",
 						Optional:            true,
 					},
 					"include_by_label": schema.MapAttribute{
 						ElementType: types.StringType,
-						Description: "Run features with matching label values. Any tests which do not contain all of the provided labels will be skipped.",
+						Description: "Run tests with matching label values. Any tests which do not contain all of the provided labels will be skipped.",
 						Optional:    true,
 					},
 					"exclude_by_label": schema.MapAttribute{
 						ElementType: types.StringType,
-						Description: "Skip features with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.",
+						Description: "Skip tests with matching label values. If `include_by_label` is present, the set of included tests are evaluated for skipping.",
 						Optional:    true,
-					},
-					"skip_teardown": schema.BoolAttribute{
-						Description:         "Skips the teardown of test harnesses to allow debugging test failures",
-						MarkdownDescription: "Skips the teardown of test harnesses to allow debugging test failures. Harness teardown can also be skipped by setting the environment variable `IMAGETEST_SKIP_TEARDOWN` to `true`",
-						Optional:            true,
 					},
 				},
 			},
@@ -156,149 +126,6 @@ func (p *ImageTestProvider) Schema(ctx context.Context, req provider.SchemaReque
 					},
 				},
 			},
-			"harnesses": schema.SingleNestedAttribute{
-				Optional: true,
-				Attributes: map[string]schema.Attribute{
-					"k3s": schema.SingleNestedAttribute{
-						Optional: true,
-						Attributes: map[string]schema.Attribute{
-							"networks": schema.MapNestedAttribute{
-								Description: "A map of existing networks to attach the harness containers to.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"name": schema.StringAttribute{
-											Description: "The name of the existing network to attach the harness containers to.",
-											Required:    true,
-										},
-									},
-								},
-							},
-							"registries": schema.MapNestedAttribute{
-								Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"auth": schema.SingleNestedAttribute{
-											Optional: true,
-											Attributes: map[string]schema.Attribute{
-												"username": schema.StringAttribute{
-													Optional: true,
-												},
-												"password": schema.StringAttribute{
-													Optional:  true,
-													Sensitive: true,
-												},
-												"auth": schema.StringAttribute{
-													Optional: true,
-												},
-											},
-										},
-										"tls": schema.SingleNestedAttribute{
-											Optional: true,
-											Attributes: map[string]schema.Attribute{
-												"cert_file": schema.StringAttribute{
-													Optional: true,
-												},
-												"key_file": schema.StringAttribute{
-													Optional: true,
-												},
-												"ca_file": schema.StringAttribute{
-													Optional: true,
-												},
-											},
-										},
-										"mirror": schema.SingleNestedAttribute{
-											Optional: true,
-											Attributes: map[string]schema.Attribute{
-												"endpoints": schema.ListAttribute{
-													ElementType: basetypes.StringType{},
-													Optional:    true,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					"docker": schema.SingleNestedAttribute{
-						Optional: true,
-						Attributes: map[string]schema.Attribute{
-							"host_socket_path": schema.StringAttribute{
-								Required:    false,
-								Optional:    true,
-								Description: "The Docker host socket path.",
-							},
-							"envs": schema.MapAttribute{
-								Description: "Environment variables to set on the container.",
-								Optional:    true,
-								ElementType: types.StringType,
-							},
-							"networks": schema.MapNestedAttribute{
-								Description: "A map of existing networks to attach the container to.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"name": schema.StringAttribute{
-											Description: "The name of the existing network to attach the container to.",
-											Required:    true,
-										},
-									},
-								},
-							},
-							"mounts": schema.ListNestedAttribute{
-								Description: "The list of mounts to create on the container.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"source": schema.StringAttribute{
-											Description: "The relative or absolute path on the host to the source directory to mount.",
-											Required:    true,
-										},
-										"destination": schema.StringAttribute{
-											Description: "The absolute path on the container to mount the source directory to.",
-											Required:    true,
-										},
-									},
-								},
-							},
-							"registries": schema.MapNestedAttribute{
-								Description: "A map of registries containing configuration for optional auth, tls, and mirror configuration.",
-								Optional:    true,
-								NestedObject: schema.NestedAttributeObject{
-									Attributes: map[string]schema.Attribute{
-										"auth": schema.SingleNestedAttribute{
-											Optional: true,
-											Attributes: map[string]schema.Attribute{
-												"username": schema.StringAttribute{
-													Optional: true,
-												},
-												"password": schema.StringAttribute{
-													Optional:  true,
-													Sensitive: true,
-												},
-												"auth": schema.StringAttribute{
-													Optional: true,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					"cluster": schema.SingleNestedAttribute{
-						Optional: true,
-						Attributes: map[string]schema.Attribute{
-							"kubeconfig": schema.StringAttribute{
-								Description: "The relative or absolute path on the host to the source directory to mount.",
-								Required:    true,
-							},
-						},
-					},
-				},
-			},
 		},
 	}
 }
@@ -319,10 +146,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 
 	if v := os.Getenv("IMAGETEST_SKIP_ALL"); v != "" {
 		data.TestExecution.SkipAll = basetypes.NewBoolValue(true)
-	}
-
-	if v := os.Getenv("IMAGETEST_SKIP_TEARDOWN"); v != "" {
-		data.TestExecution.SkipTeardown = basetypes.NewBoolValue(true)
 	}
 
 	var repo name.Repository
@@ -368,7 +191,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	store.skipAll = data.TestExecution.SkipAll.ValueBool()
-	store.skipTeardown = data.TestExecution.SkipTeardown.ValueBool()
 	if diag := data.TestExecution.Include.ElementsAs(ctx, &store.includeTests, true); diag.HasError() {
 		resp.Diagnostics.Append(diag...)
 		return
@@ -398,12 +220,6 @@ func (p *ImageTestProvider) Configure(ctx context.Context, req provider.Configur
 
 func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewFeatureResource,
-		NewContainerVolumeResource,
-		// Harnesses
-		NewHarnessK3sResource,
-		NewHarnessDockerResource,
-		NewHarnessPterraformResource,
 		// Tests
 		NewTestDockerRunResource,
 
@@ -416,9 +232,7 @@ func (p *ImageTestProvider) Resources(_ context.Context) []func() resource.Resou
 }
 
 func (p *ImageTestProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{
-		NewInventoryDataSource,
-	}
+	return []func() datasource.DataSource{}
 }
 
 func New(version string) func() provider.Provider {

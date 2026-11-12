@@ -9,22 +9,12 @@ import (
 	"sync"
 )
 
-type Harness interface {
-	Create(context.Context) error
-	Destroy(context.Context) error
-	Run(context.Context, Command) error
-}
-
 type Command struct {
 	Args       string
 	WorkingDir string
 	Env        map[string]string
 	Stdout     io.Writer
 	Stderr     io.Writer
-}
-
-func DefaultEntrypoint() []string {
-	return []string{"/bin/sh", "-c"}
 }
 
 type RunError struct {
