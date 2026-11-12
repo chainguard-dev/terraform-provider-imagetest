@@ -73,13 +73,15 @@ locals {
 }
 
 module "jre" {
-  source = "./images/jre/tests"
-  digest = local.resolved["jre"]
+  source            = "./images/jre/tests"
+  digest            = local.resolved["jre"]
+  target_repository = var.target_repository
 }
 
 module "nginx" {
-  source = "./images/nginx/tests"
-  digest = local.resolved["nginx"]
+  source            = "./images/nginx/tests"
+  digest            = local.resolved["nginx"]
+  target_repository = var.target_repository
 }
 
 module "wolfi-base" {
