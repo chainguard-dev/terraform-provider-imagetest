@@ -95,15 +95,16 @@ type AKSAttachedACR struct {
 }
 
 type K3sInDockerDriverResourceModel struct {
-	Image         types.String                                         `tfsdk:"image"`
-	Cni           types.Bool                                           `tfsdk:"cni"`
-	NetworkPolicy types.Bool                                           `tfsdk:"network_policy"`
-	Traefik       types.Bool                                           `tfsdk:"traefik"`
-	MetricsServer types.Bool                                           `tfsdk:"metrics_server"`
-	Registries    map[string]*K3sInDockerDriverRegistriesResourceModel `tfsdk:"registries"`
-	Snapshotter   types.String                                         `tfsdk:"snapshotter"`
-	Hooks         *K3sInDockerDriverHooksModel                         `tfsdk:"hooks"`
-	Timeouts      *DriverTimeoutsResourceModel                         `tfsdk:"timeouts"`
+	Image           types.String                                         `tfsdk:"image"`
+	Cni             types.Bool                                           `tfsdk:"cni"`
+	NetworkPolicy   types.Bool                                           `tfsdk:"network_policy"`
+	Traefik         types.Bool                                           `tfsdk:"traefik"`
+	MetricsServer   types.Bool                                           `tfsdk:"metrics_server"`
+	CloudController types.Bool                                           `tfsdk:"cloud_controller"`
+	Registries      map[string]*K3sInDockerDriverRegistriesResourceModel `tfsdk:"registries"`
+	Snapshotter     types.String                                         `tfsdk:"snapshotter"`
+	Hooks           *K3sInDockerDriverHooksModel                         `tfsdk:"hooks"`
+	Timeouts        *DriverTimeoutsResourceModel                         `tfsdk:"timeouts"`
 }
 
 type K3sInDockerDriverRegistriesResourceModel struct {
@@ -378,6 +379,11 @@ func (t TestsResource) LoadDriver(ctx context.Context, data *TestsResourceModel)
 
 		if cfg.MetricsServer.ValueBool() {
 			opts = append(opts, k3sindocker.WithMetricsServer(true))
+		}
+
+		// The cloud controller is on by default, so only an explicit value changes it.
+		if !cfg.CloudController.IsNull() {
+			opts = append(opts, k3sindocker.WithCloudController(cfg.CloudController.ValueBool()))
 		}
 
 		if cfg.Snapshotter.ValueString() != "" {
@@ -960,6 +966,10 @@ func DriverResourceSchema(ctx context.Context) schema.SingleNestedAttribute {
 					},
 					"metrics_server": schema.BoolAttribute{
 						Description: "Enable the metrics server",
+						Optional:    true,
+					},
+					"cloud_controller": schema.BoolAttribute{
+						Description: "Enable the embedded k3s cloud controller manager. Defaults to true. Set to false to run a cloud controller manager of your own.",
 						Optional:    true,
 					},
 					"snapshotter": schema.StringAttribute{

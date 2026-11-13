@@ -36,16 +36,17 @@ import (
 // driver is a k8s driver that spins up a k3s cluster in docker alongside a
 // network attached sandbox.
 type driver struct {
-	ImageRef      name.Reference // The image reference to use for the k3s cluster
-	CNI           bool           // Toggles whether the default k3s CNI is enabled
-	Traefik       bool           // Toggles whether the default k3s traefik ingress controller is enabled
-	MetricsServer bool           // Toggles whether the default k3s metrics server is enabled
-	NetworkPolicy bool           // Toggles whether the default k3s network policy controller is enabled
-	Snapshotter   string         // The containerd snapshotter to use
-	Registries    map[string]*K3sRegistryConfig
-	Namespace     string            // The namespace to use for the test pods
-	Hooks         *K3sHooks         // Run commands at various lifecycle events
-	SandboxEnvs   map[string]string // Additional environment variables to set in the sandbox
+	ImageRef        name.Reference // The image reference to use for the k3s cluster
+	CNI             bool           // Toggles whether the default k3s CNI is enabled
+	Traefik         bool           // Toggles whether the default k3s traefik ingress controller is enabled
+	MetricsServer   bool           // Toggles whether the default k3s metrics server is enabled
+	NetworkPolicy   bool           // Toggles whether the default k3s network policy controller is enabled
+	CloudController bool           // Toggles whether the embedded k3s cloud controller manager is enabled
+	Snapshotter     string         // The containerd snapshotter to use
+	Registries      map[string]*K3sRegistryConfig
+	Namespace       string            // The namespace to use for the test pods
+	Hooks           *K3sHooks         // Run commands at various lifecycle events
+	SandboxEnvs     map[string]string // Additional environment variables to set in the sandbox
 
 	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host, and removed on Teardown
 
@@ -77,12 +78,13 @@ type K3sHooks struct {
 
 func NewDriver(n string, opts ...DriverOpts) (drivers.Tester, error) {
 	k := &driver{
-		ImageRef:      name.MustParseReference("cgr.dev/chainguard/k3s:latest-dev"),
-		CNI:           true,
-		Traefik:       false,
-		MetricsServer: false,
-		NetworkPolicy: false,
-		Namespace:     "imagetest",
+		ImageRef:        name.MustParseReference("cgr.dev/chainguard/k3s:latest-dev"),
+		CNI:             true,
+		Traefik:         false,
+		MetricsServer:   false,
+		NetworkPolicy:   false,
+		CloudController: true,
+		Namespace:       "imagetest",
 
 		name:  n,
 		stack: harness.NewStack(),
@@ -166,6 +168,9 @@ disable:
 {{- end }}
 {{- if not .CNI }}
 flannel-backend: none
+{{- end }}
+{{- if not .CloudController }}
+disable-cloud-controller: true
 {{- end }}
 snapshotter: "{{ .Snapshotter }}"
 `, k.name)

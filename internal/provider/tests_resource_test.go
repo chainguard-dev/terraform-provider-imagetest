@@ -152,6 +152,38 @@ resource "imagetest_tests" "foo" {
         `, "k3s-in-docker-hooks.sh"),
 			},
 		},
+		"k3sindocker-no-cloud-controller": {
+			{
+				Config: fmt.Sprintf(`
+resource "imagetest_tests" "foo" {
+  name   = "%[1]s"
+  driver = "k3s_in_docker"
+
+  drivers = {
+    k3s_in_docker = {
+      cloud_controller = false
+    }
+  }
+
+  images = {
+    foo = "cgr.dev/chainguard/busybox:latest@sha256:c546e746013d75c1fc9bf01b7a645ce7caa1ec46c45cb618c6e28d7b57bccc85"
+  }
+
+  tests = [
+    {
+      name    = "sample"
+      image   = "cgr.dev/chainguard/kubectl:latest-dev"
+      content = [{ source = "${path.module}/testdata/TestAccTestsResource" }]
+      cmd     = "./%[1]s"
+    }
+  ]
+
+  // Something before GHA timeouts
+  timeout = "5m"
+}
+        `, "k3s-in-docker-no-cloud-controller.sh"),
+			},
+		},
 
 		"dockerindocker-basic": {{Config: fmt.Sprintf(dockerindockerTpl, "docker-in-docker-basic.sh")}},
 		"dockerindocker-fails-message": {
