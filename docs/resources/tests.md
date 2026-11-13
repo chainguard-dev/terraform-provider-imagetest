@@ -245,6 +245,7 @@ Optional:
 
 Optional:
 
+- `cloud_controller` (Boolean) Enable the embedded k3s cloud controller manager. Defaults to true. Set to false to run a cloud controller manager of your own.
 - `cni` (Boolean) Enable the CNI plugin
 - `hooks` (Attributes) Run commands at various lifecycle events (see [below for nested schema](#nestedatt--drivers--k3s_in_docker--hooks))
 - `image` (String) The image reference to use for the k3s_in_docker driver

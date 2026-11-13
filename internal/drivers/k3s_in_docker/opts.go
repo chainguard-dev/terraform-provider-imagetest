@@ -50,6 +50,13 @@ func WithNetworkPolicy(enabled bool) DriverOpts {
 	}
 }
 
+func WithCloudController(enabled bool) DriverOpts {
+	return func(k *driver) error {
+		k.CloudController = enabled
+		return nil
+	}
+}
+
 func WithSnapshotter(snapshotter string) DriverOpts {
 	return func(k *driver) error {
 		k.Snapshotter = snapshotter
