@@ -44,9 +44,8 @@ type driver struct {
 	CloudController bool           // Toggles whether the embedded k3s cloud controller manager is enabled
 	Snapshotter     string         // The containerd snapshotter to use
 	Registries      map[string]*K3sRegistryConfig
-	Namespace       string            // The namespace to use for the test pods
-	Hooks           *K3sHooks         // Run commands at various lifecycle events
-	SandboxEnvs     map[string]string // Additional environment variables to set in the sandbox
+	Namespace       string    // The namespace to use for the test pods
+	Hooks           *K3sHooks // Run commands at various lifecycle events
 
 	kubeconfigWritePath string // When set, the generated kubeconfig will be written to this path on the host, and removed on Teardown
 
@@ -441,7 +440,6 @@ func (k *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 		pod.WithExtraEnvs(map[string]string{
 			"IMAGETEST_DRIVER": "k3s_in_docker",
 		}),
-		pod.WithExtraEnvs(k.SandboxEnvs),
 		pod.WithRegistryStaticAuth(dcfg),
 	)
 }

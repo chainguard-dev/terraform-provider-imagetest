@@ -228,25 +228,6 @@ var (
 	ErrStdStreamClose  = fmt.Errorf("encountered error closing standard stream")
 )
 
-// Exec executes a single command, directing standard out+error to the provided
-// 'io.Writer's.
-func Exec(client *ssh.Client, cmd string, stdout, stderr io.Writer) error {
-	// Init an SSH session.
-	session, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSessionInit, err)
-	}
-	defer session.Close()
-	// Wire up standard streams.
-	session.Stdout = stdout
-	session.Stderr = stderr
-	// Execute the provided command.
-	if err = session.Run(cmd); err != nil {
-		return fmt.Errorf("%w: %w", ErrCMDExec, err)
-	}
-	return nil
-}
-
 // ExecIn executes all provided commands within the provided 'shell'.
 func ExecIn(client *ssh.Client, shell Shell, stdout, stderr io.Writer, cmds ...string) error {
 	cmd := "/usr/bin/env " + shell

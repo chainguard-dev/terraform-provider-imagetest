@@ -1,8 +1,6 @@
 package dockerindocker
 
 import (
-	"maps"
-
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -80,16 +78,6 @@ func WithExtraHosts(hosts ...string) DriverOpts {
 			d.ExtraHosts = make([]string, 0)
 		}
 		d.ExtraHosts = append(d.ExtraHosts, hosts...)
-		return nil
-	}
-}
-
-func WithExtraEnvs(envs map[string]string) DriverOpts {
-	return func(d *driver) error {
-		if d.Envs == nil {
-			d.Envs = make(map[string]string)
-		}
-		maps.Copy(d.Envs, envs)
 		return nil
 	}
 }

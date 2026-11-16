@@ -41,7 +41,6 @@ var defaultSSHArgs = []string{"-o", "StrictHostKeyChecking=no"}
 
 type Client struct {
 	inner     *client.Client
-	copts     []client.Opt
 	sshConfig *sshhelper.Spec
 }
 
@@ -81,54 +80,43 @@ type ResourcesRequest struct {
 	MemoryLimit   resource.Quantity
 }
 
-func New(opts ...Option) (*Client, error) {
-	d := &Client{
-		copts: make([]client.Opt, 0),
+func New() (*Client, error) {
+	d := &Client{}
+
+	copts := []client.Opt{
+		client.WithAPIVersionFromEnv(),
+		client.WithTLSClientConfigFromEnv(),
 	}
-
-	for _, opt := range opts {
-		if err := opt(d); err != nil {
-			return nil, err
-		}
-	}
-
-	if d.inner == nil {
-		copts := []client.Opt{
-			client.WithAPIVersionFromEnv(),
-			client.WithTLSClientConfigFromEnv(),
-		}
-		if hostOverride := os.Getenv("IMAGETEST_DOCKER_HOST"); hostOverride != "" {
-			if strings.HasPrefix(hostOverride, "ssh://") {
-				spec, err := sshhelper.ParseURL(hostOverride)
-				if err != nil {
-					return nil, fmt.Errorf("parsing SSH URL: %w", err)
-				}
-				d.sshConfig = spec
-
-				helper, err := connhelper.GetConnectionHelperWithSSHOpts(hostOverride, defaultSSHArgs)
-				if err != nil {
-					return nil, fmt.Errorf("creating docker SSH connection helper: %w", err)
-				}
-				httpClient := &http.Client{
-					Transport: &http.Transport{
-						DialContext: helper.Dialer,
-					},
-				}
-				copts = append(copts, client.WithHTTPClient(httpClient))
-			} else {
-				copts = append(copts, client.WithHost(hostOverride))
+	if hostOverride := os.Getenv("IMAGETEST_DOCKER_HOST"); hostOverride != "" {
+		if strings.HasPrefix(hostOverride, "ssh://") {
+			spec, err := sshhelper.ParseURL(hostOverride)
+			if err != nil {
+				return nil, fmt.Errorf("parsing SSH URL: %w", err)
 			}
-		} else {
-			copts = append(copts, client.WithHostFromEnv())
-		}
-		copts = append(copts, d.copts...)
+			d.sshConfig = spec
 
-		cli, err := client.New(copts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating docker client: %w", err)
+			helper, err := connhelper.GetConnectionHelperWithSSHOpts(hostOverride, defaultSSHArgs)
+			if err != nil {
+				return nil, fmt.Errorf("creating docker SSH connection helper: %w", err)
+			}
+			httpClient := &http.Client{
+				Transport: &http.Transport{
+					DialContext: helper.Dialer,
+				},
+			}
+			copts = append(copts, client.WithHTTPClient(httpClient))
+		} else {
+			copts = append(copts, client.WithHost(hostOverride))
 		}
-		d.inner = cli
+	} else {
+		copts = append(copts, client.WithHostFromEnv())
 	}
+
+	cli, err := client.New(copts...)
+	if err != nil {
+		return nil, fmt.Errorf("creating docker client: %w", err)
+	}
+	d.inner = cli
 	return d, nil
 }
 

@@ -29,10 +29,9 @@ import (
 )
 
 type driver struct {
-	ImageRef   name.Reference    // The image to use for docker-in-docker
-	Envs       map[string]string // Additional environment variables to set in the sandbox
-	ExtraHosts []string          // Extra hosts (--add-hosts) to add to the sandbox
-	Mirrors    []string          // Registry mirrors to use for docker-in-docker
+	ImageRef   name.Reference // The image to use for docker-in-docker
+	ExtraHosts []string       // Extra hosts (--add-hosts) to add to the sandbox
+	Mirrors    []string       // Registry mirrors to use for docker-in-docker
 
 	name      string
 	stack     *harness.Stack
@@ -200,11 +199,6 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 	extraHosts := []string{"host.docker.internal:host-gateway"}
 	extraHosts = append(extraHosts, d.ExtraHosts...)
 
-	envs := []string{}
-	for k, v := range d.Envs {
-		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
-	}
-
 	cname := fmt.Sprintf("%s-%s", d.name, uuid.New().String()[:8])
 	clog.InfoContext(ctx, "running docker-in-docker test", "image_ref", tref.String(), "container_name", cname)
 	span.AddEvent("dind.container.started")
@@ -225,7 +219,6 @@ func (d *driver) Run(ctx context.Context, ref name.Reference) (*drivers.RunResul
 			Retries:     1,
 			StartPeriod: 1 * time.Second,
 		},
-		Env:        envs,
 		ExtraHosts: extraHosts,
 		Contents:   content,
 		Logger:     mw,
