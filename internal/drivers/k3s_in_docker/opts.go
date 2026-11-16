@@ -2,7 +2,6 @@ package k3sindocker
 
 import (
 	"fmt"
-	"maps"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -133,26 +132,6 @@ func WithPostStartHook(hook string) DriverOpts {
 			k.Hooks.PostStart = make([]string, 0)
 		}
 		k.Hooks.PostStart = append(k.Hooks.PostStart, hook)
-		return nil
-	}
-}
-
-func WithSandboxEnv(key, value string) DriverOpts {
-	return func(k *driver) error {
-		if k.SandboxEnvs == nil {
-			k.SandboxEnvs = make(map[string]string)
-		}
-		k.SandboxEnvs[key] = value
-		return nil
-	}
-}
-
-func WithSandboxEnvs(envs map[string]string) DriverOpts {
-	return func(d *driver) error {
-		if d.SandboxEnvs == nil {
-			d.SandboxEnvs = make(map[string]string)
-		}
-		maps.Copy(d.SandboxEnvs, envs)
 		return nil
 	}
 }
