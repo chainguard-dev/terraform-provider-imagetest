@@ -55,10 +55,6 @@ func (e *RunError) Error() string {
 	return sb.String()
 }
 
-func DefaultCmd() []string {
-	return []string{"tail -f /dev/null"}
-}
-
 // Stack is a lifo queue used to easily manage resources that need to be torn
 // down by harnesses. It is a LIFO queue, so the first item added is the last
 // item torn down.
