@@ -234,7 +234,7 @@ func TestFailedCheck(t *testing.T) {
 		{name: "no state"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			check, ok := failedCheck(tc.state)
+			check, ok := FailedCheck(tc.state)
 			require.Equal(t, tc.wantOK, ok)
 			if tc.wantOK {
 				require.Equal(t, tc.wantCode, check.ExitCode)
