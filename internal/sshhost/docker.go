@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/docker"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/drivers"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	issh "github.com/chainguard-dev/terraform-provider-imagetest/internal/ssh"
@@ -411,10 +412,10 @@ func (h *Host) runContainer(ctx context.Context, cli *client.Client, ref name.Re
 		}
 	}()
 
-	// Poll health check to detect paused state (exit code 78)
-	// When IMAGETEST_SKIP_TEARDOWN is set, the container pauses after success
-	// and the health check reports unhealthy with exit code 78
-	healthCh := make(chan int64, 1)
+	// Poll the health check for the entrypoint pausing or failing for longer
+	// than an exit can explain. When IMAGETEST_SKIP_TEARDOWN is set, the
+	// container pauses after success and reports exit code 78.
+	healthCh := make(chan *container.HealthcheckResult, 1)
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -424,19 +425,13 @@ func (h *Host) runContainer(ctx context.Context, cli *client.Client, ref name.Re
 				return
 			case <-ticker.C:
 				inspectResult, err := cli.ContainerInspect(runCtx, resp.ID, client.ContainerInspectOptions{})
-				inspect := inspectResult.Container
-				if err != nil || inspect.State == nil || !inspect.State.Running {
+				if err != nil {
 					continue
 				}
-				if inspect.State.Health == nil || inspect.State.Health.Status != "unhealthy" {
-					continue
+				if check, ok := docker.FailedCheck(inspectResult.Container.State); ok {
+					healthCh <- check
+					return
 				}
-				if len(inspect.State.Health.Log) == 0 {
-					continue
-				}
-				check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
-				healthCh <- int64(check.ExitCode)
-				return
 			}
 		}
 	}()
@@ -458,12 +453,12 @@ func (h *Host) runContainer(ctx context.Context, cli *client.Client, ref name.Re
 		default:
 			runErr = fmt.Errorf("container exited with code %d", status.StatusCode)
 		}
-	case exitCode := <-healthCh:
+	case check := <-healthCh:
 		// Health check detected a terminal state
-		if exitCode == int64(entrypoint.ProcessPausedCode) {
+		if check.ExitCode == entrypoint.ProcessPausedCode {
 			log.Info("container paused after success (IMAGETEST_SKIP_TEARDOWN)")
 		} else {
-			runErr = fmt.Errorf("container health check failed with exit code %d", exitCode)
+			runErr = fmt.Errorf("container health check failed with exit code %d: %s", check.ExitCode, check.Output)
 		}
 	case <-ctx.Done():
 		runErr = ctx.Err()

@@ -179,7 +179,7 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 						// A daemon that is really gone also fails the wait below.
 						continue
 					}
-					if check, ok := failedCheck(inspectResult.Container.State); ok {
+					if check, ok := FailedCheck(inspectResult.Container.State); ok {
 						unhealthyCh <- &RunError{
 							ExitCode: int64(check.ExitCode),
 							Message:  check.Output,
@@ -217,21 +217,21 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	return cid, nil
 }
 
-// failingStreakLimit is how many probes in a row may fail before Run reports
-// the container as unhealthy. It must outlast the daemon's lag in processing
+// failingStreakLimit is how many probes in a row may fail before a container
+// is reported as unhealthy. It must outlast the daemon's lag in processing
 // a container's exit, during which every probe fails. That lag has been seen
 // to take about 30s (one probe per second) on a slow node. Since it counts
 // probes, failing ones are reported after about 60s if they fail fast, and
 // after up to about 6 minutes if each runs into the probe timeout.
 const failingStreakLimit = 60
 
-// failedCheck returns the latest healthcheck result of a running container
-// if Run should stop on it. That is the case when the entrypoint has paused,
-// or when probes have kept failing for longer than an exit can explain. Other
-// failures are typically side effects of the container exiting, like a probe
-// killed in flight (137) or one that could not start anymore (-1), and are
-// left to the container's exit code.
-func failedCheck(state *container.State) (*container.HealthcheckResult, bool) {
+// FailedCheck returns the latest result of the entrypoint's healthcheck of a
+// running container if a run should stop on it. That is the case when the
+// entrypoint has paused, or when probes have kept failing for longer than an
+// exit can explain. Other failures are typically side effects of the
+// container exiting, like a probe killed in flight (137) or one that could not
+// start anymore (-1), and are left to the container's exit code.
+func FailedCheck(state *container.State) (*container.HealthcheckResult, bool) {
 	if state == nil || !state.Running || state.Health == nil ||
 		state.Health.Status != container.Unhealthy || len(state.Health.Log) == 0 {
 		return nil, false
