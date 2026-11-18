@@ -691,11 +691,12 @@ kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 		// account and region, shared with every other launch there, so a
 		// burst of parallel tests can get RequestLimitExceeded. The SDK
 		// retries that, but its default 3 attempts give up within seconds.
-		// 10 attempts with backoff growing to a minute keep trying for
-		// about five minutes.
+		// Throttles back off from 1s, doubling up to a minute with full
+		// jitter, so 15 attempts keep trying for about four and a half
+		// minutes on average.
 		awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRetryer(func() aws.Retryer {
 			return retry.NewStandard(func(o *retry.StandardOptions) {
-				o.MaxAttempts = 10
+				o.MaxAttempts = 15
 				o.MaxBackoff = time.Minute
 			})
 		}))
