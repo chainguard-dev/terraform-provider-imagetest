@@ -198,3 +198,47 @@ func TestStartRefusesUnownedConflictingContainer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, unowned.ID, inspect.Container.ID)
 }
+
+func TestFailedCheck(t *testing.T) {
+	unhealthy := func(running bool, codes ...int) *container.State {
+		var log []*container.HealthcheckResult
+		for _, c := range codes {
+			log = append(log, &container.HealthcheckResult{ExitCode: c})
+		}
+		return &container.State{
+			Running: running,
+			Health:  &container.Health{Status: container.Unhealthy, FailingStreak: 1, Log: log},
+		}
+	}
+	streak := func(n int, state *container.State) *container.State {
+		state.Health.FailingStreak = n
+		return state
+	}
+
+	for _, tc := range []struct {
+		name     string
+		state    *container.State
+		wantCode int
+		wantOK   bool
+	}{
+		{name: "paused", state: unhealthy(true, 0, 78), wantCode: 78, wantOK: true},
+		{name: "paused with error", state: unhealthy(true, 0, 75), wantCode: 75, wantOK: true},
+		{name: "probe killed by exit", state: unhealthy(true, 0, 137)},
+		{name: "probe could not start", state: unhealthy(true, 137, -1)},
+		{name: "health socket unreachable", state: unhealthy(true, 0, 232)},
+		{name: "exit lag", state: streak(failingStreakLimit-1, unhealthy(true, -1, -1))},
+		{name: "failing for too long", state: streak(failingStreakLimit, unhealthy(true, -1, 232)), wantCode: 232, wantOK: true},
+		{name: "not running", state: unhealthy(false, 78)},
+		{name: "empty log", state: unhealthy(true)},
+		{name: "no health", state: &container.State{Running: true}},
+		{name: "no state"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			check, ok := failedCheck(tc.state)
+			require.Equal(t, tc.wantOK, ok)
+			if tc.wantOK {
+				require.Equal(t, tc.wantCode, check.ExitCode)
+			}
+		})
+	}
+}

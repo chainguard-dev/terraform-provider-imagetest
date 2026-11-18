@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/chainguard-dev/clog"
+	"github.com/chainguard-dev/terraform-provider-imagetest/internal/entrypoint"
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/cli/cli/connhelper"
@@ -120,6 +121,8 @@ func New() (*Client, error) {
 	return d, nil
 }
 
+// Run starts a container and waits for it to exit. A req.HealthCheck must be
+// the entrypoint's healthcheck, since Run interprets its pause exit codes.
 func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	cid, err := d.start(ctx, req)
 	if err != nil {
@@ -159,11 +162,12 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 		})
 	}
 
-	// If a health check is present, set up a poller to poll on health status
+	// If a health check is present, poll it for the entrypoint pausing, which
+	// doesn't end with the container exiting, or for probes failing for longer
+	// than an exit can explain.
 	unhealthyCh := make(chan error)
 	if req.HealthCheck != nil {
 		go func() {
-			var exitRaceRetries int
 			for {
 				time.Sleep(time.Second)
 				select {
@@ -172,52 +176,10 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 				default:
 					inspectResult, err := d.inner.ContainerInspect(ctx, cid, client.ContainerInspectOptions{})
 					if err != nil {
-						unhealthyCh <- fmt.Errorf("inspecting container: %w", err)
-						return
-					}
-					inspect := inspectResult.Container
-					if inspect.State == nil {
-						// No usable state yet, try again.
+						// A daemon that is really gone also fails the wait below.
 						continue
 					}
-					if !inspect.State.Running {
-						// The container isn't running yet or anymore. Ignore health status.
-						continue
-					}
-
-					if inspect.State.Health == nil {
-						// No health info yet, try again.
-						continue
-					}
-					if inspect.State.Health.Status == container.Unhealthy {
-						check := inspect.State.Health.Log[len(inspect.State.Health.Log)-1]
-
-						// There is a race condition where the container can exit and the health
-						// check can report unhealthy because of it. Negative exit codes indicate
-						// the exec infrastructure failed (command never ran), which typically
-						// happens when the container is exiting. Similarly, the entrypoint tears
-						// down its health socket just before exiting, so a probe landing in that
-						// window fails to dial the socket while the container still reports
-						// Running. Give both a few iterations to resolve - if the container
-						// exited, we'll see !Running above and the main wait loop will handle
-						// the actual exit.
-						if check.ExitCode < 0 || strings.Contains(check.Output, "failed to connect to health socket") {
-							exitRaceRetries++
-							if exitRaceRetries < 5 {
-								continue
-							}
-						} else {
-							exitRaceRetries = 0
-						}
-
-						// Additional safety: skip known exec infrastructure error messages that
-						// can occur during the container exit race condition.
-						if strings.Contains(check.Output, "cannot exec in a stopped container") ||
-							strings.Contains(check.Output, "error executing setns process") ||
-							strings.Contains(check.Output, "procReady not received") {
-							continue
-						}
-
+					if check, ok := failedCheck(inspectResult.Container.State); ok {
 						unhealthyCh <- &RunError{
 							ExitCode: int64(check.ExitCode),
 							Message:  check.Output,
@@ -253,6 +215,36 @@ func (d *Client) Run(ctx context.Context, req *Request) (string, error) {
 	}
 
 	return cid, nil
+}
+
+// failingStreakLimit is how many probes in a row may fail before Run reports
+// the container as unhealthy. It must outlast the daemon's lag in processing
+// a container's exit, during which every probe fails. That lag has been seen
+// to take about 30s (one probe per second) on a slow node. Since it counts
+// probes, failing ones are reported after about 60s if they fail fast, and
+// after up to about 6 minutes if each runs into the probe timeout.
+const failingStreakLimit = 60
+
+// failedCheck returns the latest healthcheck result of a running container
+// if Run should stop on it. That is the case when the entrypoint has paused,
+// or when probes have kept failing for longer than an exit can explain. Other
+// failures are typically side effects of the container exiting, like a probe
+// killed in flight (137) or one that could not start anymore (-1), and are
+// left to the container's exit code.
+func failedCheck(state *container.State) (*container.HealthcheckResult, bool) {
+	if state == nil || !state.Running || state.Health == nil ||
+		state.Health.Status != container.Unhealthy || len(state.Health.Log) == 0 {
+		return nil, false
+	}
+	check := state.Health.Log[len(state.Health.Log)-1]
+	switch check.ExitCode {
+	case entrypoint.ProcessPausedCode, entrypoint.ProcessPausedWithErrorCode:
+		return check, true
+	}
+	if state.Health.FailingStreak >= failingStreakLimit {
+		return check, true
+	}
+	return nil, false
 }
 
 type RunError struct {
