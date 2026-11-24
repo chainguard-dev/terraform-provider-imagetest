@@ -2,7 +2,12 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/chainguard-dev/terraform-provider-imagetest/internal/harness"
@@ -241,4 +246,33 @@ func TestFailedCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPullRetriesErrorInStream checks that a pull whose stream reports an
+// error is treated as failed and retried. The Docker API answers a pull with
+// 200 and reports registry failures as messages in the stream.
+func TestPullRetriesErrorInStream(t *testing.T) {
+	var pulls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/images/create"):
+			if pulls.Add(1) == 1 {
+				_, _ = fmt.Fprintln(w, `{"errorDetail":{"message":"unavailable"},"error":"unavailable"}`)
+				return
+			}
+			_, _ = fmt.Fprintln(w, `{"status":"Downloaded newer image"}`)
+		case strings.HasSuffix(r.URL.Path, "/json"):
+			http.Error(w, `{"message":"No such image"}`, http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	cli, err := client.New(client.WithHost("tcp://" + srv.Listener.Addr().String()))
+	require.NoError(t, err)
+	d := &Client{inner: cli}
+
+	require.NoError(t, d.pull(t.Context(), name.MustParseReference("example.com/image:latest")))
+	require.Equal(t, int32(2), pulls.Load())
 }

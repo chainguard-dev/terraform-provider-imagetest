@@ -504,8 +504,9 @@ func (d *Client) pull(ctx context.Context, ref name.Reference) error {
 			return false, nil
 		}
 
-		// Block until the image is pulled by discarding the reader
-		if _, err := io.Copy(io.Discard, pull); err != nil {
+		// Block until the image is pulled. Pull failures arrive as error
+		// messages in the stream, so the stream has to be checked for them.
+		if err := pull.Wait(ctx); err != nil {
 			clog.WarnContext(ctx, "failed to pull image, retrying", "ref", ref.Name(), "error", err)
 			lastErr = err
 			return false, nil
