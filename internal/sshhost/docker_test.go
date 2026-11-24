@@ -1,6 +1,9 @@
 package sshhost
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/moby/moby/client"
 )
 
 // TestPullsOnHost checks that only images in private ECR registries are
@@ -170,5 +174,25 @@ func TestHostPullScript(t *testing.T) {
 				t.Errorf("DOCKER_HOST = %q, want %q", lines[3], want)
 			}
 		})
+	}
+}
+
+// TestDaemonPullErrorInStream checks that daemonPull fails when the pull
+// stream reports an error. The Docker API answers a pull with 200 and reports
+// registry failures as messages in the stream.
+func TestDaemonPullErrorInStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, `{"errorDetail":{"message":"unavailable"},"error":"unavailable"}`)
+	}))
+	defer srv.Close()
+
+	cli, err := client.New(client.WithHost("tcp://" + srv.Listener.Addr().String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = daemonPull(t.Context(), cli, name.MustParseReference("example.com/image:latest"), "")
+	if err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("daemonPull() = %v, want an error with the stream's message", err)
 	}
 }

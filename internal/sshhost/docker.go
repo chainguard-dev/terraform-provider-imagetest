@@ -195,8 +195,7 @@ func daemonPull(ctx context.Context, cli *client.Client, ref name.Reference, aut
 	}
 	defer result.Close()
 
-	_, err = io.Copy(io.Discard, result)
-	return err
+	return result.Wait(ctx)
 }
 
 // ecrRegistry matches private ECR registry hosts, such as
