@@ -10,11 +10,11 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v8 v8.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi v1.3.0
 	github.com/aws/aws-sdk-go-v2 v1.48.0
-	github.com/aws/aws-sdk-go-v2/config v1.33.18
-	github.com/aws/aws-sdk-go-v2/credentials v1.21.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.347.0
+	github.com/aws/aws-sdk-go-v2/config v1.33.19
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.1
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.348.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.66.0
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.115.0
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.116.0
 	github.com/aws/smithy-go v1.28.9
 	github.com/chainguard-dev/clog v1.8.1
 	github.com/charmbracelet/log v1.0.0
